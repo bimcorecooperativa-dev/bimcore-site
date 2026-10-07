@@ -434,9 +434,12 @@
             return lin;
           });
           const boas = previa.filter((l) => !l._erros.length);
+          const numericos = Object.keys(API.CAMPOS_FIN).filter((k) => k !== "observacao");
+          const vazia = previa.length && previa.every((l) => numericos.every((k) => l[k] == null || l[k] === 0));
           const abasLidas = ["Posição", ...livro.SheetNames.filter((n) => /^\d{4}-\d{2}$/.test(n)).length ? ["abas mensais"] : [], ...(livro.Sheets["Pagamentos"] ? ["Pagamentos"] : []), ...(livro.Sheets["Resumo"] ? ["Resumo"] : [])];
           $("#fin-previa").innerHTML = `
-            <div class="notice ${boas.length === previa.length && !semEmail.length ? "ok" : "warn"}" style="margin-top:1rem">
+            ${vazia ? `<div class="notice warn" style="margin-top:1rem"><strong>Atenção: esta planilha não tem nenhum valor preenchido.</strong> Parece ser o modelo em branco. Envie a planilha financeira completa (com as abas Despesas, Pagamentos, meses etc.) para que os valores apareçam.</div>` : ""}
+            <div class="notice ${boas.length === previa.length && !semEmail.length && !vazia ? "ok" : "warn"}" style="margin-top:1rem">
               Abas lidas: ${esc(abasLidas.join(", "))}. ${boas.length} de ${previa.length} cooperado(s) prontos para importar${previa.length - boas.length ? `; ${previa.length - boas.length} com problema` : ""}.
               ${semEmail.length ? `<br>Sem e-mail na planilha (não serão importados): ${esc(semEmail.join(", "))}. Preencha o e-mail na aba Cooperados.` : ""}
             </div>
