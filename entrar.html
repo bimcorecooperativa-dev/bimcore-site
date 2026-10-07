@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Entrar | BIMCORE</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#070d16">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" href="favicon.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="assets/css/base.css">
+<link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body>
+<main class="login-pagina">
+  <div class="login-caixa">
+    <a class="login-marca" href="index.html" style="text-decoration:none;color:inherit">
+      <picture><source srcset="assets/img/emblema-sm.webp" type="image/webp"><img src="assets/img/emblema-sm.png" alt="" width="96" height="78"></picture>
+      <h1>BIMCORE</h1>
+      <p class="eyebrow">Área do cooperado</p>
+    </a>
+
+    <div class="login-cartao">
+      <div class="abas-login" role="tablist">
+        <button role="tab" id="aba-entrar" aria-selected="true" aria-controls="form-entrar">Entrar</button>
+        <button role="tab" id="aba-cadastro" aria-selected="false" aria-controls="form-cadastro">Criar cadastro</button>
+      </div>
+
+      <form id="form-entrar" novalidate>
+        <div class="field"><label for="e-email">E-mail</label><input class="input" id="e-email" type="email" autocomplete="email" required></div>
+        <div class="field"><label for="e-senha">Senha</label><input class="input" id="e-senha" type="password" autocomplete="current-password" required></div>
+        <button class="btn btn-primary" type="submit" id="e-btn">Entrar</button>
+        <div class="linha-link"><button type="button" class="link-botao" id="esqueci">Esqueci minha senha</button><a href="index.html">Voltar ao site</a></div>
+      </form>
+
+      <form id="form-cadastro" novalidate hidden>
+        <p class="hint">Depois do cadastro, a coordenação aprova o seu acesso. Você recebe a confirmação por e-mail.</p>
+        <div class="field"><label for="k-nome">Nome completo</label><input class="input" id="k-nome" autocomplete="name" required></div>
+        <div class="field"><label for="k-email">E-mail</label><input class="input" id="k-email" type="email" autocomplete="email" required></div>
+        <div class="field"><label for="k-senha">Senha</label><input class="input" id="k-senha" type="password" autocomplete="new-password" minlength="8" required><span class="hint">Mínimo de 8 caracteres.</span></div>
+        <button class="btn btn-primary" type="submit" id="k-btn">Criar cadastro</button>
+      </form>
+
+      <form id="form-recuperar" novalidate hidden>
+        <p class="hint">Informe seu e-mail. Enviaremos um link para você criar uma nova senha.</p>
+        <div class="field"><label for="r-email">E-mail</label><input class="input" id="r-email" type="email" autocomplete="email" required></div>
+        <button class="btn btn-primary" type="submit" id="r-btn">Enviar link</button>
+        <button type="button" class="link-botao" id="voltar-login">Voltar para entrar</button>
+      </form>
+
+      <form id="form-nova-senha" novalidate hidden>
+        <p class="hint">Crie sua nova senha.</p>
+        <div class="field"><label for="n-senha">Nova senha</label><input class="input" id="n-senha" type="password" autocomplete="new-password" minlength="8" required></div>
+        <button class="btn btn-primary" type="submit" id="n-btn">Salvar nova senha</button>
+      </form>
+
+      <div id="aviso" class="notice" hidden role="status"></div>
+    </div>
+
+    <div class="notice warn demo-contas" id="demo-contas" hidden>
+      <b>Contas de demonstração</b>
+      <span>Coordenação: <code>coordenacao@bimcore.demo</code></span>
+      <span>Cooperado: <code>cooperado@bimcore.demo</code></span>
+      <span>Senha das duas: <code>demo1234</code></span>
+    </div>
+  </div>
+</main>
+<div class="toast-wrap" id="toasts" aria-live="polite"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="assets/js/config.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/ui.js"></script>
+<script src="assets/js/entrar.js"></script>
+</body>
+</html>

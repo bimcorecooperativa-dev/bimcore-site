@@ -1,0 +1,200 @@
+/* Área do cooperado: início, horas, documentos, perfil */
+(function () {
+  "use strict";
+  const { $, esc, data, dataHora, horas, bytes, hoje, mesAtual, acao, confirmar, toast } = window.UI;
+  const API = window.API;
+  const TIPOS = API.TIPOS_HORA;
+  const LIMITE_FTI = 0.10;
+
+  const resumo = (lista) => {
+    const t = { produtiva: 0, formacao: 0, ociosidade_estrategica: 0, ociosidade_operacional: 0 };
+    lista.forEach((h) => { t[h.tipo] = (t[h.tipo] || 0) + Number(h.horas || 0); });
+    const base = t.produtiva + t.formacao;
+    t.fti = base ? t.formacao / base : 0;
+    return t;
+  };
+  const seloFti = (fti) => fti > LIMITE_FTI
+    ? `<span class="selo warn">${Math.round(fti * 100)}% em formação</span>`
+    : `<span class="selo ok">${Math.round(fti * 100)}% em formação</span>`;
+
+  const paginas = {
+    inicio: {
+      titulo: "Início",
+      async render(el, ctx) {
+        const [coms, minhas] = await Promise.all([API.comunicados.listar(), API.producao.minhas()]);
+        const mes = mesAtual();
+        const t = resumo(minhas.filter((h) => h.data.startsWith(mes)));
+        const nomeMes = new Date(mes + "-15").toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+        el.innerHTML = `
+          <div class="pag-cab"><div><p class="eyebrow">${esc(nomeMes)}</p><h1>Olá, ${esc((ctx.sessao.perfil.nome || "").split(" ")[0] || "cooperado")}</h1></div>
+            <a class="btn btn-primary" href="#horas">Lançar horas</a></div>
+          <div class="kpis">
+            <div class="kpi"><span class="rot">Produção técnica</span><span class="val">${horas(t.produtiva)}</span><span class="det">Base do cálculo das sobras</span></div>
+            <div class="kpi"><span class="rot">Formação integrada</span><span class="val">${horas(t.formacao)}</span><span class="det">${seloFti(t.fti)} · limite 10%</span></div>
+            <div class="kpi"><span class="rot">Pendência externa</span><span class="val">${horas(t.ociosidade_estrategica)}</span><span class="det">Não afeta o seu IEO</span></div>
+          </div>
+          <section class="painel"><h2>Comunicados da coordenação</h2>
+            ${coms.length ? `<div class="comunicados">${coms.map((c) => `
+              <article class="comunicado"><h3>${esc(c.titulo)}</h3><span class="meta">${esc(c.autor_nome || "Coordenação")} · ${dataHora(c.publicado_em)}</span><p>${esc(c.corpo)}</p></article>`).join("")}</div>`
+              : '<p class="vazio">Nenhum comunicado publicado ainda.</p>'}
+          </section>`;
+      }
+    },
+
+    horas: {
+      titulo: "Minhas horas",
+      async render(el) {
+        const [projetos, minhas] = await Promise.all([API.projetos.listar(), API.producao.minhas()]);
+        const ativos = projetos.filter((p) => p.status !== "Concluído" && p.status !== "Suspenso");
+        let filtroMes = mesAtual();
+
+        el.innerHTML = `
+          <div class="pag-cab"><div><p class="eyebrow">Produção</p><h1>Minhas horas</h1></div></div>
+          <section class="painel">
+            <h2>Novo lançamento</h2>
+            <form id="f-hora" class="form-grid" novalidate>
+              <div class="field"><label for="h-proj">Projeto</label>
+                <select class="input" id="h-proj">${ativos.length ? ativos.map((p) => `<option value="${p.id}">${esc(p.nome)}</option>`).join("") : ""}<option value="">Sem projeto (atividade interna)</option></select></div>
+              <div class="field"><label for="h-tipo">Tipo de hora</label>
+                <select class="input" id="h-tipo">${Object.entries(TIPOS).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select></div>
+              <div class="field"><label for="h-data">Data</label><input class="input" id="h-data" type="date" value="${hoje()}" max="${hoje()}"></div>
+              <div class="field"><label for="h-horas">Horas</label><input class="input" id="h-horas" type="number" min="0.25" max="12" step="0.25" inputmode="decimal" placeholder="Ex.: 6"></div>
+              <div class="field full"><label for="h-desc">O que foi feito</label><input class="input" id="h-desc" maxlength="300" placeholder="Ex.: Compatibilização arquitetura x estrutura do bloco A"></div>
+              <p class="hint full">Pendência externa (ociosidade estratégica) é o tempo parado por atraso do órgão público. Registre o número do protocolo ou o e-mail na descrição.</p>
+              <div class="full"><button class="btn btn-primary" id="h-btn" type="submit">Lançar</button></div>
+            </form>
+          </section>
+          <section class="painel">
+            <div class="painel-cab"><h2>Lançamentos</h2>
+              <div class="field"><label for="h-mes" class="sr-only">Mês</label><input class="input" id="h-mes" type="month" value="${filtroMes}"></div></div>
+            <div id="h-lista"></div>
+          </section>`;
+
+        const lista = $("#h-lista");
+        const desenhar = () => {
+          const doMes = minhas.filter((h) => !filtroMes || h.data.startsWith(filtroMes));
+          const t = resumo(doMes);
+          if (!doMes.length) { lista.innerHTML = '<p class="vazio">Nenhum lançamento neste mês.</p>'; return; }
+          lista.innerHTML = `
+            <div class="kpis" style="margin-bottom:1rem">
+              ${Object.entries(TIPOS).map(([k, v]) => `<div class="kpi"><span class="rot">${esc(v.split(" (")[0])}</span><span class="val">${horas(t[k])}</span></div>`).join("")}
+            </div>
+            <div class="tabela-wrap"><table class="tabela">
+              <thead><tr><th>Data</th><th>Projeto</th><th>Tipo</th><th class="num">Horas</th><th><span class="sr-only">Ações</span></th></tr></thead>
+              <tbody>${doMes.map((h) => `<tr>
+                <td class="num" style="text-align:left">${data(h.data)}</td>
+                <td>${esc(h.projeto_nome || "Atividade interna")}<span class="sub">${esc(h.descricao || "")}</span></td>
+                <td>${esc(TIPOS[h.tipo] || h.tipo)}</td>
+                <td class="num">${horas(h.horas)}</td>
+                <td class="acoes-celula"><button class="btn btn-danger btn-sm" data-del="${h.id}">Excluir</button></td></tr>`).join("")}</tbody>
+            </table></div>`;
+        };
+        desenhar();
+
+        $("#h-mes").addEventListener("change", (e) => { filtroMes = e.target.value; desenhar(); });
+        lista.addEventListener("click", async (e) => {
+          const b = e.target.closest("[data-del]"); if (!b) return;
+          if (!(await confirmar("Excluir este lançamento de horas?", "Excluir"))) return;
+          const ok = await acao(b, () => API.producao.excluir(b.dataset.del), "Lançamento excluído.");
+          if (ok) { const i = minhas.findIndex((h) => h.id === b.dataset.del); minhas.splice(i, 1); desenhar(); }
+        });
+        $("#f-hora").addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const h = { projeto_id: $("#h-proj").value || null, tipo: $("#h-tipo").value, data: $("#h-data").value, horas: parseFloat(String($("#h-horas").value).replace(",", ".")), descricao: $("#h-desc").value.trim() };
+          if (!h.data) return toast("Informe a data.", "err");
+          if (!(h.horas > 0 && h.horas <= 12)) return toast("Informe entre 0,25 e 12 horas.", "err");
+          if (!h.descricao) return toast("Descreva o que foi feito.", "err");
+          const ok = await acao($("#h-btn"), () => API.producao.lancar(h), "Horas lançadas.");
+          if (ok) {
+            const novas = await API.producao.minhas();
+            minhas.length = 0; minhas.push(...novas);
+            $("#h-horas").value = ""; $("#h-desc").value = "";
+            filtroMes = h.data.slice(0, 7); $("#h-mes").value = filtroMes; desenhar();
+          }
+        });
+      }
+    },
+
+    documentos: {
+      titulo: "Documentos",
+      async render(el) {
+        const docs = await API.documentos.listar();
+        const grupos = {};
+        docs.forEach((d) => { (grupos[d.categoria] = grupos[d.categoria] || []).push(d); });
+        el.innerHTML = `
+          <div class="pag-cab"><div><p class="eyebrow">Cooperativa</p><h1>Documentos</h1></div></div>
+          ${docs.length ? API.CATEGORIAS_DOC.filter((c) => grupos[c]).map((c) => `
+            <section class="painel"><h2>${esc(c)}</h2><div class="docs">
+              ${grupos[c].map((d) => `<div class="doc"><div><b>${esc(d.titulo)}</b><span>${esc(d.nome_arquivo)} · ${bytes(d.tamanho || 0)} · ${data(d.criado_em)}</span></div>
+                <div class="doc-acoes"><button class="btn btn-ghost btn-sm" data-abrir="${d.id}">Abrir</button></div></div>`).join("")}
+            </div></section>`).join("") : '<p class="vazio">A coordenação ainda não publicou documentos.</p>'}`;
+        el.onclick = async (e) => {
+          const b = e.target.closest("[data-abrir]"); if (!b) return;
+          const doc = docs.find((d) => d.id === b.dataset.abrir);
+          const url = await acao(b, () => API.documentos.link(doc));
+          if (url) abrirArquivo(url, doc.nome_arquivo);
+        };
+      }
+    },
+
+    perfil: {
+      titulo: "Meu perfil",
+      separador: true,
+      async render(el, ctx) {
+        const p = ctx.sessao.perfil;
+        el.innerHTML = `
+          <div class="pag-cab"><div><p class="eyebrow">Cadastro</p><h1>Meu perfil</h1></div></div>
+          <section class="painel"><h2>Dados</h2>
+            <form id="f-perfil" class="form-grid" novalidate>
+              <div class="field"><label for="p-nome">Nome completo</label><input class="input" id="p-nome" value="${esc(p.nome)}" autocomplete="name"></div>
+              <div class="field"><label for="p-tel">Telefone</label><input class="input" id="p-tel" value="${esc(p.telefone)}" type="tel" autocomplete="tel"></div>
+              <div class="field full"><label for="p-esp">Especialidade</label><input class="input" id="p-esp" value="${esc(p.especialidade)}" placeholder="Ex.: Estrutural, MEP, orçamento, coordenação BIM"></div>
+              <div class="field"><label>E-mail</label><input class="input" value="${esc(p.email)}" disabled></div>
+              <div class="field"><label>Cooperado desde</label><input class="input" value="${data(p.data_ingresso)}" disabled></div>
+              <div class="full"><button class="btn btn-primary" id="p-btn" type="submit">Salvar dados</button></div>
+            </form>
+          </section>
+          <section class="painel"><h2>Trocar senha</h2>
+            <form id="f-senha" class="form-grid" novalidate>
+              <div class="field"><label for="s-nova">Nova senha</label><input class="input" id="s-nova" type="password" autocomplete="new-password" minlength="8"></div>
+              <div class="field" style="align-self:end"><button class="btn btn-ghost" id="s-btn" type="submit">Trocar senha</button></div>
+            </form>
+          </section>`;
+        $("#f-perfil").addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const ok = await acao($("#p-btn"), () => API.perfil.atualizarMeu({ nome: $("#p-nome").value.trim(), telefone: $("#p-tel").value.trim(), especialidade: $("#p-esp").value.trim() }), "Dados salvos.");
+          if (ok) await ctx.recarregarSessao();
+        });
+        $("#f-senha").addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const s = $("#s-nova").value;
+          if (s.length < 8) return toast("A senha precisa ter pelo menos 8 caracteres.", "err");
+          const ok = await acao($("#s-btn"), () => API.updatePassword(s), "Senha alterada.");
+          if (ok) $("#s-nova").value = "";
+        });
+      }
+    }
+  };
+
+  function abrirArquivo(url, nome) {
+    const a = document.createElement("a");
+    a.href = url; a.target = "_blank"; a.rel = "noopener";
+    if (url.startsWith("data:")) a.download = nome || "documento";
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+  window.abrirArquivo = abrirArquivo;
+
+  window.App.iniciar({
+    area: "cooperado",
+    paginas,
+    async antes(ctx, el) {
+      const st = ctx.sessao.perfil.status;
+      if (st === "ativo") return false;
+      el.innerHTML = st === "desligado"
+        ? '<div class="painel"><h1 style="font-size:1.5rem">Acesso encerrado</h1><p class="muted">Seu cadastro está desligado da cooperativa. Em caso de dúvida, fale com a coordenação pelo e-mail bimcorecooperativa@gmail.com.</p></div>'
+        : `<div class="painel"><p class="eyebrow">Cadastro recebido</p><h1 style="font-size:1.5rem">Aguardando aprovação</h1>
+            <p class="muted">Olá, ${esc(ctx.sessao.perfil.nome || "")}. A coordenação da BIMCORE vai analisar seu cadastro e liberar o acesso. Enquanto isso, você pode falar com a gente pelo WhatsApp (22) 99874-5742.</p></div>`;
+      return true;
+    }
+  });
+})();

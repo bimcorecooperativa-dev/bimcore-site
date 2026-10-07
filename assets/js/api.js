@@ -1,0 +1,335 @@
+/* BIMCORE — camada de dados
+ * Uma única interface (window.API) com dois motores:
+ *  - Supabase (produção), quando config.js tem URL e chave;
+ *  - Demonstração, com dados de exemplo guardados só neste navegador.
+ */
+(function () {
+  "use strict";
+  const cfg = window.BIMCORE_CONFIG || {};
+  const DEMO = !cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY;
+
+  const TIPOS_HORA = {
+    produtiva: "Produção técnica",
+    formacao: "Formação Técnica Integrada",
+    ociosidade_estrategica: "Ociosidade estratégica (pendência externa)",
+    ociosidade_operacional: "Ociosidade operacional"
+  };
+  const STATUS_PROJETO = ["Prospecção", "Proposta", "Em execução", "Concluído", "Suspenso"];
+  const MODALIDADES = ["Acordo de cooperação técnica", "Convênio", "Licitação", "Contratação direta", "Mercado privado"];
+  const CATEGORIAS_DOC = ["Estatuto e atas", "Regimentos e manuais", "Contratos e convênios", "Modelos técnicos", "Outros"];
+
+  const traduzErro = (msg) => {
+    const m = String(msg || "");
+    if (/Invalid login credentials/i.test(m)) return "E-mail ou senha incorretos.";
+    if (/Email not confirmed/i.test(m)) return "Confirme seu e-mail pelo link que enviamos antes de entrar.";
+    if (/already registered|already been registered/i.test(m)) return "Já existe uma conta com este e-mail. Use a opção de entrar.";
+    if (/Password should be at least/i.test(m)) return "A senha precisa ter pelo menos 8 caracteres.";
+    if (/rate limit/i.test(m)) return "Muitas tentativas seguidas. Aguarde alguns minutos e tente de novo.";
+    if (/row-level security|permission denied/i.test(m)) return "Você não tem permissão para esta ação.";
+    if (/Failed to fetch|NetworkError/i.test(m)) return "Sem conexão com o servidor. Verifique a internet e tente de novo.";
+    return m || "Algo deu errado. Tente de novo.";
+  };
+  const falha = (e) => { throw new Error(traduzErro(e && e.message ? e.message : e)); };
+
+  /* ------------------------------------------------------------------ */
+  /* Motor de demonstração                                               */
+  /* ------------------------------------------------------------------ */
+  function demoApi() {
+    const KEY = "bimcore-demo-v2";
+    const SKEY = "bimcore-demo-sessao";
+    const novoId = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
+    const hoje = new Date();
+    const dia = (delta) => { const d = new Date(hoje); d.setDate(d.getDate() + delta); return d.toISOString().slice(0, 10); };
+
+    function semente() {
+      const p1 = novoId(), p2 = novoId(), p3 = novoId();
+      return {
+        perfis: [
+          { id: "u-coord", nome: "Coordenação (exemplo)", email: "coordenacao@bimcore.demo", senha: "demo1234", telefone: "", especialidade: "Orçamento e planejamento", papel: "coordenacao", status: "ativo", data_ingresso: dia(-200), criado_em: dia(-200) },
+          { id: "u-coop", nome: "Cooperada Exemplo", email: "cooperado@bimcore.demo", senha: "demo1234", telefone: "", especialidade: "Modelagem de arquitetura", papel: "cooperado", status: "ativo", data_ingresso: dia(-90), criado_em: dia(-90) },
+          { id: "u-pend", nome: "Candidato Exemplo", email: "novo@bimcore.demo", senha: "demo1234", telefone: "", especialidade: "Instalações (MEP)", papel: "cooperado", status: "pendente", data_ingresso: null, criado_em: dia(-2) }
+        ],
+        projetos: [
+          { id: p1, nome: "Piloto BIM – Escola municipal (exemplo)", orgao: "Prefeitura (exemplo)", municipio: "Baixada Litorânea", modalidade: "Acordo de cooperação técnica", status: "Em execução", lod: "LOD 400", horas_orcadas: 320, valor: null, inicio: dia(-40), fim: dia(50), criado_em: dia(-40) },
+          { id: p2, nome: "Unidade básica de saúde – projeto executivo (exemplo)", orgao: "Secretaria de Obras (exemplo)", municipio: "Região Serrana", modalidade: "Licitação", status: "Proposta", lod: "LOD 400", horas_orcadas: 540, valor: 186000, inicio: null, fim: null, criado_em: dia(-10) },
+          { id: p3, nome: "Diagnóstico de maturidade BIM (exemplo)", orgao: "Prefeitura (exemplo)", municipio: "Baixada Litorânea", modalidade: "Convênio", status: "Prospecção", lod: "", horas_orcadas: 60, valor: null, inicio: null, fim: null, criado_em: dia(-5) }
+        ],
+        producao: [
+          { id: novoId(), cooperado_id: "u-coop", projeto_id: p1, data: dia(-6), horas: 6, tipo: "produtiva", descricao: "Modelagem das paredes e esquadrias do bloco A" },
+          { id: novoId(), cooperado_id: "u-coop", projeto_id: p1, data: dia(-5), horas: 5.5, tipo: "produtiva", descricao: "Compatibilização arquitetura x estrutura (clash detection)" },
+          { id: novoId(), cooperado_id: "u-coop", projeto_id: p1, data: dia(-4), horas: 1, tipo: "formacao", descricao: "Estudo de famílias paramétricas para esquadrias" },
+          { id: novoId(), cooperado_id: "u-coop", projeto_id: p1, data: dia(-3), horas: 2, tipo: "ociosidade_estrategica", descricao: "Aguardando levantamento topográfico da prefeitura (protocolo enviado)" },
+          { id: novoId(), cooperado_id: "u-coord", projeto_id: p1, data: dia(-3), horas: 4, tipo: "produtiva", descricao: "Vinculação de quantitativos às composições SINAPI/EMOP" },
+          { id: novoId(), cooperado_id: "u-coord", projeto_id: p2, data: dia(-2), horas: 3, tipo: "produtiva", descricao: "Estudo do edital e da planilha de referência" }
+        ],
+        comunicados: [
+          { id: novoId(), titulo: "Bem-vindos à área do cooperado", corpo: "Aqui ficam os comunicados da coordenação, os documentos da cooperativa e o registro das suas horas. Lance suas horas toda semana: elas são a base do cálculo das sobras e do Índice de Eficiência Operacional.", autor_nome: "Coordenação", publicado_em: dia(-7) + "T10:00:00" },
+          { id: novoId(), titulo: "Assembleia trimestral", corpo: "A próxima assembleia trimestral vai apresentar o relatório de produtividade e o andamento do projeto-piloto. A pauta completa será publicada em Documentos.", autor_nome: "Coordenação", publicado_em: dia(-1) + "T18:30:00" }
+        ],
+        documentos: [],
+        contatos: [
+          { id: novoId(), nome: "Servidor Exemplo", email: "obras@prefeitura.exemplo", orgao: "Secretaria Municipal de Obras", telefone: "", mensagem: "Gostaríamos de entender como funciona o acordo de cooperação técnica para um projeto-piloto.", lido: false, criado_em: dia(-1) + "T14:12:00" }
+        ]
+      };
+    }
+    const ler = () => {
+      try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && s.perfis) return s; } catch (e) {}
+      const s = semente(); gravar(s); return s;
+    };
+    const gravar = (s) => { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} };
+    const sessaoId = () => { try { return localStorage.getItem(SKEY); } catch (e) { return null; } };
+    const eu = (s) => s.perfis.find((p) => p.id === sessaoId());
+    const espera = (v) => new Promise((r) => setTimeout(() => r(v), 120));
+    const exigir = (s, coord) => {
+      const u = eu(s);
+      if (!u) falha("Sua sessão expirou. Entre novamente.");
+      if (coord && !(u.papel === "coordenacao" && u.status === "ativo")) falha("permission denied");
+      return u;
+    };
+    const semSenha = (p) => { const c = { ...p }; delete c.senha; return c; };
+    const nomeProjeto = (s, id) => (s.projetos.find((p) => p.id === id) || {}).nome || "—";
+    const nomePessoa = (s, id) => (s.perfis.find((p) => p.id === id) || {}).nome || "—";
+
+    return {
+      demo: true,
+      async getSession() {
+        const s = ler(); const u = eu(s);
+        return espera(u ? { user: { id: u.id, email: u.email }, perfil: semSenha(u) } : null);
+      },
+      async signIn(email, senha) {
+        const s = ler();
+        const u = s.perfis.find((p) => p.email.toLowerCase() === String(email).trim().toLowerCase());
+        if (!u || u.senha !== senha) falha("Invalid login credentials");
+        try { localStorage.setItem(SKEY, u.id); } catch (e) {}
+        return espera(true);
+      },
+      async signUp(nome, email, senha) {
+        const s = ler();
+        if (String(senha).length < 8) falha("Password should be at least 8");
+        if (s.perfis.some((p) => p.email.toLowerCase() === email.toLowerCase())) falha("already registered");
+        s.perfis.push({ id: novoId(), nome, email, senha, telefone: "", especialidade: "", papel: "cooperado", status: "pendente", data_ingresso: null, criado_em: new Date().toISOString() });
+        gravar(s);
+        return espera({ precisaConfirmar: false });
+      },
+      async signOut() { try { localStorage.removeItem(SKEY); } catch (e) {} return espera(true); },
+      async resetPassword() { return espera(true); },
+      async updatePassword(nova) {
+        const s = ler(); const u = exigir(s);
+        if (String(nova).length < 8) falha("Password should be at least 8");
+        u.senha = nova; gravar(s); return espera(true);
+      },
+      onRecovery() {},
+      async resetDemo() { try { localStorage.removeItem(KEY); localStorage.removeItem(SKEY); } catch (e) {} },
+
+      perfil: {
+        async atualizarMeu(dados) {
+          const s = ler(); const u = exigir(s);
+          ["nome", "telefone", "especialidade"].forEach((k) => { if (k in dados) u[k] = dados[k]; });
+          gravar(s); return espera(semSenha(u));
+        }
+      },
+      cooperados: {
+        async listar() { const s = ler(); exigir(s, true); return espera(s.perfis.map(semSenha).sort((a, b) => a.nome.localeCompare(b.nome))); },
+        async atualizar(id, dados) {
+          const s = ler(); exigir(s, true);
+          const p = s.perfis.find((x) => x.id === id); if (!p) falha("Cadastro não encontrado.");
+          ["papel", "status"].forEach((k) => { if (k in dados) p[k] = dados[k]; });
+          if (p.status === "ativo" && !p.data_ingresso) p.data_ingresso = new Date().toISOString().slice(0, 10);
+          gravar(s); return espera(semSenha(p));
+        }
+      },
+      comunicados: {
+        async listar() { const s = ler(); exigir(s); return espera([...s.comunicados].sort((a, b) => b.publicado_em.localeCompare(a.publicado_em))); },
+        async criar({ titulo, corpo }) {
+          const s = ler(); const u = exigir(s, true);
+          s.comunicados.push({ id: novoId(), titulo, corpo, autor_nome: u.nome, publicado_em: new Date().toISOString() });
+          gravar(s); return espera(true);
+        },
+        async excluir(id) { const s = ler(); exigir(s, true); s.comunicados = s.comunicados.filter((c) => c.id !== id); gravar(s); return espera(true); }
+      },
+      documentos: {
+        async listar() { const s = ler(); exigir(s); return espera([...s.documentos].sort((a, b) => b.criado_em.localeCompare(a.criado_em))); },
+        async enviar({ titulo, categoria, arquivo }) {
+          const s = ler(); exigir(s, true);
+          if (arquivo.size > 1.5 * 1024 * 1024) falha("No modo demonstração o limite é 1,5 MB por arquivo. Com o banco real, o limite é 50 MB.");
+          const dataUrl = await new Promise((ok, erro) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = erro; r.readAsDataURL(arquivo); });
+          s.documentos.push({ id: novoId(), titulo, categoria, nome_arquivo: arquivo.name, tamanho: arquivo.size, caminho: dataUrl, criado_em: new Date().toISOString() });
+          gravar(s); return espera(true);
+        },
+        async link(doc) { return doc.caminho; },
+        async excluir(doc) { const s = ler(); exigir(s, true); s.documentos = s.documentos.filter((d) => d.id !== doc.id); gravar(s); return espera(true); }
+      },
+      projetos: {
+        async listar() { const s = ler(); exigir(s); return espera([...s.projetos].sort((a, b) => (b.criado_em || "").localeCompare(a.criado_em || ""))); },
+        async salvar(p) {
+          const s = ler(); exigir(s, true);
+          if (p.id) { const i = s.projetos.findIndex((x) => x.id === p.id); s.projetos[i] = { ...s.projetos[i], ...p }; }
+          else s.projetos.push({ ...p, id: novoId(), criado_em: new Date().toISOString() });
+          gravar(s); return espera(true);
+        },
+        async excluir(id) {
+          const s = ler(); exigir(s, true);
+          if (s.producao.some((h) => h.projeto_id === id)) falha("Este projeto tem horas lançadas. Mude o status para Suspenso ou Concluído em vez de excluir.");
+          s.projetos = s.projetos.filter((x) => x.id !== id); gravar(s); return espera(true);
+        }
+      },
+      producao: {
+        async minhas() {
+          const s = ler(); const u = exigir(s);
+          return espera(s.producao.filter((h) => h.cooperado_id === u.id).map((h) => ({ ...h, projeto_nome: nomeProjeto(s, h.projeto_id) })).sort((a, b) => b.data.localeCompare(a.data)));
+        },
+        async todas() {
+          const s = ler(); exigir(s, true);
+          return espera(s.producao.map((h) => ({ ...h, projeto_nome: nomeProjeto(s, h.projeto_id), cooperado_nome: nomePessoa(s, h.cooperado_id) })).sort((a, b) => b.data.localeCompare(a.data)));
+        },
+        async lancar(h) {
+          const s = ler(); const u = exigir(s);
+          if (u.status !== "ativo") falha("permission denied");
+          s.producao.push({ ...h, id: novoId(), cooperado_id: u.id }); gravar(s); return espera(true);
+        },
+        async excluir(id) {
+          const s = ler(); const u = exigir(s);
+          const h = s.producao.find((x) => x.id === id);
+          if (!h || (h.cooperado_id !== u.id && u.papel !== "coordenacao")) falha("permission denied");
+          s.producao = s.producao.filter((x) => x.id !== id); gravar(s); return espera(true);
+        }
+      },
+      contatos: {
+        async enviar(c) { const s = ler(); s.contatos.push({ tipo: "contato", ...c, nome: c.nome || "Anônimo", id: novoId(), lido: false, criado_em: new Date().toISOString() }); gravar(s); return espera(true); },
+        async listar() { const s = ler(); exigir(s, true); return espera([...s.contatos].sort((a, b) => b.criado_em.localeCompare(a.criado_em))); },
+        async marcarLido(id, lido) { const s = ler(); exigir(s, true); const c = s.contatos.find((x) => x.id === id); if (c) c.lido = lido; gravar(s); return espera(true); }
+      }
+    };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Motor Supabase                                                      */
+  /* ------------------------------------------------------------------ */
+  function supaApi() {
+    if (!window.supabase || !window.supabase.createClient) {
+      console.error("Biblioteca do Supabase não carregou.");
+    }
+    const sb = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+    });
+    const ok = ({ data, error }) => { if (error) falha(error); return data; };
+    const base = () => location.origin + location.pathname.replace(/[^/]*$/, "");
+    const meuId = async () => {
+      const { data } = await sb.auth.getUser();
+      if (!data || !data.user) falha("Sua sessão expirou. Entre novamente.");
+      return data.user.id;
+    };
+
+    return {
+      demo: false,
+      client: sb,
+      async getSession() {
+        const { data } = await sb.auth.getSession();
+        if (!data.session) return null;
+        const perfil = ok(await sb.from("perfis").select("*").eq("id", data.session.user.id).maybeSingle());
+        return { user: data.session.user, perfil: perfil || { id: data.session.user.id, email: data.session.user.email, nome: "", papel: "cooperado", status: "pendente" } };
+      },
+      async signIn(email, senha) { ok(await sb.auth.signInWithPassword({ email: String(email).trim(), password: senha })); return true; },
+      async signUp(nome, email, senha) {
+        const data = ok(await sb.auth.signUp({ email: String(email).trim(), password: senha, options: { data: { nome }, emailRedirectTo: base() + "entrar.html" } }));
+        return { precisaConfirmar: !data.session };
+      },
+      async signOut() { await sb.auth.signOut(); return true; },
+      async resetPassword(email) { ok(await sb.auth.resetPasswordForEmail(String(email).trim(), { redirectTo: base() + "entrar.html" })); return true; },
+      async updatePassword(nova) { ok(await sb.auth.updateUser({ password: nova })); return true; },
+      onRecovery(cb) { sb.auth.onAuthStateChange((evento) => { if (evento === "PASSWORD_RECOVERY") cb(); }); },
+
+      perfil: {
+        async atualizarMeu(dados) {
+          const id = await meuId();
+          const limpo = {}; ["nome", "telefone", "especialidade"].forEach((k) => { if (k in dados) limpo[k] = dados[k]; });
+          return ok(await sb.from("perfis").update(limpo).eq("id", id).select().single());
+        }
+      },
+      cooperados: {
+        async listar() { return ok(await sb.from("perfis").select("*").order("nome")); },
+        async atualizar(id, dados) {
+          const limpo = {}; ["papel", "status"].forEach((k) => { if (k in dados) limpo[k] = dados[k]; });
+          return ok(await sb.from("perfis").update(limpo).eq("id", id).select().single());
+        }
+      },
+      comunicados: {
+        async listar() { return ok(await sb.from("comunicados").select("*").order("publicado_em", { ascending: false })); },
+        async criar({ titulo, corpo }) {
+          const s = await this._autor();
+          ok(await sb.from("comunicados").insert({ titulo, corpo, autor_id: s.id, autor_nome: s.nome })); return true;
+        },
+        async excluir(id) { ok(await sb.from("comunicados").delete().eq("id", id)); return true; },
+        async _autor() {
+          const id = await meuId();
+          const p = ok(await sb.from("perfis").select("id,nome").eq("id", id).single());
+          return p;
+        }
+      },
+      documentos: {
+        async listar() { return ok(await sb.from("documentos").select("*").order("criado_em", { ascending: false })); },
+        async enviar({ titulo, categoria, arquivo }) {
+          const seguro = arquivo.name.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\w.\-]+/g, "_");
+          const caminho = `${new Date().getFullYear()}/${Date.now()}_${seguro}`;
+          ok(await sb.storage.from("documentos").upload(caminho, arquivo, { upsert: false, contentType: arquivo.type || undefined }));
+          const r = await sb.from("documentos").insert({ titulo, categoria, nome_arquivo: arquivo.name, tamanho: arquivo.size, caminho });
+          if (r.error) { await sb.storage.from("documentos").remove([caminho]); falha(r.error); }
+          return true;
+        },
+        async link(doc) {
+          const data = ok(await sb.storage.from("documentos").createSignedUrl(doc.caminho, 120, { download: doc.nome_arquivo }));
+          return data.signedUrl;
+        },
+        async excluir(doc) {
+          ok(await sb.from("documentos").delete().eq("id", doc.id));
+          await sb.storage.from("documentos").remove([doc.caminho]);
+          return true;
+        }
+      },
+      projetos: {
+        async listar() { return ok(await sb.from("projetos").select("*").order("criado_em", { ascending: false })); },
+        async salvar(p) {
+          const campos = ["nome", "orgao", "municipio", "modalidade", "status", "lod", "horas_orcadas", "valor", "inicio", "fim"];
+          const limpo = {}; campos.forEach((k) => { if (k in p) limpo[k] = p[k] === "" ? null : p[k]; });
+          if (p.id) ok(await sb.from("projetos").update(limpo).eq("id", p.id));
+          else ok(await sb.from("projetos").insert(limpo));
+          return true;
+        },
+        async excluir(id) {
+          const r = await sb.from("projetos").delete().eq("id", id);
+          if (r.error && /foreign key/i.test(r.error.message)) falha("Este projeto tem horas lançadas. Mude o status para Suspenso ou Concluído em vez de excluir.");
+          ok(r); return true;
+        }
+      },
+      producao: {
+        async minhas() {
+          const id = await meuId();
+          const rows = ok(await sb.from("producao").select("*, projetos(nome)").eq("cooperado_id", id).order("data", { ascending: false }));
+          return rows.map((h) => ({ ...h, projeto_nome: h.projetos ? h.projetos.nome : "—" }));
+        },
+        async todas() {
+          const rows = ok(await sb.from("producao").select("*, projetos(nome), perfis(nome)").order("data", { ascending: false }));
+          return rows.map((h) => ({ ...h, projeto_nome: h.projetos ? h.projetos.nome : "—", cooperado_nome: h.perfis ? h.perfis.nome : "—" }));
+        },
+        async lancar(h) {
+          const id = await meuId();
+          ok(await sb.from("producao").insert({ cooperado_id: id, projeto_id: h.projeto_id || null, data: h.data, horas: h.horas, tipo: h.tipo, descricao: h.descricao }));
+          return true;
+        },
+        async excluir(id) { ok(await sb.from("producao").delete().eq("id", id)); return true; }
+      },
+      contatos: {
+        async enviar(c) { ok(await sb.from("contatos").insert({ tipo: c.tipo || "contato", nome: c.nome || "Anônimo", email: c.email || null, orgao: c.orgao || null, telefone: c.telefone || null, mensagem: c.mensagem })); return true; },
+        async listar() { return ok(await sb.from("contatos").select("*").order("criado_em", { ascending: false })); },
+        async marcarLido(id, lido) { ok(await sb.from("contatos").update({ lido }).eq("id", id)); return true; }
+      }
+    };
+  }
+
+  const api = DEMO ? demoApi() : supaApi();
+  api.TIPOS_HORA = TIPOS_HORA;
+  api.STATUS_PROJETO = STATUS_PROJETO;
+  api.MODALIDADES = MODALIDADES;
+  api.CATEGORIAS_DOC = CATEGORIAS_DOC;
+  window.API = api;
+})();

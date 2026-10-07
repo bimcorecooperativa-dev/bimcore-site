@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /painel.html
+Disallow: /interno.html
+Disallow: /entrar.html
+Sitemap: https://bimcore.com.br/sitemap.xml
