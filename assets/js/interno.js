@@ -275,24 +275,26 @@
       separador: true,
       async render(el, ctx) {
         const C = API.CAMPOS_FIN;
-        const [coops, posicoes, imps] = await Promise.all([API.cooperados.listar(), API.financeiro.todas(), API.financeiro.importacoes()]);
+        const [coops, posicoes, imps, ultimaArq] = await Promise.all([API.cooperados.listar(), API.financeiro.todas(), API.financeiro.importacoes(), API.financeiro.ultimaPlanilha().catch(() => null)]);
         const ativos = coops.filter((c) => c.status === "ativo" || c.status === "desligado");
         const ultima = {};
         posicoes.forEach((p) => { const u = ultima[p.cooperado_id]; if (!u || p.data_base > u.data_base) ultima[p.cooperado_id] = p; });
         const linhasAtuais = Object.values(ultima).sort((a, b) => (a.cooperado_nome || "").localeCompare(b.cooperado_nome || ""));
         const soma = (k) => linhasAtuais.reduce((a, p) => a + Number(p[k] || 0), 0);
-        let previa = null;
 
         el.innerHTML = `
           <div class="pag-cab"><div><p class="eyebrow">Tesouraria</p><h1>Financeiro dos cooperados</h1></div>
-            <button class="btn btn-ghost" id="fin-modelo">Baixar planilha modelo</button></div>
-          <p class="muted">Cada cooperado vê só a própria posição, na aba "Minha conta". Para atualizar, baixe a planilha modelo (ela já vem com todos os cooperados e os últimos valores), altere os números e envie de volta. O sistema identifica cada cooperado pelo e-mail.</p>
+            <button class="btn btn-ghost" id="fin-modelo">${ultimaArq ? "Baixar planilha atual" : "Baixar planilha modelo"}</button></div>
+          <p class="muted">${ultimaArq
+            ? `A planilha atual é a última enviada: <b>${esc(ultimaArq.nome || "")}</b>, data-base ${data(ultimaArq.data_base)}. Baixe, atualize no Excel e envie de volta: ela passa a ser a nova planilha atual.`
+            : "Ainda não há planilha enviada. Envie a planilha financeira da BIMCORE; a partir daí, o botão acima sempre baixa a última versão enviada."}
+            O site lê a aba <b>Posição</b> (identifica cada cooperado pelo e-mail), as abas mensais e a aba <b>Pagamentos</b>. Cada cooperado vê só a própria conta.</p>
 
           <section class="painel">
             <h2>Enviar planilha atualizada</h2>
             <form id="fin-form" class="form-grid" novalidate>
-              <div class="field"><label for="fin-data">Data-base dos valores</label><input class="input" id="fin-data" type="date" value="${UI.hoje()}"></div>
-              <div class="field"><label for="fin-arq">Planilha (.xlsx, .xls ou .csv)</label><input class="input" id="fin-arq" type="file" accept=".xlsx,.xls,.csv"></div>
+              <div class="field"><label for="fin-arq">Planilha (.xlsx)</label><input class="input" id="fin-arq" type="file" accept=".xlsx,.xls,.csv"></div>
+              <div class="field"><label for="fin-data">Data-base dos valores</label><input class="input" id="fin-data" type="date" value="${UI.hoje()}"><span class="hint">Preenchida pelo "Mês de fechamento" da planilha, quando houver.</span></div>
               <div class="full"><button class="btn btn-primary" id="fin-ler" type="submit">Ler planilha</button></div>
             </form>
             <div id="fin-previa"></div>
@@ -301,14 +303,13 @@
           <section class="painel">
             <h2>Posição atual</h2>
             ${linhasAtuais.length ? `<div class="tabela-wrap"><table class="tabela">
-              <thead><tr><th>Cooperado</th><th>Data-base</th><th class="num">Capital integralizado</th><th class="num">Contrib. mensal</th><th class="num">Em aberto</th><th class="num">FIC</th><th class="num">13º</th><th class="num">Férias</th></tr></thead>
+              <thead><tr><th>Cooperado</th><th>Data-base</th><th class="num">Capital integralizado</th><th class="num">Em aberto</th><th class="num">Aportes</th><th class="num">Total contribuído</th></tr></thead>
               <tbody>${linhasAtuais.map((p) => `<tr><td>${esc(p.cooperado_nome)}</td><td class="num" style="text-align:left">${data(p.data_base)}</td>
                 <td class="num">${moeda(p.capital_integralizado)}<span class="sub">de ${moeda(p.capital_subscrito)}</span></td>
-                <td class="num">${moeda(p.contribuicao_mensal)}</td>
-                <td class="num">${Number(p.valor_em_aberto) > 0 ? `<span class="selo err">${moeda(p.valor_em_aberto)}</span>` : '<span class="selo ok">em dia</span>'}</td>
-                <td class="num">${moeda(p.fic_saldo)}</td><td class="num">${moeda(p.fundo_13)}</td><td class="num">${moeda(p.fundo_ferias)}</td></tr>`).join("")}</tbody>
-              <tfoot><tr><td>Total</td><td></td><td class="num">${moeda(soma("capital_integralizado"))}</td><td class="num">${moeda(soma("contribuicao_mensal"))}</td><td class="num">${moeda(soma("valor_em_aberto"))}</td><td class="num">${moeda(soma("fic_saldo"))}</td><td class="num">${moeda(soma("fundo_13"))}</td><td class="num">${moeda(soma("fundo_ferias"))}</td></tr></tfoot>
-            </table></div>` : '<p class="vazio">Nenhuma posição registrada ainda. Baixe a planilha modelo para começar.</p>'}
+                <td class="num">${Number(p.valor_em_aberto) > 0.005 ? `<span class="selo err">${moeda(p.valor_em_aberto)}</span>` : '<span class="selo ok">em dia</span>'}</td>
+                <td class="num">${moeda(p.outros_creditos)}</td><td class="num">${moeda(p.contribuicoes_pagas)}</td></tr>`).join("")}</tbody>
+              <tfoot><tr><td>Total</td><td></td><td class="num">${moeda(soma("capital_integralizado"))}</td><td class="num">${moeda(soma("valor_em_aberto"))}</td><td class="num">${moeda(soma("outros_creditos"))}</td><td class="num">${moeda(soma("contribuicoes_pagas"))}</td></tr></tfoot>
+            </table></div>` : '<p class="vazio">Nenhuma posição registrada ainda.</p>'}
           </section>
 
           <section class="painel">
@@ -319,38 +320,81 @@
                 <td class="acoes-celula"><button class="btn btn-danger btn-sm" data-desfazer="${i.id}">Desfazer</button></td></tr>`).join("")}</tbody></table></div>` : '<p class="vazio">Nenhum envio ainda.</p>'}
           </section>`;
 
-        const norm = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+        const norm = (t) => String(t == null ? "" : t).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
         const mapa = {}; Object.entries(C).forEach(([k, r]) => { mapa[norm(r)] = k; mapa[norm(r.replace(/\s*\(R\$\)/, ""))] = k; mapa[norm(k)] = k; });
-        const valor = (v) => {
+        const num = (v) => {
           if (v === null || v === undefined || v === "") return null;
           if (typeof v === "number") return Math.round(v * 100) / 100;
           let t = String(v).replace(/R\$|\s/g, "");
           if (t.includes(",")) t = t.replace(/\./g, "").replace(",", ".");
           const n = parseFloat(t); return isNaN(n) ? NaN : Math.round(n * 100) / 100;
         };
+        const iso = (d) => (d instanceof Date && !isNaN(d) ? new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10) : null);
         const porEmail = {}; coops.forEach((c) => { porEmail[String(c.email).toLowerCase().trim()] = c; });
+        const tabela = (ws, linhaCab) => XLSX.utils.sheet_to_json(ws, { defval: "", raw: true, range: linhaCab - 1 });
+        const col = (row, ...nomes) => { const ks = Object.keys(row); for (const n of nomes) { const k = ks.find((x) => norm(x) === norm(n)); if (k) return row[k]; } return undefined; };
 
-        $("#fin-modelo").onclick = () => {
+        /* Lê o resto da pasta de trabalho (abas mensais, Pagamentos, Resumo, Parâmetros) */
+        function detalhesDaPasta(wb) {
+          const det = {}; // por nome do cooperado
+          const add = (nome) => (det[nome] = det[nome] || { mensal: [], aportes: [], resumo: {} });
+          wb.SheetNames.filter((n) => /^\d{4}-\d{2}$/.test(n)).sort().forEach((aba) => {
+            tabela(wb.Sheets[aba], 5).forEach((r) => {
+              const nome = String(col(r, "Cooperado") || "").trim(); if (!nome) return;
+              const devida = num(col(r, "Contribuição de capital devida")), paga = num(col(r, "Contribuição paga")), ret = num(col(r, "Retirada bruta")), aberto = num(col(r, "Em aberto no mês"));
+              if (!devida && !paga && !ret && !aberto) return;
+              add(nome).mensal.push({ mes: aba, retirada: ret || 0, devida: devida || 0, paga: paga || 0, em_aberto: aberto || 0 });
+            });
+          });
+          if (wb.Sheets["Pagamentos"]) {
+            tabela(wb.Sheets["Pagamentos"], 5).forEach((r) => {
+              const nome = String(col(r, "Quem pagou") || "").trim(); const valor = num(col(r, "Valor (R$)"));
+              if (!nome || !valor) return;
+              const d = col(r, "Data");
+              add(nome).aportes.push({ data: iso(d), descricao: String(col(r, "Despesa") || "").slice(0, 200), valor, tipo: String(col(r, "Tipo") || "") });
+            });
+          }
+          if (wb.Sheets["Resumo"]) {
+            tabela(wb.Sheets["Resumo"], 5).forEach((r) => {
+              const nome = String(col(r, "Cooperado") || "").trim(); if (!nome) return;
+              add(nome).resumo = {
+                contribuicoes_devidas: num(col(r, "Contribuições mensais devidas")) || 0,
+                contribuicoes_pagas_mensais: num(col(r, "Contribuições mensais pagas")) || 0,
+                falta_integralizar: num(col(r, "Falta integralizar")) || 0,
+                aportes_brutos: num(col(r, "Aportes brutos")) || 0,
+                aportes_no_capital: num(col(r, "Aportes usados na integralização inicial")) || 0,
+                retiradas_ano: num(col(r, "Retiradas brutas no ano")) || 0
+              };
+            });
+          }
+          return det;
+        }
+        function dataFechamento(wb) {
+          const ws = wb.Sheets["Parâmetros"] || wb.Sheets[wb.SheetNames.find((n) => norm(n) === "parametros")]; if (!ws) return null;
+          const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: true });
+          for (const r of rows) { if (norm(r[1]).startsWith("mesdefechamento") && r[2] instanceof Date) { const d = r[2]; return iso(new Date(d.getFullYear(), d.getMonth() + 1, 0)); } }
+          return null;
+        }
+
+        $("#fin-modelo").onclick = async (ev) => {
+          if (ultimaArq) {
+            const atual = await acao(ev.currentTarget, () => API.financeiro.ultimaPlanilha());
+            if (atual) { const a = document.createElement("a"); a.href = atual.url; a.download = atual.nome || "planilha-financeira.xlsx"; a.target = "_blank"; document.body.appendChild(a); a.click(); a.remove(); }
+            return;
+          }
           if (!window.XLSX) return toast("Não foi possível carregar o gerador de planilhas. Recarregue a página.", "err");
           const cab = ["Nome", "E-mail", ...Object.values(C)];
           const linhas = ativos.map((c) => { const u = ultima[c.id] || {}; return [c.nome, c.email, ...Object.keys(C).map((k) => (u[k] == null ? "" : u[k]))]; });
           const ws = XLSX.utils.aoa_to_sheet([cab, ...linhas]);
-          ws["!cols"] = cab.map((h, i) => ({ wch: i < 2 ? 30 : Math.max(14, h.length + 2) }));
-          const inst = XLSX.utils.aoa_to_sheet([
-            ["Como preencher"],
-            ["1. Não altere a coluna E-mail: é por ela que o sistema identifica cada cooperado."],
-            ["2. Valores em reais podem ser digitados como 1234,56 ou 1234.56."],
-            ["3. Deixe em branco o que não se aplica."],
-            ["4. Contribuição mensal: valor que o cooperado deve pagar por mês (art. 23, §4º: 1,5% das retiradas ou 1 quota-parte se não houver retiradas)."],
-            ["5. Valor em aberto: total que o cooperado deve hoje à cooperativa."],
-            ["6. Fundos individuais: FIC (art. 78), 13º e férias (art. 79)."],
-            ["7. Salve e envie em bimcore.com.br, Área interna > Financeiro, informando a data-base."]
-          ]);
-          inst["!cols"] = [{ wch: 110 }];
-          const wb = XLSX.utils.book_new();
-          XLSX.utils.book_append_sheet(wb, ws, "Posição");
-          XLSX.utils.book_append_sheet(wb, inst, "Instruções");
+          const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Posição");
           XLSX.writeFile(wb, `bimcore-posicao-financeira-${UI.hoje()}.xlsx`);
+        };
+
+        let wbAtual = null;
+        $("#fin-arq").onchange = async (e) => {
+          const arq = e.target.files[0]; wbAtual = null; if (!arq || !window.XLSX) return;
+          try { wbAtual = XLSX.read(await arq.arrayBuffer(), { type: "array", cellDates: true }); } catch (err) { return; }
+          const f = dataFechamento(wbAtual); if (f) $("#fin-data").value = f;
         };
 
         $("#fin-form").addEventListener("submit", async (e) => {
@@ -359,59 +403,66 @@
           if (!arq) return toast("Escolha a planilha.", "err");
           if (!$("#fin-data").value) return toast("Informe a data-base.", "err");
           if (!window.XLSX) return toast("Não foi possível carregar o leitor de planilhas. Recarregue a página.", "err");
-          let wb;
-          try { wb = XLSX.read(await arq.arrayBuffer(), { type: "array" }); } catch (err) { return toast("Não consegui ler esse arquivo. Envie em .xlsx, .xls ou .csv.", "err"); }
-          const nomeAba = wb.SheetNames.find((n) => norm(n) === "posicao") || wb.SheetNames[0];
-          const rows = XLSX.utils.sheet_to_json(wb.Sheets[nomeAba], { defval: "", raw: true });
-          if (!rows.length) return toast("A planilha está vazia.", "err");
+          let livro = wbAtual;
+          if (!livro || !livro.SheetNames.length) { try { livro = XLSX.read(await arq.arrayBuffer(), { type: "array", cellDates: true }); } catch (err) { return toast("Não consegui ler esse arquivo. Envie em .xlsx.", "err"); } }
+          const nomeAba = livro.SheetNames.find((n) => norm(n) === "posicao") || livro.SheetNames[0];
+          const rows = XLSX.utils.sheet_to_json(livro.Sheets[nomeAba], { defval: "", raw: true });
+          if (!rows.length) return toast("A aba Posição está vazia.", "err");
           const cabs = Object.keys(rows[0]);
           const colEmail = cabs.find((h) => norm(h).includes("email"));
-          if (!colEmail) return toast("Não encontrei a coluna E-mail. Use a planilha modelo.", "err");
+          const colNome = cabs.find((h) => norm(h) === "nome");
+          if (!colEmail) return toast("Não encontrei a coluna E-mail na aba Posição.", "err");
           const colunas = {}; cabs.forEach((h) => { const k = mapa[norm(h)]; if (k) colunas[k] = h; });
-          const reconhecidas = Object.keys(colunas).length;
+          const det = detalhesDaPasta(livro);
           const vistos = new Set();
-          previa = rows.filter((r) => String(r[colEmail]).trim()).map((r, i) => {
+          const semEmail = rows.filter((r) => !String(r[colEmail]).trim() && colNome && String(r[colNome]).trim()).map((r) => String(r[colNome]).trim());
+          const previa = rows.filter((r) => String(r[colEmail]).trim()).map((r, i) => {
             const email = String(r[colEmail]).toLowerCase().trim();
             const c = porEmail[email];
-            const lin = { _n: i + 2, _email: email, _coop: c, _erros: [] };
-            if (!c) lin._erros.push("e-mail não cadastrado");
-            else if (vistos.has(c.id)) lin._erros.push("cooperado repetido na planilha");
+            const nomePlan = colNome ? String(r[colNome]).trim() : "";
+            const lin = { _n: i + 2, _email: email, _coop: c, _nome: nomePlan, _erros: [] };
+            if (!c) lin._erros.push("e-mail sem cadastro no site");
+            else if (vistos.has(c.id)) lin._erros.push("cooperado repetido");
             if (c) vistos.add(c.id);
             Object.entries(colunas).forEach(([k, h]) => {
               if (k === "observacao") { lin[k] = String(r[h] || "").slice(0, 1000) || null; return; }
-              const v = valor(r[h]);
+              const v = num(r[h]);
               if (Number.isNaN(v)) lin._erros.push(`valor inválido em "${h}"`);
               else lin[k] = k === "meses_em_atraso" && v != null ? Math.round(v) : v;
             });
+            lin.detalhes = det[nomePlan] || null;
             return lin;
           });
           const boas = previa.filter((l) => !l._erros.length);
+          const abasLidas = ["Posição", ...livro.SheetNames.filter((n) => /^\d{4}-\d{2}$/.test(n)).length ? ["abas mensais"] : [], ...(livro.Sheets["Pagamentos"] ? ["Pagamentos"] : []), ...(livro.Sheets["Resumo"] ? ["Resumo"] : [])];
           $("#fin-previa").innerHTML = `
-            <div class="notice ${boas.length === previa.length ? "ok" : "warn"}" style="margin-top:1rem">
-              ${reconhecidas} colunas reconhecidas. ${boas.length} de ${previa.length} linhas prontas para importar${previa.length - boas.length ? `; ${previa.length - boas.length} com problema (não serão importadas)` : ""}.
+            <div class="notice ${boas.length === previa.length && !semEmail.length ? "ok" : "warn"}" style="margin-top:1rem">
+              Abas lidas: ${esc(abasLidas.join(", "))}. ${boas.length} de ${previa.length} cooperado(s) prontos para importar${previa.length - boas.length ? `; ${previa.length - boas.length} com problema` : ""}.
+              ${semEmail.length ? `<br>Sem e-mail na planilha (não serão importados): ${esc(semEmail.join(", "))}. Preencha o e-mail na aba Cooperados.` : ""}
             </div>
             <div class="tabela-wrap" style="margin-top:1rem"><table class="tabela">
-              <thead><tr><th>Linha</th><th>Cooperado</th><th class="num">Capital integralizado</th><th class="num">Contrib. mensal</th><th class="num">Em aberto</th><th class="num">FIC</th><th>Situação</th></tr></thead>
-              <tbody>${previa.map((l) => `<tr><td class="num" style="text-align:left">${l._n}</td>
-                <td>${l._coop ? esc(l._coop.nome) : "—"}<span class="sub">${esc(l._email)}</span></td>
-                <td class="num">${moeda(l.capital_integralizado)}</td><td class="num">${moeda(l.contribuicao_mensal)}</td><td class="num">${moeda(l.valor_em_aberto)}</td><td class="num">${moeda(l.fic_saldo)}</td>
+              <thead><tr><th>Cooperado</th><th class="num">Capital integralizado</th><th class="num">Em aberto</th><th class="num">Aportes</th><th class="num">Meses detalhados</th><th>Situação</th></tr></thead>
+              <tbody>${previa.map((l) => `<tr>
+                <td>${l._coop ? esc(l._coop.nome) : esc(l._nome || "—")}<span class="sub">${esc(l._email)}</span></td>
+                <td class="num">${moeda(l.capital_integralizado)}</td><td class="num">${moeda(l.valor_em_aberto)}</td><td class="num">${moeda(l.outros_creditos)}</td>
+                <td class="num">${l.detalhes ? l.detalhes.mensal.length : 0}</td>
                 <td>${l._erros.length ? `<span class="selo err">${esc(l._erros.join("; "))}</span>` : '<span class="selo ok">ok</span>'}</td></tr>`).join("")}</tbody>
             </table></div>
             <div class="sol-acoes" style="margin-top:1rem">
-              <button class="btn btn-primary" id="fin-confirmar" ${boas.length ? "" : "disabled"}>Confirmar importação de ${boas.length} cooperado(s)</button>
+              <button class="btn btn-primary" id="fin-confirmar" ${boas.length ? "" : "disabled"}>Confirmar e tornar esta a planilha atual</button>
               <button class="btn btn-ghost" id="fin-cancelar">Cancelar</button>
             </div>`;
-          $("#fin-cancelar").onclick = () => { previa = null; $("#fin-previa").innerHTML = ""; };
+          $("#fin-cancelar").onclick = () => { $("#fin-previa").innerHTML = ""; };
           $("#fin-confirmar").onclick = async (ev) => {
-            const linhas = boas.map((l) => { const o = { cooperado_id: l._coop.id }; Object.keys(C).forEach((k) => { if (k in l) o[k] = l[k]; }); return o; });
-            const ok = await acao(ev.currentTarget, () => API.financeiro.importar({ data_base: $("#fin-data").value, arquivo: arq.name, linhas }), "Posição financeira atualizada.");
+            const linhas = boas.map((l) => { const o = { cooperado_id: l._coop.id, detalhes: l.detalhes }; Object.keys(C).forEach((k) => { if (k in l) o[k] = l[k]; }); return o; });
+            const ok = await acao(ev.currentTarget, () => API.financeiro.importar({ data_base: $("#fin-data").value, arquivo: arq, linhas }), "Posição financeira atualizada. Esta é agora a planilha atual.");
             if (ok) paginas.financeiro.render(el, ctx);
           };
         });
 
         el.onclick = async (e) => {
           const b = e.target.closest("[data-desfazer]"); if (!b) return;
-          if (!(await confirmar("Desfazer este envio? As posições dessa planilha deixam de aparecer para os cooperados.", "Desfazer"))) return;
+          if (!(await confirmar("Desfazer este envio? As posições e a planilha desse envio são apagadas, e a planilha atual volta a ser a anterior.", "Desfazer"))) return;
           const ok = await acao(b, () => API.financeiro.excluirImportacao(b.dataset.desfazer), "Envio desfeito.");
           if (ok) paginas.financeiro.render(el, ctx);
         };

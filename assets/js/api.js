@@ -251,11 +251,18 @@
         async importacoes() { const s = ler(); exigir(s, "tes"); return espera([...(s.fin_importacoes || [])].sort((a, b) => b.criado_em.localeCompare(a.criado_em))); },
         async importar({ data_base, arquivo, linhas }) {
           const s = ler(); const u = exigir(s, "tes");
-          const imp = { id: novoId(), data_base, arquivo, linhas: linhas.length, criado_nome: u.nome, criado_em: new Date().toISOString() };
+          let dataUrl = null;
+          if (arquivo && arquivo.size < 1.5 * 1024 * 1024) dataUrl = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => ok(null); r.readAsDataURL(arquivo); });
+          const imp = { id: novoId(), data_base, arquivo: arquivo ? arquivo.name : "", caminho_arquivo: dataUrl, linhas: linhas.length, criado_nome: u.nome, criado_em: new Date().toISOString() };
           s.fin_importacoes = s.fin_importacoes || []; s.fin_posicoes = s.fin_posicoes || [];
           s.fin_importacoes.push(imp);
           linhas.forEach((l) => s.fin_posicoes.push({ ...l, id: novoId(), importacao_id: imp.id, data_base }));
           gravar(s); return espera(true);
+        },
+        async ultimaPlanilha() {
+          const s = ler(); exigir(s, "tes");
+          const i = [...(s.fin_importacoes || [])].filter((x) => x.caminho_arquivo).sort((a, b) => b.criado_em.localeCompare(a.criado_em))[0];
+          return espera(i ? { url: i.caminho_arquivo, nome: i.arquivo, data_base: i.data_base, criado_em: i.criado_em } : null);
         },
         async excluirImportacao(id) {
           const s = ler(); exigir(s, "tes");
@@ -402,12 +409,43 @@
         async importar({ data_base, arquivo, linhas }) {
           const uid = await meuId();
           const eu = ok(await sb.from("perfis").select("nome").eq("id", uid).single());
-          const imp = ok(await sb.from("financeiro_importacoes").insert({ data_base, arquivo, linhas: linhas.length, criado_por: uid, criado_nome: eu.nome }).select().single());
-          const r = await sb.from("financeiro_posicoes").insert(linhas.map((l) => ({ ...l, importacao_id: imp.id, data_base })));
-          if (r.error) { await sb.from("financeiro_importacoes").delete().eq("id", imp.id); falha(r.error); }
+          let caminho = null;
+          if (arquivo) {
+            const seguro = arquivo.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w.\-]+/g, "_");
+            caminho = `planilhas/${Date.now()}_${seguro}`;
+            const up = await sb.storage.from("financeiro").upload(caminho, arquivo, { upsert: false, contentType: arquivo.type || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+            if (up.error) { console.warn("Arquivo não guardado (migração 004 pendente?)", up.error); caminho = null; }
+          }
+          const base = { data_base, arquivo: arquivo ? arquivo.name : null, linhas: linhas.length, criado_por: uid, criado_nome: eu.nome };
+          let ins = await sb.from("financeiro_importacoes").insert(caminho ? { ...base, caminho_arquivo: caminho } : base).select().single();
+          if (ins.error && caminho) { await sb.storage.from("financeiro").remove([caminho]); caminho = null; ins = await sb.from("financeiro_importacoes").insert(base).select().single(); }
+          const imp = ok(ins);
+          let r = await sb.from("financeiro_posicoes").insert(linhas.map((l) => ({ ...l, importacao_id: imp.id, data_base })));
+          if (r.error && /detalhes/i.test(r.error.message || "")) {
+            r = await sb.from("financeiro_posicoes").insert(linhas.map(({ detalhes, ...l }) => ({ ...l, importacao_id: imp.id, data_base })));
+          }
+          if (r.error) {
+            await sb.from("financeiro_importacoes").delete().eq("id", imp.id);
+            if (caminho) await sb.storage.from("financeiro").remove([caminho]);
+            falha(r.error);
+          }
           return true;
         },
-        async excluirImportacao(id) { ok(await sb.from("financeiro_importacoes").delete().eq("id", id)); return true; }
+        async ultimaPlanilha() {
+          const q = await sb.from("financeiro_importacoes").select("*").not("caminho_arquivo", "is", null).order("criado_em", { ascending: false }).limit(1);
+          if (q.error || !q.data || !q.data.length) return null;
+          const i = q.data[0];
+          const d = await sb.storage.from("financeiro").createSignedUrl(i.caminho_arquivo, 120, { download: i.arquivo || "planilha-financeira.xlsx" });
+          if (d.error) return null;
+          return { url: d.data.signedUrl, nome: i.arquivo, data_base: i.data_base, criado_em: i.criado_em };
+        },
+        async excluirImportacao(id) {
+          const q = await sb.from("financeiro_importacoes").select("caminho_arquivo").eq("id", id).maybeSingle();
+          const i = q.error ? null : q.data;
+          ok(await sb.from("financeiro_importacoes").delete().eq("id", id));
+          if (i && i.caminho_arquivo) await sb.storage.from("financeiro").remove([i.caminho_arquivo]);
+          return true;
+        }
       },
       contatos: {
         async enviar(c) { ok(await sb.from("contatos").insert({ tipo: c.tipo || "contato", nome: c.nome || "Anônimo", email: c.email || null, orgao: c.orgao || null, telefone: c.telefone || null, mensagem: c.mensagem })); return true; },

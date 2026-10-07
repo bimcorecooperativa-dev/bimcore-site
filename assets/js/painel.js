@@ -131,8 +131,11 @@
         const pct = n("capital_subscrito") ? Math.min(100, (n("capital_integralizado") / n("capital_subscrito")) * 100) : 0;
         const contribuido = p.contribuicoes_pagas != null ? n("contribuicoes_pagas") : n("capital_integralizado");
         const emDebito = n("valor_em_aberto") > 0;
-        const fundosInd = n("fic_saldo") + n("fundo_13") + n("fundo_ferias") + n("sobras_a_receber") + n("outros_creditos");
-        const restituivel = Math.max(0, n("capital_integralizado") + fundosInd - n("valor_em_aberto"));
+        const fundosInd = n("fic_saldo") + n("fundo_13") + n("fundo_ferias") + n("sobras_a_receber");
+        const aportes = n("outros_creditos");
+        const det = p.detalhes || {};
+        const res = det.resumo || {};
+        const restituivel = Math.max(0, n("capital_integralizado") + fundosInd + aportes - n("valor_em_aberto"));
         const linhaFundo = (rot, k, art) => `<tr><td>${rot}<span class="sub">${art}</span></td><td class="num">${moeda(n(k))}</td></tr>`;
 
         el.innerHTML = `
@@ -143,7 +146,7 @@
             <div class="kpi"><span class="rot">Contribuição mensal</span><span class="val">${moeda(n("contribuicao_mensal"))}</span><span class="det">Valor que você deve contribuir por mês</span></div>
             <div class="kpi"><span class="rot">Em aberto</span><span class="val" style="color:${emDebito ? "var(--err)" : "var(--ok)"}">${moeda(n("valor_em_aberto"))}</span><span class="det">${emDebito ? (p.meses_em_atraso ? p.meses_em_atraso + " mês(es) em atraso" : "Regularize com a tesouraria") : "Nenhuma pendência"}</span></div>
             <div class="kpi"><span class="rot">Total contribuído</span><span class="val">${moeda(contribuido)}</span><span class="det">Acumulado registrado pela tesouraria</span></div>
-            <div class="kpi"><span class="rot">Seus fundos individuais</span><span class="val">${moeda(fundosInd)}</span><span class="det">FIC, 13º, férias e créditos</span></div>
+            <div class="kpi"><span class="rot">Aportes à cooperativa</span><span class="val">${moeda(aportes)}</span><span class="det">Devolvidos só no desligamento</span></div>
           </div>
 
           <section class="painel">
@@ -165,16 +168,34 @@
               ${linhaFundo("Fundo de 13º", "fundo_13", "Provisão mensal de 1/12 das retiradas, paga até 20 de dezembro (art. 79)")}
               ${linhaFundo("Fundo de férias", "fundo_ferias", "Provisão mensal de 1/12 das retiradas, paga no recesso anual (art. 79)")}
               ${linhaFundo("Sobras a receber", "sobras_a_receber", "Rateio aprovado em Assembleia Geral")}
-              ${linhaFundo("Outros créditos", "outros_creditos", "Demais valores registrados a seu favor")}
             </tbody><tfoot><tr><td>Total</td><td class="num">${moeda(fundosInd)}</td></tr></tfoot></table></div>
           </section>
 
           <section class="painel">
+            <h2>Aportes à cooperativa</h2>
+            <p class="muted">Valores que você pagou além das obrigações do Estatuto para a cooperativa andar. São um crédito seu com a cooperativa: <b>não podem ser sacados a qualquer momento</b> e só são devolvidos no desligamento, após a aprovação do balanço (art. 19).</p>
+            ${(det.aportes || []).filter((a) => a.tipo !== "Pagamento da sua parte").length ? `<div class="tabela-wrap"><table class="tabela">
+              <thead><tr><th>Data</th><th>Para quê</th><th class="num">Valor</th></tr></thead>
+              <tbody>${det.aportes.filter((a) => a.tipo !== "Pagamento da sua parte").map((a) => `<tr><td>${a.data ? data(a.data) : "—"}</td><td>${esc(a.descricao)}</td><td class="num">${moeda(a.valor)}</td></tr>`).join("")}</tbody>
+              <tfoot>${res.aportes_no_capital ? `<tr><td></td><td>Usado para integralizar suas quotas</td><td class="num">− ${moeda(res.aportes_no_capital)}</td></tr>` : ""}<tr><td></td><td>Saldo de aportes</td><td class="num">${moeda(aportes)}</td></tr></tfoot>
+            </table></div>` : `<p class="vazio">${aportes ? "Saldo de aportes: " + moeda(aportes) : "Nenhum aporte registrado."}</p>`}
+          </section>
+
+          ${(det.mensal || []).length ? `<section class="painel">
+            <h2>Contribuição mensal de capital, mês a mês</h2>
+            <div class="tabela-wrap"><table class="tabela">
+              <thead><tr><th>Mês</th><th class="num">Retirada</th><th class="num">Devida</th><th class="num">Paga</th><th class="num">Em aberto</th></tr></thead>
+              <tbody>${det.mensal.map((m) => { const [a, mm] = m.mes.split("-"); return `<tr><td>${["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"][Number(mm) - 1]}/${a}</td><td class="num">${moeda(m.retirada)}</td><td class="num">${moeda(m.devida)}</td><td class="num">${moeda(m.paga)}</td><td class="num">${m.em_aberto > 0.005 ? `<span class="selo err">${moeda(m.em_aberto)}</span>` : '<span class="selo ok">ok</span>'}</td></tr>`; }).join("")}</tbody>
+            </table></div>
+          </section>` : ""}
+
+          <section class="painel">
             <h2>Se você sair da cooperativa</h2>
-            <div class="kpis"><div class="kpi"><span class="rot">Valor restituível estimado</span><span class="val">${moeda(restituivel)}</span><span class="det">Capital integralizado + fundos individuais − valor em aberto</span></div></div>
+            <div class="kpis"><div class="kpi"><span class="rot">Valor restituível estimado</span><span class="val">${moeda(restituivel)}</span><span class="det">Capital integralizado + fundos + aportes − valor em aberto</span></div></div>
             <ul class="hint" style="margin:0;padding-left:1.1rem;display:grid;gap:.3rem">
               <li>O capital integralizado é devolvido corrigido, junto com sobras e créditos registrados, depois que a Assembleia Geral aprovar o balanço do ano do desligamento. O Conselho de Administração pode parcelar em até 10 vezes (art. 19).</li>
               <li>O saldo do FIC é resgatado no desligamento, também após a aprovação do balanço (art. 78, §5º).</li>
+              <li>Os aportes que você fez à cooperativa também só são devolvidos nesse momento.</li>
               <li>Dívidas com a cooperativa vencem no desligamento e são descontadas (art. 21).</li>
               <li>Os fundos coletivos (Fundo de Reserva, FATES e FEI) são indivisíveis e não são restituídos.</li>
             </ul>
