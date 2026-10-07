@@ -32,11 +32,33 @@
         </div>
       </div></header>
       <div class="app-corpo">
+        <button class="app-nav-botao" id="app-nav-botao" type="button" aria-expanded="false" aria-controls="app-nav"><span class="rot">Seção</span><b id="app-nav-atual"></b><i aria-hidden="true"></i></button>
         <nav class="app-nav" id="app-nav" aria-label="Seções">
           ${chaves.map((k) => (paginas[k].separador ? '<span class="sep" aria-hidden="true"></span>' : "") + `<a href="#${k}" data-k="${k}">${esc(paginas[k].titulo)}<span class="contador" data-cont="${k}" hidden></span></a>`).join("")}
         </nav>
         <main class="app-main" id="pagina" tabindex="-1"></main>
       </div>`;
+
+    const navBotao = $("#app-nav-botao");
+    const fecharNav = () => { $("#app-nav").classList.remove("aberta"); navBotao.setAttribute("aria-expanded", "false"); };
+    navBotao.addEventListener("click", () => { const nav = $("#app-nav"); nav.style.top = Math.round(navBotao.getBoundingClientRect().bottom) + "px"; const ab = nav.classList.toggle("aberta"); navBotao.setAttribute("aria-expanded", String(ab)); });
+    window.addEventListener("scroll", () => { if ($("#app-nav").classList.contains("aberta")) $("#app-nav").style.top = Math.round(navBotao.getBoundingClientRect().bottom) + "px"; }, { passive: true });
+    $("#app-nav").addEventListener("click", (e) => { if (e.target.closest("a")) fecharNav(); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") fecharNav(); });
+
+    // No celular, cada célula de tabela recebe o nome da coluna para virar ficha
+    const rotularTabelas = (raizEl) => {
+      raizEl.querySelectorAll("table.tabela").forEach((t) => {
+        const cabs = [...t.querySelectorAll("thead th")].map((th) => th.textContent.trim());
+        if (!cabs.length) return;
+        t.classList.add("tabela-fichas");
+        t.querySelectorAll("tbody tr, tfoot tr").forEach((tr) => {
+          let i = 0;
+          [...tr.children].forEach((td) => { if (!td.hasAttribute("data-rot")) td.setAttribute("data-rot", cabs[i] || ""); i += td.colSpan || 1; });
+        });
+      });
+    };
+    new MutationObserver(() => rotularTabelas($("#pagina"))).observe($("#pagina"), { childList: true, subtree: true });
 
     $("#sair").addEventListener("click", async () => { await API.signOut(); location.replace("entrar.html"); });
 
@@ -59,6 +81,7 @@
       document.querySelectorAll("#app-nav a").forEach((a) => {
         if (a.dataset.k === k) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
       });
+      $("#app-nav-atual").textContent = paginas[k].titulo;
       const alvo = $("#pagina");
       alvo.onclick = null;
       alvo.innerHTML = '<p class="carregando">Carregando…</p>';
@@ -69,7 +92,7 @@
 
     if (opcoes.antes) {
       const parar = await opcoes.antes(ctx, $("#pagina"));
-      if (parar) { $("#app-nav").hidden = true; return; }
+      if (parar) { $("#app-nav").hidden = true; $("#app-nav-botao").hidden = true; return; }
     }
     window.addEventListener("hashchange", () => { render(); window.scrollTo(0, 0); });
     await render();

@@ -231,3 +231,37 @@
 .cnae dt { font-family: var(--mono); font-size: 0.85rem; color: var(--cyan); border-right: 1px solid var(--line); font-variant-numeric: tabular-nums; }
 .cnae dd { font-size: 0.95rem; }
 .cnae .principal dd::after { content: "principal"; margin-left: 0.5rem; font-family: var(--mono); font-size: 0.65rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); border: 1px solid var(--line-2); border-radius: 999px; padding: 0.05rem 0.4rem; }
+
+/* ---------- Celular: ritmo mais curto, botões fáceis de tocar ---------- */
+@media (max-width: 600px) {
+  body { font-size: 1rem; }
+  .secao { padding-block: 2.6rem; }
+  .sec-cab { margin-bottom: 1.5rem; gap: 0.6rem; }
+  .sec-cab h2 { font-size: 1.65rem; line-height: 1.2; }
+  .sec-cab p.muted { font-size: 1rem; }
+  .hero-in { padding-block: 1.6rem 2.4rem; gap: 1rem; }
+  .hero-emblema img { width: min(52%, 12rem); }
+  .hero h1 { font-size: 2.15rem; margin: 0.6rem 0 0.9rem; }
+  .lede { font-size: 1rem; }
+  .acoes { flex-direction: column; margin-top: 1.4rem; }
+  .acoes .btn { width: 100%; justify-content: center; padding-block: 0.85rem; }
+  .specs { width: 100%; margin-top: 1.6rem; }
+  .cartao { padding: 1.15rem; }
+  .servicos article { padding: 1.2rem 1.1rem; }
+  .exigencias li { padding-block: 1.1rem; }
+  .etapas { gap: 1.1rem; margin-bottom: 2.2rem; }
+  .faixa-cooperado { padding: 1.2rem; }
+  .faixa-cooperado .btn { width: 100%; justify-content: center; }
+  .carimbo div { grid-template-columns: 1fr; }
+  .carimbo dt { border-right: 0; padding-bottom: 0; }
+  .carimbo dd { padding-top: 0.25rem; }
+  .contato-form .btn, .form-rodape .btn { width: 100%; justify-content: center; }
+  .pagina-cab { padding-block: 2rem 1.5rem; }
+  .pagina-cab h1 { font-size: 2rem; }
+  .cnae div { grid-template-columns: 1fr; }
+  .cnae dt { border-right: 0; padding-bottom: 0; }
+  .cnae dd { padding-top: 0.2rem; }
+  .marca-rodape img { width: 44px; }
+  .menu a:not(.btn) { padding: 0.95rem 0; }
+  .menu .btn { width: 100%; justify-content: center; }
+}

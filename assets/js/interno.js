@@ -288,7 +288,7 @@
           <p class="muted">${ultimaArq
             ? `A planilha atual é a última enviada: <b>${esc(ultimaArq.nome || "")}</b>, data-base ${data(ultimaArq.data_base)}. Baixe, atualize no Excel e envie de volta: ela passa a ser a nova planilha atual.`
             : "Ainda não há planilha enviada. Envie a planilha financeira completa da BIMCORE; a partir daí, o botão Baixar planilha atual sempre entrega a última versão enviada, com todo o histórico de movimentações."}
-            O site lê a aba <b>Posição</b> (identifica cada cooperado pelo e-mail), as abas mensais e a aba <b>Pagamentos</b>. Cada cooperado vê só a própria conta.</p>
+            O site lê a aba <b>Posição</b> (identifica cada cooperado pelo e-mail ou pelo nome), as abas mensais e a aba <b>Pagamentos</b>. Cada cooperado vê só a própria conta.</p>
 
           <section class="painel">
             <h2>Enviar planilha atualizada</h2>
