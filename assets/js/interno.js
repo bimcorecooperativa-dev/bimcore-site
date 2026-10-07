@@ -1,7 +1,8 @@
 /* Área interna da coordenação */
 (function () {
   "use strict";
-  const { $, esc, data, dataHora, horas, moeda, bytes, mesAtual, acao, confirmar, toast } = window.UI;
+  const UI = window.UI;
+  const { $, esc, data, dataHora, horas, moeda, bytes, mesAtual, acao, confirmar, toast } = UI;
   const API = window.API;
   const TIPOS = API.TIPOS_HORA;
 
@@ -123,21 +124,22 @@
         coops.sort((a, b) => (a.status === b.status ? 0 : a.status === "ativo" ? -1 : 1) || a.nome.localeCompare(b.nome));
         el.innerHTML = `
           <div class="pag-cab"><div><p class="eyebrow">Quadro social</p><h1>Cooperados</h1></div><a class="btn btn-ghost" href="#solicitacoes">Ver solicitações</a></div>
-          <p class="muted">Cooperados admitidos. O papel <b>coordenação</b> dá acesso a esta área interna. Novos pedidos de entrada ficam em Solicitações de admissão.</p>
+          <p class="muted">Cooperados admitidos. O papel <b>coordenação</b> dá acesso a toda a área interna; a marcação <b>Tesouraria</b> dá acesso só à aba Financeiro, para quem atualiza os valores. Novos pedidos de entrada ficam em Solicitações de admissão.</p>
           ${coops.length ? `<div class="tabela-wrap"><table class="tabela">
-            <thead><tr><th>Nome</th><th>Área de atuação</th><th>Desde</th><th>Situação</th><th>Papel</th><th><span class="sr-only">Ações</span></th></tr></thead>
+            <thead><tr><th>Nome</th><th>Área de atuação</th><th>Desde</th><th>Situação</th><th>Papel</th><th>Tesouraria</th><th><span class="sr-only">Ações</span></th></tr></thead>
             <tbody>${coops.map((c) => `<tr data-id="${c.id}">
               <td><b>${esc(c.nome || "(sem nome)")}</b><span class="sub">${esc(c.email)}${c.telefone ? " · " + esc(c.telefone) : ""}</span></td>
               <td>${esc(c.area_atuacao || c.especialidade || "—")}${c.registro_profissional ? `<span class="sub">${esc(c.registro_profissional)}</span>` : ""}</td>
               <td class="num" style="text-align:left">${data(c.data_ingresso)}</td>
               <td><select class="input mini" data-campo="status" aria-label="Situação de ${esc(c.nome)}" ${c.id === ctx.sessao.perfil.id ? "disabled" : ""}><option value="ativo" ${c.status === "ativo" ? "selected" : ""}>ativo</option><option value="desligado" ${c.status === "desligado" ? "selected" : ""}>desligado</option></select></td>
               <td><select class="input mini" data-campo="papel" aria-label="Papel de ${esc(c.nome)}" ${c.id === ctx.sessao.perfil.id ? "disabled" : ""}><option value="cooperado" ${c.papel === "cooperado" ? "selected" : ""}>cooperado</option><option value="coordenacao" ${c.papel === "coordenacao" ? "selected" : ""}>coordenação</option></select></td>
+              <td><label class="ciente" style="margin:0"><input type="checkbox" data-campo="tesouraria" ${c.tesouraria ? "checked" : ""} ${c.id === ctx.sessao.perfil.id ? "disabled" : ""}> <span>acesso</span></label></td>
               <td class="acoes-celula">${c.id === ctx.sessao.perfil.id ? '<span class="hint">você</span>' : '<button class="btn btn-primary btn-sm" data-salvar>Salvar</button>'}</td></tr>`).join("")}</tbody>
           </table></div>` : '<p class="vazio">Nenhum cooperado admitido ainda.</p>'}`;
         el.onclick = async (e) => {
           const b = e.target.closest("[data-salvar]"); if (!b) return;
           const tr = b.closest("tr");
-          const dados = { status: tr.querySelector('[data-campo="status"]').value, papel: tr.querySelector('[data-campo="papel"]').value };
+          const dados = { status: tr.querySelector('[data-campo="status"]').value, papel: tr.querySelector('[data-campo="papel"]').value, tesouraria: tr.querySelector('[data-campo="tesouraria"]').checked };
           if (dados.status === "desligado" && !(await confirmar("Desligar este cooperado? Ele perde o acesso à área do cooperado.", "Desligar"))) return;
           const ok = await acao(b, () => API.cooperados.atualizar(tr.dataset.id, dados), "Cadastro atualizado.");
           if (ok) paginas.cooperados.render(el, ctx);
@@ -268,9 +270,156 @@
       }
     },
 
+    financeiro: {
+      titulo: "Financeiro",
+      separador: true,
+      async render(el, ctx) {
+        const C = API.CAMPOS_FIN;
+        const [coops, posicoes, imps] = await Promise.all([API.cooperados.listar(), API.financeiro.todas(), API.financeiro.importacoes()]);
+        const ativos = coops.filter((c) => c.status === "ativo" || c.status === "desligado");
+        const ultima = {};
+        posicoes.forEach((p) => { const u = ultima[p.cooperado_id]; if (!u || p.data_base > u.data_base) ultima[p.cooperado_id] = p; });
+        const linhasAtuais = Object.values(ultima).sort((a, b) => (a.cooperado_nome || "").localeCompare(b.cooperado_nome || ""));
+        const soma = (k) => linhasAtuais.reduce((a, p) => a + Number(p[k] || 0), 0);
+        let previa = null;
+
+        el.innerHTML = `
+          <div class="pag-cab"><div><p class="eyebrow">Tesouraria</p><h1>Financeiro dos cooperados</h1></div>
+            <button class="btn btn-ghost" id="fin-modelo">Baixar planilha modelo</button></div>
+          <p class="muted">Cada cooperado vê só a própria posição, na aba "Minha conta". Para atualizar, baixe a planilha modelo (ela já vem com todos os cooperados e os últimos valores), altere os números e envie de volta. O sistema identifica cada cooperado pelo e-mail.</p>
+
+          <section class="painel">
+            <h2>Enviar planilha atualizada</h2>
+            <form id="fin-form" class="form-grid" novalidate>
+              <div class="field"><label for="fin-data">Data-base dos valores</label><input class="input" id="fin-data" type="date" value="${UI.hoje()}"></div>
+              <div class="field"><label for="fin-arq">Planilha (.xlsx, .xls ou .csv)</label><input class="input" id="fin-arq" type="file" accept=".xlsx,.xls,.csv"></div>
+              <div class="full"><button class="btn btn-primary" id="fin-ler" type="submit">Ler planilha</button></div>
+            </form>
+            <div id="fin-previa"></div>
+          </section>
+
+          <section class="painel">
+            <h2>Posição atual</h2>
+            ${linhasAtuais.length ? `<div class="tabela-wrap"><table class="tabela">
+              <thead><tr><th>Cooperado</th><th>Data-base</th><th class="num">Capital integralizado</th><th class="num">Contrib. mensal</th><th class="num">Em aberto</th><th class="num">FIC</th><th class="num">13º</th><th class="num">Férias</th></tr></thead>
+              <tbody>${linhasAtuais.map((p) => `<tr><td>${esc(p.cooperado_nome)}</td><td class="num" style="text-align:left">${data(p.data_base)}</td>
+                <td class="num">${moeda(p.capital_integralizado)}<span class="sub">de ${moeda(p.capital_subscrito)}</span></td>
+                <td class="num">${moeda(p.contribuicao_mensal)}</td>
+                <td class="num">${Number(p.valor_em_aberto) > 0 ? `<span class="selo err">${moeda(p.valor_em_aberto)}</span>` : '<span class="selo ok">em dia</span>'}</td>
+                <td class="num">${moeda(p.fic_saldo)}</td><td class="num">${moeda(p.fundo_13)}</td><td class="num">${moeda(p.fundo_ferias)}</td></tr>`).join("")}</tbody>
+              <tfoot><tr><td>Total</td><td></td><td class="num">${moeda(soma("capital_integralizado"))}</td><td class="num">${moeda(soma("contribuicao_mensal"))}</td><td class="num">${moeda(soma("valor_em_aberto"))}</td><td class="num">${moeda(soma("fic_saldo"))}</td><td class="num">${moeda(soma("fundo_13"))}</td><td class="num">${moeda(soma("fundo_ferias"))}</td></tr></tfoot>
+            </table></div>` : '<p class="vazio">Nenhuma posição registrada ainda. Baixe a planilha modelo para começar.</p>'}
+          </section>
+
+          <section class="painel">
+            <h2>Histórico de envios</h2>
+            ${imps.length ? `<div class="tabela-wrap"><table class="tabela">
+              <thead><tr><th>Enviado em</th><th>Data-base</th><th>Arquivo</th><th class="num">Cooperados</th><th>Por</th><th><span class="sr-only">Ações</span></th></tr></thead>
+              <tbody>${imps.map((i) => `<tr><td>${dataHora(i.criado_em)}</td><td>${data(i.data_base)}</td><td>${esc(i.arquivo || "—")}</td><td class="num">${i.linhas}</td><td>${esc(i.criado_nome || "—")}</td>
+                <td class="acoes-celula"><button class="btn btn-danger btn-sm" data-desfazer="${i.id}">Desfazer</button></td></tr>`).join("")}</tbody></table></div>` : '<p class="vazio">Nenhum envio ainda.</p>'}
+          </section>`;
+
+        const norm = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+        const mapa = {}; Object.entries(C).forEach(([k, r]) => { mapa[norm(r)] = k; mapa[norm(r.replace(/\s*\(R\$\)/, ""))] = k; mapa[norm(k)] = k; });
+        const valor = (v) => {
+          if (v === null || v === undefined || v === "") return null;
+          if (typeof v === "number") return Math.round(v * 100) / 100;
+          let t = String(v).replace(/R\$|\s/g, "");
+          if (t.includes(",")) t = t.replace(/\./g, "").replace(",", ".");
+          const n = parseFloat(t); return isNaN(n) ? NaN : Math.round(n * 100) / 100;
+        };
+        const porEmail = {}; coops.forEach((c) => { porEmail[String(c.email).toLowerCase().trim()] = c; });
+
+        $("#fin-modelo").onclick = () => {
+          if (!window.XLSX) return toast("Não foi possível carregar o gerador de planilhas. Recarregue a página.", "err");
+          const cab = ["Nome", "E-mail", ...Object.values(C)];
+          const linhas = ativos.map((c) => { const u = ultima[c.id] || {}; return [c.nome, c.email, ...Object.keys(C).map((k) => (u[k] == null ? "" : u[k]))]; });
+          const ws = XLSX.utils.aoa_to_sheet([cab, ...linhas]);
+          ws["!cols"] = cab.map((h, i) => ({ wch: i < 2 ? 30 : Math.max(14, h.length + 2) }));
+          const inst = XLSX.utils.aoa_to_sheet([
+            ["Como preencher"],
+            ["1. Não altere a coluna E-mail: é por ela que o sistema identifica cada cooperado."],
+            ["2. Valores em reais podem ser digitados como 1234,56 ou 1234.56."],
+            ["3. Deixe em branco o que não se aplica."],
+            ["4. Contribuição mensal: valor que o cooperado deve pagar por mês (art. 23, §4º: 1,5% das retiradas ou 1 quota-parte se não houver retiradas)."],
+            ["5. Valor em aberto: total que o cooperado deve hoje à cooperativa."],
+            ["6. Fundos individuais: FIC (art. 78), 13º e férias (art. 79)."],
+            ["7. Salve e envie em bimcore.com.br, Área interna > Financeiro, informando a data-base."]
+          ]);
+          inst["!cols"] = [{ wch: 110 }];
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, "Posição");
+          XLSX.utils.book_append_sheet(wb, inst, "Instruções");
+          XLSX.writeFile(wb, `bimcore-posicao-financeira-${UI.hoje()}.xlsx`);
+        };
+
+        $("#fin-form").addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const arq = $("#fin-arq").files[0];
+          if (!arq) return toast("Escolha a planilha.", "err");
+          if (!$("#fin-data").value) return toast("Informe a data-base.", "err");
+          if (!window.XLSX) return toast("Não foi possível carregar o leitor de planilhas. Recarregue a página.", "err");
+          let wb;
+          try { wb = XLSX.read(await arq.arrayBuffer(), { type: "array" }); } catch (err) { return toast("Não consegui ler esse arquivo. Envie em .xlsx, .xls ou .csv.", "err"); }
+          const nomeAba = wb.SheetNames.find((n) => norm(n) === "posicao") || wb.SheetNames[0];
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets[nomeAba], { defval: "", raw: true });
+          if (!rows.length) return toast("A planilha está vazia.", "err");
+          const cabs = Object.keys(rows[0]);
+          const colEmail = cabs.find((h) => norm(h).includes("email"));
+          if (!colEmail) return toast("Não encontrei a coluna E-mail. Use a planilha modelo.", "err");
+          const colunas = {}; cabs.forEach((h) => { const k = mapa[norm(h)]; if (k) colunas[k] = h; });
+          const reconhecidas = Object.keys(colunas).length;
+          const vistos = new Set();
+          previa = rows.filter((r) => String(r[colEmail]).trim()).map((r, i) => {
+            const email = String(r[colEmail]).toLowerCase().trim();
+            const c = porEmail[email];
+            const lin = { _n: i + 2, _email: email, _coop: c, _erros: [] };
+            if (!c) lin._erros.push("e-mail não cadastrado");
+            else if (vistos.has(c.id)) lin._erros.push("cooperado repetido na planilha");
+            if (c) vistos.add(c.id);
+            Object.entries(colunas).forEach(([k, h]) => {
+              if (k === "observacao") { lin[k] = String(r[h] || "").slice(0, 1000) || null; return; }
+              const v = valor(r[h]);
+              if (Number.isNaN(v)) lin._erros.push(`valor inválido em "${h}"`);
+              else lin[k] = k === "meses_em_atraso" && v != null ? Math.round(v) : v;
+            });
+            return lin;
+          });
+          const boas = previa.filter((l) => !l._erros.length);
+          $("#fin-previa").innerHTML = `
+            <div class="notice ${boas.length === previa.length ? "ok" : "warn"}" style="margin-top:1rem">
+              ${reconhecidas} colunas reconhecidas. ${boas.length} de ${previa.length} linhas prontas para importar${previa.length - boas.length ? `; ${previa.length - boas.length} com problema (não serão importadas)` : ""}.
+            </div>
+            <div class="tabela-wrap" style="margin-top:1rem"><table class="tabela">
+              <thead><tr><th>Linha</th><th>Cooperado</th><th class="num">Capital integralizado</th><th class="num">Contrib. mensal</th><th class="num">Em aberto</th><th class="num">FIC</th><th>Situação</th></tr></thead>
+              <tbody>${previa.map((l) => `<tr><td class="num" style="text-align:left">${l._n}</td>
+                <td>${l._coop ? esc(l._coop.nome) : "—"}<span class="sub">${esc(l._email)}</span></td>
+                <td class="num">${moeda(l.capital_integralizado)}</td><td class="num">${moeda(l.contribuicao_mensal)}</td><td class="num">${moeda(l.valor_em_aberto)}</td><td class="num">${moeda(l.fic_saldo)}</td>
+                <td>${l._erros.length ? `<span class="selo err">${esc(l._erros.join("; "))}</span>` : '<span class="selo ok">ok</span>'}</td></tr>`).join("")}</tbody>
+            </table></div>
+            <div class="sol-acoes" style="margin-top:1rem">
+              <button class="btn btn-primary" id="fin-confirmar" ${boas.length ? "" : "disabled"}>Confirmar importação de ${boas.length} cooperado(s)</button>
+              <button class="btn btn-ghost" id="fin-cancelar">Cancelar</button>
+            </div>`;
+          $("#fin-cancelar").onclick = () => { previa = null; $("#fin-previa").innerHTML = ""; };
+          $("#fin-confirmar").onclick = async (ev) => {
+            const linhas = boas.map((l) => { const o = { cooperado_id: l._coop.id }; Object.keys(C).forEach((k) => { if (k in l) o[k] = l[k]; }); return o; });
+            const ok = await acao(ev.currentTarget, () => API.financeiro.importar({ data_base: $("#fin-data").value, arquivo: arq.name, linhas }), "Posição financeira atualizada.");
+            if (ok) paginas.financeiro.render(el, ctx);
+          };
+        });
+
+        el.onclick = async (e) => {
+          const b = e.target.closest("[data-desfazer]"); if (!b) return;
+          if (!(await confirmar("Desfazer este envio? As posições dessa planilha deixam de aparecer para os cooperados.", "Desfazer"))) return;
+          const ok = await acao(b, () => API.financeiro.excluirImportacao(b.dataset.desfazer), "Envio desfeito.");
+          if (ok) paginas.financeiro.render(el, ctx);
+        };
+      }
+    },
+
     comunicados: {
       titulo: "Comunicados",
-      separador: true,
       async render(el) {
         const coms = await API.comunicados.listar();
         el.innerHTML = `
@@ -368,5 +517,9 @@
     document.body.appendChild(a); a.click(); a.remove();
   }
 
-  window.App.iniciar({ area: "interno", paginas });
+  window.App.iniciar({
+    area: "interno",
+    paginas,
+    filtrar: (todas, { coord }) => (coord ? todas : { financeiro: { ...todas.financeiro, separador: false } })
+  });
 })();

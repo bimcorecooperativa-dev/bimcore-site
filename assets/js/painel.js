@@ -115,6 +115,83 @@
       }
     },
 
+    conta: {
+      titulo: "Minha conta",
+      async render(el) {
+        const { moeda } = window.UI;
+        const pos = await API.financeiro.minhas();
+        if (!pos.length) {
+          el.innerHTML = `<div class="pag-cab"><div><p class="eyebrow">Financeiro</p><h1>Minha conta na cooperativa</h1></div></div>
+            <p class="vazio">A tesouraria ainda não registrou a sua posição financeira. Quando registrar, aqui aparecem seu capital, contribuições, fundos e eventuais pendências.</p>`;
+          return;
+        }
+        const p = pos[0];
+        const n = (k) => Number(p[k] || 0);
+        const aIntegralizar = Math.max(0, n("capital_subscrito") - n("capital_integralizado"));
+        const pct = n("capital_subscrito") ? Math.min(100, (n("capital_integralizado") / n("capital_subscrito")) * 100) : 0;
+        const contribuido = p.contribuicoes_pagas != null ? n("contribuicoes_pagas") : n("capital_integralizado");
+        const emDebito = n("valor_em_aberto") > 0;
+        const fundosInd = n("fic_saldo") + n("fundo_13") + n("fundo_ferias") + n("sobras_a_receber") + n("outros_creditos");
+        const restituivel = Math.max(0, n("capital_integralizado") + fundosInd - n("valor_em_aberto"));
+        const linhaFundo = (rot, k, art) => `<tr><td>${rot}<span class="sub">${art}</span></td><td class="num">${moeda(n(k))}</td></tr>`;
+
+        el.innerHTML = `
+          <div class="pag-cab"><div><p class="eyebrow">Financeiro · posição em ${data(p.data_base)}</p><h1>Minha conta na cooperativa</h1></div>
+            ${emDebito ? `<span class="selo err">Em débito: ${moeda(n("valor_em_aberto"))}</span>` : '<span class="selo ok">Em dia com a cooperativa</span>'}</div>
+
+          <div class="kpis">
+            <div class="kpi"><span class="rot">Contribuição mensal</span><span class="val">${moeda(n("contribuicao_mensal"))}</span><span class="det">Valor que você deve contribuir por mês</span></div>
+            <div class="kpi"><span class="rot">Em aberto</span><span class="val" style="color:${emDebito ? "var(--err)" : "var(--ok)"}">${moeda(n("valor_em_aberto"))}</span><span class="det">${emDebito ? (p.meses_em_atraso ? p.meses_em_atraso + " mês(es) em atraso" : "Regularize com a tesouraria") : "Nenhuma pendência"}</span></div>
+            <div class="kpi"><span class="rot">Total contribuído</span><span class="val">${moeda(contribuido)}</span><span class="det">Acumulado registrado pela tesouraria</span></div>
+            <div class="kpi"><span class="rot">Seus fundos individuais</span><span class="val">${moeda(fundosInd)}</span><span class="det">FIC, 13º, férias e créditos</span></div>
+          </div>
+
+          <section class="painel">
+            <h2>Capital social (quotas-parte)</h2>
+            <dl class="sol-dados">
+              <div><dt>Quotas subscritas</dt><dd class="num">${p.quotas_subscritas != null ? Number(p.quotas_subscritas).toLocaleString("pt-BR") : "—"}</dd></div>
+              <div><dt>Capital subscrito</dt><dd class="num">${moeda(n("capital_subscrito"))}</dd></div>
+              <div><dt>Capital integralizado</dt><dd class="num">${moeda(n("capital_integralizado"))}</dd></div>
+              <div><dt>Falta integralizar</dt><dd class="num">${moeda(aIntegralizar)}</dd></div>
+            </dl>
+            <div class="barra" aria-hidden="true"><i style="width:${pct}%"></i></div>
+            <p class="hint">Além da integralização inicial, a formação do capital continua todo mês: 1,5% das suas retiradas, ou o valor de 1 quota-parte nos meses sem retirada (Estatuto, art. 23, §4º).</p>
+          </section>
+
+          <section class="painel">
+            <h2>Fundos e créditos individuais</h2>
+            <div class="tabela-wrap"><table class="tabela"><tbody>
+              ${linhaFundo("Fundo Individual de Capitalização (FIC)", "fic_saldo", "Aporte da cooperativa e aportes voluntários, com rendimentos (art. 78)")}
+              ${linhaFundo("Fundo de 13º", "fundo_13", "Provisão mensal de 1/12 das retiradas, paga até 20 de dezembro (art. 79)")}
+              ${linhaFundo("Fundo de férias", "fundo_ferias", "Provisão mensal de 1/12 das retiradas, paga no recesso anual (art. 79)")}
+              ${linhaFundo("Sobras a receber", "sobras_a_receber", "Rateio aprovado em Assembleia Geral")}
+              ${linhaFundo("Outros créditos", "outros_creditos", "Demais valores registrados a seu favor")}
+            </tbody><tfoot><tr><td>Total</td><td class="num">${moeda(fundosInd)}</td></tr></tfoot></table></div>
+          </section>
+
+          <section class="painel">
+            <h2>Se você sair da cooperativa</h2>
+            <div class="kpis"><div class="kpi"><span class="rot">Valor restituível estimado</span><span class="val">${moeda(restituivel)}</span><span class="det">Capital integralizado + fundos individuais − valor em aberto</span></div></div>
+            <ul class="hint" style="margin:0;padding-left:1.1rem;display:grid;gap:.3rem">
+              <li>O capital integralizado é devolvido corrigido, junto com sobras e créditos registrados, depois que a Assembleia Geral aprovar o balanço do ano do desligamento. O Conselho de Administração pode parcelar em até 10 vezes (art. 19).</li>
+              <li>O saldo do FIC é resgatado no desligamento, também após a aprovação do balanço (art. 78, §5º).</li>
+              <li>Dívidas com a cooperativa vencem no desligamento e são descontadas (art. 21).</li>
+              <li>Os fundos coletivos (Fundo de Reserva, FATES e FEI) são indivisíveis e não são restituídos.</li>
+            </ul>
+            <p class="hint">Esta é uma estimativa com base na última posição informada. O valor oficial é o apurado no balanço.</p>
+          </section>
+
+          ${p.observacao ? `<div class="notice"><b>Observação da tesouraria:</b> ${esc(p.observacao)}</div>` : ""}
+
+          ${pos.length > 1 ? `<section class="painel"><h2>Histórico</h2><div class="tabela-wrap"><table class="tabela">
+            <thead><tr><th>Data-base</th><th class="num">Capital integralizado</th><th class="num">Em aberto</th><th class="num">FIC</th><th class="num">13º</th><th class="num">Férias</th></tr></thead>
+            <tbody>${pos.map((h) => `<tr><td>${data(h.data_base)}</td><td class="num">${moeda(h.capital_integralizado)}</td><td class="num">${moeda(h.valor_em_aberto)}</td><td class="num">${moeda(h.fic_saldo)}</td><td class="num">${moeda(h.fundo_13)}</td><td class="num">${moeda(h.fundo_ferias)}</td></tr>`).join("")}</tbody>
+          </table></div></section>` : ""}
+
+          <p class="hint">Valores registrados pela tesouraria da BIMCORE, conforme o art. 7º, IV do Estatuto. Dúvidas ou divergências: fale com a tesouraria.</p>`;
+      }
+    },
+
     documentos: {
       titulo: "Documentos",
       async render(el) {

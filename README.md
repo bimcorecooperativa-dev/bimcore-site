@@ -25,7 +25,7 @@ Com `config.js` vazio, tudo funciona com dados de exemplo guardados no navegador
 ## Ligar o banco real (uma vez)
 
 1. Em supabase.com, crie o projeto `bimcore` (região São Paulo).
-2. Em **SQL Editor**, rode `supabase/schema.sql` e depois `supabase/migracao-002-admissao.sql`, nessa ordem.
+2. Em **SQL Editor**, rode `supabase/schema.sql` e depois as migrações `supabase/migracao-002-admissao.sql` e `supabase/migracao-003-financeiro.sql`, nessa ordem.
 3. Em **Authentication > URL Configuration**, coloque `https://bimcore.com.br` em *Site URL* e adicione `https://bimcore.com.br/**` em *Redirect URLs*.
 4. Em **Project Settings > API**, copie *Project URL* e *anon public key* para `assets/js/config.js`.
 5. Publique os arquivos, cadastre-se em `bimcore.com.br/entrar.html` e rode no SQL Editor:
@@ -45,3 +45,4 @@ Envie todo o conteúdo desta pasta (inclusive o `.htaccess`) para `public_html` 
 - Cooperado ativo lê comunicados, documentos e projetos, e vê e lança apenas as próprias horas.
 - Coordenação vê e gerencia tudo. Cooperados não conseguem mudar o próprio papel ou status (bloqueado no banco).
 - Mensagens do site podem ser enviadas por qualquer visitante, mas só a coordenação lê.
+- **Financeiro:** a tesouraria (coordenação ou cooperado com a marcação *Tesouraria*) baixa a planilha modelo em *Área interna > Financeiro*, atualiza os valores e envia de volta. Cada cooperado vê só a própria posição em *Minha conta*. Um envio errado pode ser desfeito no histórico.
