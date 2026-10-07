@@ -23,7 +23,7 @@
     return `<span class="selo ${cls}">IEO ${ieo.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>`;
   };
   const seloStatus = (s) => {
-    const m = { "Em execução": "info", "Concluído": "ok", "Proposta": "warn", "Prospecção": "", "Suspenso": "err", ativo: "ok", pendente: "warn", desligado: "err" };
+    const m = { "Em execução": "info", "Concluído": "ok", "Proposta": "warn", "Prospecção": "", "Suspenso": "err" };
     return `<span class="selo ${m[s] || ""}">${esc(s)}</span>`;
   };
   const opcoes = (lista, atual) => lista.map((v) => `<option ${v === atual ? "selected" : ""}>${esc(v)}</option>`).join("");
@@ -38,12 +38,12 @@
         const hp = prodMes.filter((h) => h.tipo === "produtiva").reduce((a, h) => a + Number(h.horas), 0);
         const execPor = produtivasPorProjeto(prod);
         const emExec = projetos.filter((p) => p.status === "Em execução");
-        const pend = coops.filter((c) => c.status === "pendente").length;
+        const pend = coops.filter((c) => c.status === "pendente" || c.status === "entrevista").length;
         const naoLidas = contatos.filter((c) => !c.lido).length;
         el.innerHTML = `
           <div class="pag-cab"><div><p class="eyebrow">Coordenação</p><h1>Visão geral</h1></div></div>
           <div class="kpis">
-            <div class="kpi"><span class="rot">Cooperados ativos</span><span class="val">${coops.filter((c) => c.status === "ativo").length}</span><span class="det">${pend ? `<a href="#cooperados">${pend} aguardando aprovação</a>` : "Nenhum cadastro pendente"}</span></div>
+            <div class="kpi"><span class="rot">Cooperados ativos</span><span class="val">${coops.filter((c) => c.status === "ativo").length}</span><span class="det">${pend ? `<a href="#solicitacoes">${pend} solicitação(ões) em análise</a>` : "Nenhuma solicitação pendente"}</span></div>
             <div class="kpi"><span class="rot">Projetos em execução</span><span class="val">${emExec.length}</span><span class="det">${projetos.filter((p) => p.status === "Proposta").length} em proposta</span></div>
             <div class="kpi"><span class="rot">Produção no mês</span><span class="val">${horas(hp)}</span><span class="det">Horas técnicas produtivas</span></div>
             <div class="kpi"><span class="rot">Mensagens do site</span><span class="val">${naoLidas}</span><span class="det">${naoLidas ? '<a href="#mensagens">Ver não lidas</a>' : "Tudo lido"}</span></div>
@@ -59,33 +59,88 @@
       }
     },
 
+    solicitacoes: {
+      titulo: "Solicitações de admissão",
+      async contador() { return (await API.cooperados.listar()).filter((c) => c.status === "pendente" || c.status === "entrevista").length; },
+      async render(el, ctx) {
+        const todos = await API.cooperados.listar();
+        const abertas = todos.filter((c) => c.status === "pendente" || c.status === "entrevista")
+          .sort((a, b) => (a.criado_em || "").localeCompare(b.criado_em || ""));
+        const recusadas = todos.filter((c) => c.status === "recusado");
+        const ST = API.STATUS_COOPERADO;
+        el.innerHTML = `
+          <div class="pag-cab"><div><p class="eyebrow">Quadro social</p><h1>Solicitações de admissão</h1></div></div>
+          <p class="muted">Quem pede para entrar na cooperativa aparece aqui e não tem acesso a nada até ser aprovado. Registre o parecer e escolha o próximo passo.</p>
+          ${abertas.length ? abertas.map((c) => `
+            <section class="painel solicitacao" data-id="${c.id}">
+              <div class="painel-cab"><div><h2>${esc(c.nome || "(sem nome)")}</h2><span class="hint">Solicitação de ${data(c.criado_em)} · ${esc(c.email)}</span></div>
+                <span class="selo ${c.status === "entrevista" ? "info" : "warn"}">${esc(ST[c.status])}</span></div>
+              <dl class="sol-dados">
+                <div><dt>Área pretendida</dt><dd>${esc(c.area_atuacao || c.especialidade || "—")}</dd></div>
+                <div><dt>Formação</dt><dd>${esc(c.formacao || "—")}</dd></div>
+                <div><dt>Registro profissional</dt><dd>${esc(c.registro_profissional || "—")}</dd></div>
+                <div><dt>Cidade</dt><dd>${esc(c.cidade || "—")}</dd></div>
+                <div><dt>Telefone</dt><dd>${c.telefone ? `<a href="https://wa.me/55${esc(String(c.telefone).replace(/\D/g, "").replace(/^55/, ""))}" target="_blank" rel="noopener">${esc(c.telefone)}</a>` : "—"}</dd></div>
+                <div><dt>Currículo</dt><dd>${c.curriculo_url && /^https?:\/\//i.test(c.curriculo_url) ? `<a href="${esc(c.curriculo_url)}" target="_blank" rel="noopener">Abrir link</a>` : "—"}</dd></div>
+              </dl>
+              <div class="sol-texto"><b>Experiência</b><p>${esc(c.experiencia || "—")}</p></div>
+              <div class="sol-texto"><b>Motivação</b><p>${esc(c.motivacao || "—")}</p></div>
+              <div class="sol-acoes">
+                <div class="field"><label for="obs-${c.id}">Parecer da coordenação</label><textarea class="input" id="obs-${c.id}" style="min-height:4.5rem" maxlength="2000" placeholder="Registro interno da análise">${esc(c.analise_obs || "")}</textarea></div>
+              </div>
+              <div class="sol-acoes">
+                ${c.status === "pendente" ? '<button class="btn btn-ghost btn-sm" data-acao="entrevista">Chamar para conversa</button>' : ""}
+                <button class="btn btn-primary btn-sm" data-acao="ativo">Aprovar admissão</button>
+                <button class="btn btn-danger btn-sm" data-acao="recusado">Não aprovar</button>
+              </div>
+            </section>`).join("") : '<p class="vazio">Nenhuma solicitação aguardando análise.</p>'}
+          ${recusadas.length ? `<section class="painel"><h2>Não aprovadas</h2><div class="tabela-wrap"><table class="tabela">
+            <thead><tr><th>Nome</th><th>Área</th><th>Análise</th><th>Parecer</th><th><span class="sr-only">Ações</span></th></tr></thead>
+            <tbody>${recusadas.map((c) => `<tr data-id="${c.id}"><td>${esc(c.nome)}<span class="sub">${esc(c.email)}</span></td><td>${esc(c.area_atuacao || "—")}</td>
+              <td class="num" style="text-align:left">${data(c.analisado_em)}</td><td>${esc(c.analise_obs || "—")}</td>
+              <td class="acoes-celula"><button class="btn btn-ghost btn-sm" data-acao="pendente">Reabrir</button></td></tr>`).join("")}</tbody></table></div></section>` : ""}`;
+        el.onclick = async (e) => {
+          const b = e.target.closest("[data-acao]"); if (!b) return;
+          const box = b.closest("[data-id]"); const id = box.dataset.id;
+          const novo = b.dataset.acao;
+          const c = todos.find((x) => x.id === id);
+          const obsEl = document.getElementById("obs-" + id);
+          const dados = { status: novo };
+          if (obsEl) dados.analise_obs = obsEl.value.trim();
+          const textos = { ativo: `Aprovar a admissão de ${c.nome}? A pessoa passa a ter acesso à área do cooperado.`, recusado: `Registrar que a admissão de ${c.nome} não foi aprovada?` };
+          if (textos[novo] && !(await confirmar(textos[novo], novo === "ativo" ? "Aprovar" : "Não aprovar"))) return;
+          const msg = { ativo: "Admissão aprovada.", recusado: "Solicitação registrada como não aprovada.", entrevista: "Marcado para conversa.", pendente: "Solicitação reaberta." }[novo];
+          const ok = await acao(b, () => API.cooperados.atualizar(id, dados), msg);
+          if (ok) { ctx.atualizarContadores(); paginas.solicitacoes.render(el, ctx); }
+        };
+      }
+    },
+
     cooperados: {
       titulo: "Cooperados",
-      async contador() { return (await API.cooperados.listar()).filter((c) => c.status === "pendente").length; },
       async render(el, ctx) {
-        const coops = await API.cooperados.listar();
-        const ordem = { pendente: 0, ativo: 1, desligado: 2 };
-        coops.sort((a, b) => ordem[a.status] - ordem[b.status] || a.nome.localeCompare(b.nome));
+        const coops = (await API.cooperados.listar()).filter((c) => c.status === "ativo" || c.status === "desligado");
+        coops.sort((a, b) => (a.status === b.status ? 0 : a.status === "ativo" ? -1 : 1) || a.nome.localeCompare(b.nome));
         el.innerHTML = `
-          <div class="pag-cab"><div><p class="eyebrow">Quadro social</p><h1>Cooperados</h1></div></div>
-          <p class="muted">Aprove novos cadastros mudando o status para <b>ativo</b>. O papel <b>coordenação</b> dá acesso a esta área interna.</p>
-          <div class="tabela-wrap"><table class="tabela">
-            <thead><tr><th>Nome</th><th>Especialidade</th><th>Desde</th><th>Status</th><th>Papel</th><th><span class="sr-only">Ações</span></th></tr></thead>
+          <div class="pag-cab"><div><p class="eyebrow">Quadro social</p><h1>Cooperados</h1></div><a class="btn btn-ghost" href="#solicitacoes">Ver solicitações</a></div>
+          <p class="muted">Cooperados admitidos. O papel <b>coordenação</b> dá acesso a esta área interna. Novos pedidos de entrada ficam em Solicitações de admissão.</p>
+          ${coops.length ? `<div class="tabela-wrap"><table class="tabela">
+            <thead><tr><th>Nome</th><th>Área de atuação</th><th>Desde</th><th>Situação</th><th>Papel</th><th><span class="sr-only">Ações</span></th></tr></thead>
             <tbody>${coops.map((c) => `<tr data-id="${c.id}">
               <td><b>${esc(c.nome || "(sem nome)")}</b><span class="sub">${esc(c.email)}${c.telefone ? " · " + esc(c.telefone) : ""}</span></td>
-              <td>${esc(c.especialidade || "—")}</td>
+              <td>${esc(c.area_atuacao || c.especialidade || "—")}${c.registro_profissional ? `<span class="sub">${esc(c.registro_profissional)}</span>` : ""}</td>
               <td class="num" style="text-align:left">${data(c.data_ingresso)}</td>
-              <td><select class="input mini" data-campo="status" aria-label="Status de ${esc(c.nome)}">${["pendente", "ativo", "desligado"].map((s) => `<option value="${s}" ${s === c.status ? "selected" : ""}>${s}</option>`).join("")}</select></td>
+              <td><select class="input mini" data-campo="status" aria-label="Situação de ${esc(c.nome)}" ${c.id === ctx.sessao.perfil.id ? "disabled" : ""}><option value="ativo" ${c.status === "ativo" ? "selected" : ""}>ativo</option><option value="desligado" ${c.status === "desligado" ? "selected" : ""}>desligado</option></select></td>
               <td><select class="input mini" data-campo="papel" aria-label="Papel de ${esc(c.nome)}" ${c.id === ctx.sessao.perfil.id ? "disabled" : ""}><option value="cooperado" ${c.papel === "cooperado" ? "selected" : ""}>cooperado</option><option value="coordenacao" ${c.papel === "coordenacao" ? "selected" : ""}>coordenação</option></select></td>
-              <td class="acoes-celula"><button class="btn btn-primary btn-sm" data-salvar>Salvar</button></td></tr>`).join("")}</tbody>
-          </table></div>`;
+              <td class="acoes-celula">${c.id === ctx.sessao.perfil.id ? '<span class="hint">você</span>' : '<button class="btn btn-primary btn-sm" data-salvar>Salvar</button>'}</td></tr>`).join("")}</tbody>
+          </table></div>` : '<p class="vazio">Nenhum cooperado admitido ainda.</p>'}`;
         el.onclick = async (e) => {
           const b = e.target.closest("[data-salvar]"); if (!b) return;
           const tr = b.closest("tr");
-          const dados = { status: tr.querySelector('[data-campo="status"]').value };
-          const papel = tr.querySelector('[data-campo="papel"]'); if (!papel.disabled) dados.papel = papel.value;
+          const dados = { status: tr.querySelector('[data-campo="status"]').value, papel: tr.querySelector('[data-campo="papel"]').value };
+          if (dados.status === "desligado" && !(await confirmar("Desligar este cooperado? Ele perde o acesso à área do cooperado.", "Desligar"))) return;
           const ok = await acao(b, () => API.cooperados.atualizar(tr.dataset.id, dados), "Cadastro atualizado.");
-          if (ok) { ctx.atualizarContadores(); paginas.cooperados.render(el, ctx); }
+          if (ok) paginas.cooperados.render(el, ctx);
         };
       }
     },

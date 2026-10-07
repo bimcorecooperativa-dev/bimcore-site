@@ -13,6 +13,7 @@
     $("#aba-entrar").setAttribute("aria-selected", String(qual === "entrar"));
     $("#aba-cadastro").setAttribute("aria-selected", String(qual === "cadastro"));
     aviso.hidden = true;
+    document.querySelector(".login-caixa").classList.toggle("largo", qual === "cadastro");
     const primeiro = forms[qual].querySelector("input");
     if (primeiro) primeiro.focus();
   };
@@ -42,19 +43,32 @@
     if (ok) location.replace(destino(await API.getSession()));
   });
 
+  // Lista de áreas de atuação
+  const selArea = $("#k-area");
+  API.AREAS.forEach((a) => { const o = document.createElement("option"); o.value = a; o.textContent = a; selArea.appendChild(o); });
+
   forms.cadastro.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const nome = $("#k-nome").value.trim(), email = $("#k-email").value.trim(), senha = $("#k-senha").value;
-    if (!nome || !email) return avisar("Preencha nome e e-mail.", "err");
-    if (senha.length < 8) return avisar("A senha precisa ter pelo menos 8 caracteres.", "err");
-    const r = await acao($("#k-btn"), () => API.signUp(nome, email, senha));
+    const v = (id) => $(id).value.trim();
+    const dados = {
+      nome: v("#k-nome"), telefone: v("#k-tel"), cidade: v("#k-cidade"), area_atuacao: v("#k-area"),
+      formacao: v("#k-form"), registro_profissional: v("#k-reg"), experiencia: v("#k-exp"),
+      curriculo_url: v("#k-cv"), motivacao: v("#k-mot"), email: v("#k-email"), senha: $("#k-senha").value
+    };
+    const faltando = [["nome", "nome"], ["telefone", "telefone"], ["cidade", "cidade"], ["area_atuacao", "área de atuação"], ["formacao", "formação"], ["experiencia", "experiência"], ["motivacao", "motivação"], ["email", "e-mail"]]
+      .filter(([k]) => !dados[k]).map(([, r]) => r);
+    if (faltando.length) return avisar("Preencha: " + faltando.join(", ") + ".", "err");
+    if (dados.curriculo_url && !/^https?:\/\//i.test(dados.curriculo_url)) return avisar("O link do currículo deve começar com https://", "err");
+    if (dados.senha.length < 8) return avisar("A senha precisa ter pelo menos 8 caracteres.", "err");
+    if (!$("#k-ciente").checked) return avisar("Confirme que leu a Política de Privacidade e as condições de admissão.", "err");
+    const r = await acao($("#k-btn"), () => API.signUp(dados));
     if (!r) return;
     forms.cadastro.reset();
     mostrar("entrar");
-    $("#e-email").value = email;
+    $("#e-email").value = dados.email;
     avisar(r.precisaConfirmar
-      ? "Cadastro criado. Abra o link que enviamos para " + email + " para confirmar o e-mail. Depois disso, a coordenação aprova o seu acesso."
-      : "Cadastro criado. Você já pode entrar; a coordenação vai aprovar o seu acesso.", "ok");
+      ? "Solicitação enviada. Abra o link que enviamos para " + dados.email + " para confirmar o e-mail. Depois disso, a coordenação analisa seu perfil e entra em contato."
+      : "Solicitação enviada. A coordenação vai analisar seu perfil e entrar em contato. Você pode entrar para acompanhar.", "ok");
   });
 
   forms.recuperar.addEventListener("submit", async (e) => {

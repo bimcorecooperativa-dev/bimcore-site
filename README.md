@@ -25,7 +25,7 @@ Com `config.js` vazio, tudo funciona com dados de exemplo guardados no navegador
 ## Ligar o banco real (uma vez)
 
 1. Em supabase.com, crie o projeto `bimcore` (região São Paulo).
-2. Em **SQL Editor**, cole todo o `supabase/schema.sql` e clique em **Run**.
+2. Em **SQL Editor**, rode `supabase/schema.sql` e depois `supabase/migracao-002-admissao.sql`, nessa ordem.
 3. Em **Authentication > URL Configuration**, coloque `https://bimcore.com.br` em *Site URL* e adicione `https://bimcore.com.br/**` em *Redirect URLs*.
 4. Em **Project Settings > API**, copie *Project URL* e *anon public key* para `assets/js/config.js`.
 5. Publique os arquivos, cadastre-se em `bimcore.com.br/entrar.html` e rode no SQL Editor:
@@ -41,7 +41,7 @@ Envie todo o conteúdo desta pasta (inclusive o `.htaccess`) para `public_html` 
 
 ## Regras de acesso
 
-- Novo cadastro entra como **pendente** e só vê a tela de espera até a coordenação mudar para **ativo**.
+- Quem quer entrar envia uma **solicitação de admissão** (área, formação, registro, experiência, motivação). Ela fica **em análise** e só vê a tela de acompanhamento. A coordenação avalia na aba *Solicitações de admissão*: chamar para conversa, aprovar ou não aprovar, com parecer interno.
 - Cooperado ativo lê comunicados, documentos e projetos, e vê e lança apenas as próprias horas.
 - Coordenação vê e gerencia tudo. Cooperados não conseguem mudar o próprio papel ou status (bloqueado no banco).
 - Mensagens do site podem ser enviadas por qualquer visitante, mas só a coordenação lê.

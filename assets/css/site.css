@@ -219,3 +219,15 @@
 .diretoria span { color: var(--muted); font-size: 0.92rem; }
 .duas-col { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(1.5rem, 4vw, 3rem); align-items: start; }
 @media (max-width: 860px) { .duas-col { grid-template-columns: 1fr; } }
+.areas-lista { margin: 0.6rem 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.35rem 1.5rem; }
+.areas-lista li { position: relative; padding-left: 1rem; color: var(--fg); font-size: 0.95rem; }
+.areas-lista li::before { content: ""; position: absolute; left: 0; top: 0.6em; width: 6px; height: 6px; border-radius: 50%; background: var(--cyan); }
+@media (max-width: 640px) { .areas-lista { grid-template-columns: 1fr; } }
+.faixa-cooperado { align-items: flex-end; }
+.cnae { display: grid; gap: 0; border: 1px solid var(--line-2); border-radius: var(--radius); background: var(--panel); }
+.cnae div { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); border-bottom: 1px solid var(--line); }
+.cnae div:last-child { border-bottom: 0; }
+.cnae dt, .cnae dd { margin: 0; padding: 0.6rem 0.9rem; }
+.cnae dt { font-family: var(--mono); font-size: 0.85rem; color: var(--cyan); border-right: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.cnae dd { font-size: 0.95rem; }
+.cnae .principal dd::after { content: "principal"; margin-left: 0.5rem; font-family: var(--mono); font-size: 0.65rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); border: 1px solid var(--line-2); border-radius: 999px; padding: 0.05rem 0.4rem; }

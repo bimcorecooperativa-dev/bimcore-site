@@ -17,6 +17,28 @@
   const STATUS_PROJETO = ["Prospecção", "Proposta", "Em execução", "Concluído", "Suspenso"];
   const MODALIDADES = ["Acordo de cooperação técnica", "Convênio", "Licitação", "Contratação direta", "Mercado privado"];
   const CATEGORIAS_DOC = ["Estatuto e atas", "Regimentos e manuais", "Contratos e convênios", "Modelos técnicos", "Outros"];
+  /* Frentes de atuação dos cooperados, a partir dos CNAEs da cooperativa */
+  const AREAS = [
+    "Projetos de arquitetura e urbanismo",
+    "Projetos de engenharia (estrutural, instalações, infraestrutura)",
+    "Modelagem e coordenação BIM",
+    "Implantação de BIM e consultoria técnica",
+    "Orçamento, planejamento e controle de obras",
+    "Administração e fiscalização de obras",
+    "Topografia, cartografia e geologia",
+    "Segurança do trabalho e perícias",
+    "Testes, ensaios e análises técnicas",
+    "Desenho técnico e design",
+    "Pesquisa, desenvolvimento e tecnologia",
+    "Treinamento e capacitação profissional",
+    "Administração, finanças e contabilidade",
+    "Jurídico (licitações, contratos, cooperativismo)",
+    "Comunicação e relações institucionais",
+    "Tecnologia da informação",
+    "Outra"
+  ];
+  const STATUS_COOPERADO = { pendente: "Em análise", entrevista: "Entrevista", ativo: "Ativo", recusado: "Não aprovado", desligado: "Desligado" };
+  const CAMPOS_SOLICITACAO = ["nome", "telefone", "cidade", "area_atuacao", "formacao", "registro_profissional", "curriculo_url", "experiencia", "motivacao"];
 
   const traduzErro = (msg) => {
     const m = String(msg || "");
@@ -35,7 +57,7 @@
   /* Motor de demonstração                                               */
   /* ------------------------------------------------------------------ */
   function demoApi() {
-    const KEY = "bimcore-demo-v2";
+    const KEY = "bimcore-demo-v3";
     const SKEY = "bimcore-demo-sessao";
     const novoId = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
     const hoje = new Date();
@@ -47,7 +69,7 @@
         perfis: [
           { id: "u-coord", nome: "Coordenação (exemplo)", email: "coordenacao@bimcore.demo", senha: "demo1234", telefone: "", especialidade: "Orçamento e planejamento", papel: "coordenacao", status: "ativo", data_ingresso: dia(-200), criado_em: dia(-200) },
           { id: "u-coop", nome: "Cooperada Exemplo", email: "cooperado@bimcore.demo", senha: "demo1234", telefone: "", especialidade: "Modelagem de arquitetura", papel: "cooperado", status: "ativo", data_ingresso: dia(-90), criado_em: dia(-90) },
-          { id: "u-pend", nome: "Candidato Exemplo", email: "novo@bimcore.demo", senha: "demo1234", telefone: "", especialidade: "Instalações (MEP)", papel: "cooperado", status: "pendente", data_ingresso: null, criado_em: dia(-2) }
+          { id: "u-pend", nome: "Candidato Exemplo", email: "novo@bimcore.demo", senha: "demo1234", telefone: "(22) 90000-0000", cidade: "Cabo Frio/RJ", area_atuacao: "Projetos de engenharia (estrutural, instalações, infraestrutura)", especialidade: "Projetos de engenharia (estrutural, instalações, infraestrutura)", formacao: "Engenharia elétrica", registro_profissional: "CREA-RJ (exemplo)", curriculo_url: "", experiencia: "Cinco anos em projetos elétricos prediais e modelagem MEP.", motivacao: "Quero trabalhar em projetos públicos com remuneração justa e formação continuada.", papel: "cooperado", status: "pendente", data_ingresso: null, criado_em: dia(-2) }
         ],
         projetos: [
           { id: p1, nome: "Piloto BIM – Escola municipal (exemplo)", orgao: "Prefeitura (exemplo)", municipio: "Baixada Litorânea", modalidade: "Acordo de cooperação técnica", status: "Em execução", lod: "LOD 400", horas_orcadas: 320, valor: null, inicio: dia(-40), fim: dia(50), criado_em: dia(-40) },
@@ -103,11 +125,15 @@
         try { localStorage.setItem(SKEY, u.id); } catch (e) {}
         return espera(true);
       },
-      async signUp(nome, email, senha) {
+      async signUp(dados) {
         const s = ler();
+        const email = String(dados.email).trim(), senha = dados.senha;
         if (String(senha).length < 8) falha("Password should be at least 8");
         if (s.perfis.some((p) => p.email.toLowerCase() === email.toLowerCase())) falha("already registered");
-        s.perfis.push({ id: novoId(), nome, email, senha, telefone: "", especialidade: "", papel: "cooperado", status: "pendente", data_ingresso: null, criado_em: new Date().toISOString() });
+        const p = { id: novoId(), email, senha, papel: "cooperado", status: "pendente", data_ingresso: null, criado_em: new Date().toISOString() };
+        CAMPOS_SOLICITACAO.forEach((k) => { p[k] = dados[k] || ""; });
+        p.especialidade = p.area_atuacao;
+        s.perfis.push(p);
         gravar(s);
         return espera({ precisaConfirmar: false });
       },
@@ -133,7 +159,8 @@
         async atualizar(id, dados) {
           const s = ler(); exigir(s, true);
           const p = s.perfis.find((x) => x.id === id); if (!p) falha("Cadastro não encontrado.");
-          ["papel", "status"].forEach((k) => { if (k in dados) p[k] = dados[k]; });
+          if ("status" in dados && dados.status !== p.status) p.analisado_em = new Date().toISOString();
+          ["papel", "status", "analise_obs"].forEach((k) => { if (k in dados) p[k] = dados[k]; });
           if (p.status === "ativo" && !p.data_ingresso) p.data_ingresso = new Date().toISOString().slice(0, 10);
           gravar(s); return espera(semSenha(p));
         }
@@ -230,8 +257,9 @@
         return { user: data.session.user, perfil: perfil || { id: data.session.user.id, email: data.session.user.email, nome: "", papel: "cooperado", status: "pendente" } };
       },
       async signIn(email, senha) { ok(await sb.auth.signInWithPassword({ email: String(email).trim(), password: senha })); return true; },
-      async signUp(nome, email, senha) {
-        const data = ok(await sb.auth.signUp({ email: String(email).trim(), password: senha, options: { data: { nome }, emailRedirectTo: base() + "entrar.html" } }));
+      async signUp(dados) {
+        const meta = {}; CAMPOS_SOLICITACAO.forEach((k) => { if (dados[k]) meta[k] = String(dados[k]).trim(); });
+        const data = ok(await sb.auth.signUp({ email: String(dados.email).trim(), password: dados.senha, options: { data: meta, emailRedirectTo: base() + "entrar.html" } }));
         return { precisaConfirmar: !data.session };
       },
       async signOut() { await sb.auth.signOut(); return true; },
@@ -249,7 +277,7 @@
       cooperados: {
         async listar() { return ok(await sb.from("perfis").select("*").order("nome")); },
         async atualizar(id, dados) {
-          const limpo = {}; ["papel", "status"].forEach((k) => { if (k in dados) limpo[k] = dados[k]; });
+          const limpo = {}; ["papel", "status", "analise_obs"].forEach((k) => { if (k in dados) limpo[k] = dados[k]; });
           return ok(await sb.from("perfis").update(limpo).eq("id", id).select().single());
         }
       },
@@ -331,5 +359,7 @@
   api.STATUS_PROJETO = STATUS_PROJETO;
   api.MODALIDADES = MODALIDADES;
   api.CATEGORIAS_DOC = CATEGORIAS_DOC;
+  api.AREAS = AREAS;
+  api.STATUS_COOPERADO = STATUS_COOPERADO;
   window.API = api;
 })();

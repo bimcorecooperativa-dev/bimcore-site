@@ -188,12 +188,27 @@
     area: "cooperado",
     paginas,
     async antes(ctx, el) {
-      const st = ctx.sessao.perfil.status;
-      if (st === "ativo") return false;
-      el.innerHTML = st === "desligado"
-        ? '<div class="painel"><h1 style="font-size:1.5rem">Acesso encerrado</h1><p class="muted">Seu cadastro está desligado da cooperativa. Em caso de dúvida, fale com a coordenação pelo e-mail bimcorecooperativa@gmail.com.</p></div>'
-        : `<div class="painel"><p class="eyebrow">Cadastro recebido</p><h1 style="font-size:1.5rem">Aguardando aprovação</h1>
-            <p class="muted">Olá, ${esc(ctx.sessao.perfil.nome || "")}. A coordenação da BIMCORE vai analisar seu cadastro e liberar o acesso. Enquanto isso, você pode falar com a gente pelo WhatsApp (22) 99874-5742.</p></div>`;
+      const p = ctx.sessao.perfil;
+      if (p.status === "ativo") return false;
+      const resumo = `<dl class="sol-dados">
+          <div><dt>Área pretendida</dt><dd>${esc(p.area_atuacao || "—")}</dd></div>
+          <div><dt>Formação</dt><dd>${esc(p.formacao || "—")}</dd></div>
+          <div><dt>Enviada em</dt><dd>${data(p.criado_em)}</dd></div>
+        </dl>`;
+      const textos = {
+        pendente: ["Solicitação em análise", `Olá, ${esc((p.nome || "").split(" ")[0])}. Recebemos sua solicitação de admissão. A coordenação da BIMCORE vai analisar seu perfil e entrar em contato pelo telefone ou e-mail informados.`],
+        entrevista: ["Etapa de conversa", `Olá, ${esc((p.nome || "").split(" ")[0])}. Seu perfil passou pela primeira análise. A coordenação vai entrar em contato para marcar uma conversa sobre a admissão.`],
+        recusado: ["Solicitação não aprovada", "Neste momento a cooperativa não vai prosseguir com a sua admissão. Agradecemos o interesse na BIMCORE."],
+        desligado: ["Acesso encerrado", "Seu vínculo com a cooperativa foi encerrado."]
+      };
+      const [titulo, texto] = textos[p.status] || textos.pendente;
+      el.innerHTML = `<section class="painel">
+          <p class="eyebrow">Admissão</p>
+          <h1 style="font-size:1.5rem">${titulo}</h1>
+          <p class="muted">${texto}</p>
+          ${p.status === "pendente" || p.status === "entrevista" ? resumo : ""}
+          <p class="hint">Dúvidas: WhatsApp (22) 99874-5742 ou bimcorecooperativa@gmail.com.</p>
+        </section>`;
       return true;
     }
   });

@@ -124,3 +124,20 @@ table.tabela { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
 .filtros { display: flex; gap: 0.8rem; flex-wrap: wrap; align-items: end; }
 .filtros .field { min-width: 10rem; }
 select.mini { padding: 0.4rem 0.5rem; font-size: 0.85rem; width: auto; }
+
+/* Solicitação de admissão */
+.login-caixa.largo { width: min(100%, 38rem); }
+.grupo { border: 0; border-top: 1px solid var(--line); margin: 0; padding: 1rem 0 0; display: grid; gap: 0.9rem; min-width: 0; }
+.grupo legend { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--cyan); padding-right: 0.6rem; }
+.ciente { display: flex; gap: 0.6rem; align-items: flex-start; font-size: 0.88rem; color: var(--muted); }
+.ciente input { margin-top: 0.25rem; accent-color: var(--sapphire); }
+.solicitacao { display: grid; gap: 1rem; }
+.sol-dados { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0.6rem 1.5rem; margin: 0; }
+.sol-dados div { min-width: 0; }
+.sol-dados dt { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
+.sol-dados dd { margin: 0.1rem 0 0; overflow-wrap: anywhere; }
+.sol-texto { display: grid; gap: 0.3rem; }
+.sol-texto b { font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+.sol-texto p { white-space: pre-line; }
+.sol-acoes { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: end; }
+.sol-acoes .field { flex: 1 1 18rem; }

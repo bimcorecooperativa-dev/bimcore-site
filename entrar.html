@@ -26,7 +26,7 @@
     <div class="login-cartao">
       <div class="abas-login" role="tablist">
         <button role="tab" id="aba-entrar" aria-selected="true" aria-controls="form-entrar">Entrar</button>
-        <button role="tab" id="aba-cadastro" aria-selected="false" aria-controls="form-cadastro">Criar cadastro</button>
+        <button role="tab" id="aba-cadastro" aria-selected="false" aria-controls="form-cadastro">Quero ser cooperado</button>
       </div>
 
       <form id="form-entrar" novalidate>
@@ -37,11 +37,33 @@
       </form>
 
       <form id="form-cadastro" novalidate hidden>
-        <p class="hint">Depois do cadastro, a coordenação aprova o seu acesso. Você recebe a confirmação por e-mail.</p>
-        <div class="field"><label for="k-nome">Nome completo</label><input class="input" id="k-nome" autocomplete="name" required></div>
-        <div class="field"><label for="k-email">E-mail</label><input class="input" id="k-email" type="email" autocomplete="email" required></div>
-        <div class="field"><label for="k-senha">Senha</label><input class="input" id="k-senha" type="password" autocomplete="new-password" minlength="8" required><span class="hint">Mínimo de 8 caracteres.</span></div>
-        <button class="btn btn-primary" type="submit" id="k-btn">Criar cadastro</button>
+        <div class="notice">
+          <b>Admissão na cooperativa</b>
+          <p class="hint" style="margin-top:.3rem">Este formulário é uma <b>solicitação</b>. A coordenação analisa o perfil, pode chamar para uma conversa e decide a admissão conforme o Estatuto Social, que prevê a subscrição de quotas-parte. O acesso à área do cooperado só é liberado depois da aprovação.</p>
+        </div>
+        <fieldset class="grupo"><legend>Seus dados</legend>
+          <div class="field"><label for="k-nome">Nome completo</label><input class="input" id="k-nome" autocomplete="name" maxlength="120" required></div>
+          <div class="form-grid">
+            <div class="field"><label for="k-tel">Telefone / WhatsApp</label><input class="input" id="k-tel" type="tel" autocomplete="tel" maxlength="40" placeholder="(22) 90000-0000" required></div>
+            <div class="field"><label for="k-cidade">Cidade / UF</label><input class="input" id="k-cidade" autocomplete="address-level2" maxlength="120" placeholder="Araruama/RJ" required></div>
+          </div>
+        </fieldset>
+        <fieldset class="grupo"><legend>Atuação profissional</legend>
+          <div class="field"><label for="k-area">Área em que pretende atuar</label><select class="input" id="k-area" required><option value="">Selecione</option></select></div>
+          <div class="form-grid">
+            <div class="field"><label for="k-form">Formação</label><input class="input" id="k-form" maxlength="200" placeholder="Ex.: Engenharia civil, Direito, Administração" required></div>
+            <div class="field"><label for="k-reg">Registro profissional <span class="muted">(se houver)</span></label><input class="input" id="k-reg" maxlength="80" placeholder="CREA, CAU, OAB, CRA, CRC…"></div>
+          </div>
+          <div class="field"><label for="k-exp">Experiência</label><textarea class="input" id="k-exp" maxlength="3000" required placeholder="Resuma sua trajetória, softwares que domina e trabalhos de destaque."></textarea></div>
+          <div class="field"><label for="k-cv">Currículo ou LinkedIn <span class="muted">(link, opcional)</span></label><input class="input" id="k-cv" type="url" maxlength="300" placeholder="https://"></div>
+          <div class="field"><label for="k-mot">Por que quer ser cooperado da BIMCORE?</label><textarea class="input" id="k-mot" maxlength="3000" required></textarea></div>
+        </fieldset>
+        <fieldset class="grupo"><legend>Acesso</legend>
+          <div class="field"><label for="k-email">E-mail</label><input class="input" id="k-email" type="email" autocomplete="email" maxlength="160" required></div>
+          <div class="field"><label for="k-senha">Senha</label><input class="input" id="k-senha" type="password" autocomplete="new-password" minlength="8" required><span class="hint">Mínimo de 8 caracteres. Você vai usar para acompanhar a solicitação.</span></div>
+        </fieldset>
+        <label class="ciente"><input type="checkbox" id="k-ciente"> <span>Li a <a href="privacidade.html" target="_blank">Política de Privacidade</a> e entendo que a admissão depende de aprovação da cooperativa.</span></label>
+        <button class="btn btn-primary" type="submit" id="k-btn">Enviar solicitação</button>
       </form>
 
       <form id="form-recuperar" novalidate hidden>
