@@ -246,17 +246,18 @@
         }
       },
       financeiro: {
-        async minhas() { const s = ler(); const u = exigir(s); return espera((s.fin_posicoes || []).filter((p) => p.cooperado_id === u.id).sort((a, b) => b.data_base.localeCompare(a.data_base))); },
+        async minhas() { const s = ler(); const u = exigir(s); return espera((s.fin_posicoes || []).filter((p) => p.cooperado_id === u.id).sort((a, b) => b.data_base.localeCompare(a.data_base) || String(b.criado_em || "").localeCompare(String(a.criado_em || "")))); },
         async todas() { const s = ler(); exigir(s, "tes"); return espera((s.fin_posicoes || []).map((p) => ({ ...p, cooperado_nome: nomePessoa(s, p.cooperado_id) }))); },
         async importacoes() { const s = ler(); exigir(s, "tes"); return espera([...(s.fin_importacoes || [])].sort((a, b) => b.criado_em.localeCompare(a.criado_em))); },
-        async importar({ data_base, arquivo, linhas, pendentes }) {
+        async importar({ data_base, arquivo, linhas, pendentes, incorporar }) {
           const s = ler(); const u = exigir(s, "tes");
           let dataUrl = null;
           if (arquivo && arquivo.size < 1.5 * 1024 * 1024) dataUrl = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => ok(null); r.readAsDataURL(arquivo); });
           const imp = { id: novoId(), data_base, arquivo: arquivo ? arquivo.name : "", caminho_arquivo: dataUrl, linhas: linhas.length, criado_nome: u.nome, criado_em: new Date().toISOString() };
           s.fin_importacoes = s.fin_importacoes || []; s.fin_posicoes = s.fin_posicoes || [];
           s.fin_importacoes.push(imp);
-          linhas.forEach((l) => s.fin_posicoes.push({ ...l, id: novoId(), importacao_id: imp.id, data_base }));
+          linhas.forEach((l) => s.fin_posicoes.push({ ...l, id: novoId(), importacao_id: imp.id, data_base, criado_em: imp.criado_em }));
+          (s.fin_movimentos || []).forEach((m) => { if ((incorporar || []).includes(m.codigo) && m.status === "confirmado" && !m.incorporado_em) m.incorporado_em = imp.id; });
           gravar(s); return espera(true);
         },
         async ultimaPlanilha() {
@@ -268,8 +269,40 @@
           const s = ler(); exigir(s, "tes");
           s.fin_importacoes = s.fin_importacoes.filter((i) => i.id !== id);
           s.fin_posicoes = s.fin_posicoes.filter((p) => p.importacao_id !== id);
+          (s.fin_movimentos || []).forEach((m) => { if (m.incorporado_em === id) m.incorporado_em = null; });
           gravar(s); return espera(true);
         }
+      },
+      movimentos: {
+        async meus() { const s = ler(); const u = exigir(s); return espera((s.fin_movimentos || []).filter((m) => m.cooperado_id === u.id).sort((a, b) => b.criado_em.localeCompare(a.criado_em))); },
+        async todos() { const s = ler(); exigir(s, "tes"); return espera((s.fin_movimentos || []).map((m) => ({ ...m, cooperado_nome: nomePessoa(s, m.cooperado_id) })).sort((a, b) => b.criado_em.localeCompare(a.criado_em))); },
+        async pagarPix({ codigo, valor, alocacao, comprovante }) {
+          const s = ler(); const u = exigir(s); if (u.status !== "ativo") falha("permission denied");
+          s.fin_movimentos = s.fin_movimentos || [];
+          s.fin_movimentos.push({ id: novoId(), codigo, cooperado_id: u.id, tipo: "pix", valor, alocacao, status: "aguardando", comprovante: comprovante ? comprovante.name : null, criado_em: new Date().toISOString() });
+          gravar(s); return espera(true);
+        },
+        async cancelarPix(id) {
+          const s = ler(); const u = exigir(s); const m = (s.fin_movimentos || []).find((x) => x.id === id && x.cooperado_id === u.id && x.status === "aguardando");
+          if (!m) falha("Este Pix não pode mais ser cancelado."); m.status = "cancelado"; m.decidido_em = new Date().toISOString(); m.decidido_nome = "Cancelado pelo cooperado"; gravar(s); return espera(true);
+        },
+        async abater(valor) {
+          const s = ler(); const u = exigir(s); if (u.status !== "ativo") falha("permission denied");
+          const pos = (s.fin_posicoes || []).filter((p) => p.cooperado_id === u.id).sort((a, b) => b.data_base.localeCompare(a.data_base) || String(b.criado_em || "").localeCompare(String(a.criado_em || "")))[0];
+          if (!pos) falha("Ainda não há posição financeira sua no site.");
+          const c = window.Fin.componentes(pos, (s.fin_movimentos || []).filter((m) => m.cooperado_id === u.id));
+          valor = window.Fin.centavos(valor);
+          if (!(valor > 0)) falha("Informe um valor maior que zero.");
+          if (valor > c.maxAbater + 0.005) falha("O valor máximo para abater agora é " + c.maxAbater.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) + ".");
+          s.fin_movimentos = s.fin_movimentos || [];
+          s.fin_movimentos.push({ id: novoId(), codigo: window.Fin.novoCodigo(), cooperado_id: u.id, tipo: "compensacao", valor, alocacao: [{ destino: "integralizacao", valor }], status: "confirmado", decidido_em: new Date().toISOString(), decidido_nome: "Feito pelo cooperado no site", criado_em: new Date().toISOString() });
+          gravar(s); return espera(true);
+        },
+        async decidir(id, status, motivo) {
+          const s = ler(); const u = exigir(s, "tes"); const m = (s.fin_movimentos || []).find((x) => x.id === id && x.status === "aguardando");
+          if (!m) falha("Este Pix já foi decidido."); m.status = status; m.motivo = motivo || null; m.decidido_em = new Date().toISOString(); m.decidido_nome = u.nome; gravar(s); return espera(true);
+        },
+        async comprovante() { falha("No modo demonstração os comprovantes não são guardados."); }
       },
       contatos: {
         async enviar(c) { const s = ler(); s.contatos.push({ tipo: "contato", ...c, nome: c.nome || "Anônimo", id: novoId(), lido: false, criado_em: new Date().toISOString() }); gravar(s); return espera(true); },
@@ -399,14 +432,14 @@
       financeiro: {
         async minhas() {
           const id = await meuId();
-          return ok(await sb.from("financeiro_posicoes").select("*").eq("cooperado_id", id).order("data_base", { ascending: false }));
+          return ok(await sb.from("financeiro_posicoes").select("*").eq("cooperado_id", id).order("data_base", { ascending: false }).order("criado_em", { ascending: false }));
         },
         async todas() {
           const rows = ok(await sb.from("financeiro_posicoes").select("*, perfis(nome)").order("data_base", { ascending: false }));
           return rows.map((p) => ({ ...p, cooperado_nome: p.perfis ? p.perfis.nome : "—" }));
         },
         async importacoes() { return ok(await sb.from("financeiro_importacoes").select("*").order("criado_em", { ascending: false })); },
-        async importar({ data_base, arquivo, linhas, pendentes }) {
+        async importar({ data_base, arquivo, linhas, pendentes, incorporar }) {
           const uid = await meuId();
           const eu = ok(await sb.from("perfis").select("nome").eq("id", uid).single());
           let caminho = null;
@@ -429,6 +462,10 @@
             if (caminho) await sb.storage.from("financeiro").remove([caminho]);
             falha(r.error);
           }
+          if (incorporar && incorporar.length) {
+            const u = await sb.from("financeiro_movimentos").update({ incorporado_em: imp.id }).in("codigo", incorporar).eq("status", "confirmado").is("incorporado_em", null);
+            if (u.error) console.warn("Lançamentos não marcados como incorporados", u.error);
+          }
           return true;
         },
         async ultimaPlanilha() {
@@ -445,6 +482,40 @@
           ok(await sb.from("financeiro_importacoes").delete().eq("id", id));
           if (i && i.caminho_arquivo) await sb.storage.from("financeiro").remove([i.caminho_arquivo]);
           return true;
+        }
+      },
+      movimentos: {
+        async meus() { const id = await meuId(); return ok(await sb.from("financeiro_movimentos").select("*").eq("cooperado_id", id).order("criado_em", { ascending: false })); },
+        async todos() {
+          const rows = ok(await sb.from("financeiro_movimentos").select("*, perfis(nome, email)").order("criado_em", { ascending: false }).limit(500));
+          return rows.map((m) => ({ ...m, cooperado_nome: m.perfis ? m.perfis.nome : "—", cooperado_email: m.perfis ? m.perfis.email : "" }));
+        },
+        async pagarPix({ codigo, valor, alocacao, comprovante }) {
+          const uid = await meuId();
+          let caminho = null;
+          if (comprovante) {
+            if (comprovante.size > 10 * 1024 * 1024) falha("O comprovante pode ter no máximo 10 MB.");
+            const seguro = comprovante.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w.\-]+/g, "_");
+            caminho = `${uid}/${codigo}_${seguro}`;
+            const up = await sb.storage.from("comprovantes").upload(caminho, comprovante, { upsert: false, contentType: comprovante.type || undefined });
+            if (up.error) falha(up.error);
+          }
+          const r = await sb.from("financeiro_movimentos").insert({ codigo, cooperado_id: uid, tipo: "pix", valor, alocacao, status: "aguardando", comprovante: caminho });
+          if (r.error) { if (caminho) await sb.storage.from("comprovantes").remove([caminho]); falha(r.error); }
+          return true;
+        },
+        async cancelarPix(id) { ok(await sb.rpc("cancelar_pix", { p_id: id })); return true; },
+        async abater(valor) { ok(await sb.rpc("abater_com_aportes", { p_valor: valor })); return true; },
+        async decidir(id, status, motivo) {
+          const uid = await meuId();
+          const eu = ok(await sb.from("perfis").select("nome").eq("id", uid).single());
+          const r = ok(await sb.from("financeiro_movimentos").update({ status, motivo: motivo || null, decidido_em: new Date().toISOString(), decidido_nome: eu.nome }).eq("id", id).eq("status", "aguardando").select());
+          if (!r.length) falha("Este Pix já foi decidido.");
+          return true;
+        },
+        async comprovante(m) {
+          const d = ok(await sb.storage.from("comprovantes").createSignedUrl(m.comprovante, 120));
+          return d.signedUrl;
         }
       },
       contatos: {

@@ -196,3 +196,14 @@ select.mini { padding: 0.4rem 0.5rem; font-size: 0.85rem; width: auto; }
   .tabela-fichas tr > td:first-child > *, .tabela-fichas td[data-rot=""] > * { grid-column: 1; }
   .tabela-fichas td .sub { margin-top: -0.4rem; }
 }
+
+/* Pix e abatimento */
+.modal.modal-largo { width: min(100%, 30rem); max-height: calc(100vh - 2rem); overflow-y: auto; }
+.modal h2 { font-size: 1.2rem; }
+.pix-qr { background: #fff; border-radius: 8px; padding: 0.6rem; width: min(100%, 15rem); justify-self: center; }
+.pix-qr svg { display: block; width: 100%; height: auto; }
+.pix-codigo { font-family: var(--mono); font-size: 0.78rem; resize: none; word-break: break-all; }
+.pix-aloc ul { list-style: none; margin: 0.3rem 0 0; padding: 0; display: grid; gap: 0.25rem; }
+.pix-aloc li { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.9rem; border-bottom: 1px dashed var(--line); padding-bottom: 0.25rem; }
+.pix-dados { grid-template-columns: 1fr; gap: 0.4rem; }
+.painel.acerto { border-color: rgba(47, 107, 255, 0.45); }

@@ -273,13 +273,20 @@
     financeiro: {
       titulo: "Financeiro",
       separador: true,
+      async contador() { const m = await API.movimentos.todos(); return m.filter((x) => x.status === "aguardando").length; },
       async render(el, ctx) {
         const C = API.CAMPOS_FIN;
-        const [coops, posicoes, imps, ultimaArq] = await Promise.all([API.cooperados.listar(), API.financeiro.todas(), API.financeiro.importacoes(), API.financeiro.ultimaPlanilha().catch(() => null)]);
+        const Fin = window.Fin;
+        const [coops, posicoes, imps, ultimaArq, movs] = await Promise.all([API.cooperados.listar(), API.financeiro.todas(), API.financeiro.importacoes(), API.financeiro.ultimaPlanilha().catch(() => null), API.movimentos.todos().catch(() => [])]);
+        const pessoas = {}; coops.forEach((c) => { pessoas[c.id] = { nome: c.nome, email: c.email }; });
+        movs.forEach((m) => { if (!pessoas[m.cooperado_id]) pessoas[m.cooperado_id] = { nome: m.cooperado_nome, email: m.cooperado_email }; });
+        const aguardando = movs.filter((m) => m.status === "aguardando");
+        const foraDaPlanilha = movs.filter((m) => Fin.vale(m));
         const ativos = coops.filter((c) => c.status === "ativo" || c.status === "desligado");
         const ultima = {};
-        posicoes.forEach((p) => { const u = ultima[p.cooperado_id]; if (!u || p.data_base > u.data_base) ultima[p.cooperado_id] = p; });
-        const linhasAtuais = Object.values(ultima).sort((a, b) => (a.cooperado_nome || "").localeCompare(b.cooperado_nome || ""));
+        const maisNova = (p, u) => p.data_base > u.data_base || (p.data_base === u.data_base && String(p.criado_em || "") > String(u.criado_em || ""));
+        posicoes.forEach((p) => { const u = ultima[p.cooperado_id]; if (!u || maisNova(p, u)) ultima[p.cooperado_id] = p; });
+        const linhasAtuais = Object.values(ultima).map((p) => Fin.ajustada(p, movs)).sort((a, b) => (a.cooperado_nome || "").localeCompare(b.cooperado_nome || ""));
         const soma = (k) => linhasAtuais.reduce((a, p) => a + Number(p[k] || 0), 0);
 
         el.innerHTML = `
@@ -289,6 +296,17 @@
             ? `A planilha atual é a última enviada: <b>${esc(ultimaArq.nome || "")}</b>, data-base ${data(ultimaArq.data_base)}. Baixe, atualize no Excel e envie de volta: ela passa a ser a nova planilha atual.`
             : "Ainda não há planilha enviada. Envie a planilha financeira completa da BIMCORE; a partir daí, o botão Baixar planilha atual sempre entrega a última versão enviada, com todo o histórico de movimentações."}
             O site lê a aba <b>Posição</b> (identifica cada cooperado pelo e-mail ou pelo nome), as abas mensais e a aba <b>Pagamentos</b>. Cada cooperado vê só a própria conta.</p>
+
+          ${aguardando.length ? `<section class="painel acerto">
+            <div class="painel-cab"><h2>Pix aguardando confirmação</h2><span class="selo warn">${aguardando.length}</span></div>
+            <p class="muted">Confira no extrato do BTG se o Pix caiu (valor, nome de quem pagou e, se aparecer, o identificador). Ao confirmar, o valor sai do em aberto do cooperado na hora e entra sozinho na planilha atual.</p>
+            <div class="tabela-wrap"><table class="tabela">
+              <thead><tr><th>Cooperado</th><th>Avisado em</th><th class="num">Valor</th><th>Identificador</th><th>Quita</th><th></th></tr></thead>
+              <tbody>${aguardando.map((m) => `<tr><td>${esc(m.cooperado_nome)}</td><td>${dataHora(m.criado_em)}</td><td class="num">${moeda(m.valor)}</td><td>BIMC${esc(m.codigo)}</td>
+                <td>${(m.alocacao || []).map((a) => esc(Fin.descreverItem(a)) + " " + moeda(a.valor)).join("<br>")}</td>
+                <td class="acoes-celula">${m.comprovante ? `<button class="btn btn-ghost btn-sm" data-comp="${m.id}">Comprovante</button> ` : ""}<button class="btn btn-primary btn-sm" data-confirmar="${m.id}">Confirmar</button> <button class="btn btn-danger btn-sm" data-recusar="${m.id}">Recusar</button></td></tr>`).join("")}</tbody>
+            </table></div>
+          </section>` : ""}
 
           <section class="painel">
             <h2>Enviar planilha atualizada</h2>
@@ -311,6 +329,17 @@
               <tfoot><tr><td>Total</td><td></td><td class="num">${moeda(soma("capital_integralizado"))}</td><td class="num">${moeda(soma("valor_em_aberto"))}</td><td class="num">${moeda(soma("outros_creditos"))}</td><td class="num">${moeda(soma("contribuicoes_pagas"))}</td></tr></tfoot>
             </table></div>` : '<p class="vazio">Nenhuma posição registrada ainda.</p>'}
           </section>
+
+          ${movs.length ? `<section class="painel">
+            <h2>Pix e abatimentos feitos pelo site</h2>
+            ${foraDaPlanilha.length ? `<p class="notice">${foraDaPlanilha.length} lançamento(s) confirmado(s) ainda não estão na planilha enviada. Eles entram sozinhos na aba <b>Lançamentos do site</b> quando você clicar em <b>Baixar planilha atual</b>. Abra no Excel, salve e envie de volta.</p>` : ""}
+            <div class="tabela-wrap"><table class="tabela">
+              <thead><tr><th>Data</th><th>Cooperado</th><th>Tipo</th><th class="num">Valor</th><th>Situação</th><th>Planilha</th></tr></thead>
+              <tbody>${movs.slice(0, 40).map((m) => `<tr><td>${dataHora(m.criado_em)}</td><td>${esc(m.cooperado_nome)}</td><td>${m.tipo === "pix" ? "Pix" : "Abatimento com aportes"}<span class="sub">BIMC${esc(m.codigo)}</span></td><td class="num">${moeda(m.valor)}</td>
+                <td>${{ aguardando: '<span class="selo warn">aguardando</span>', confirmado: '<span class="selo ok">confirmado</span>', recusado: '<span class="selo err">recusado</span>', cancelado: '<span class="selo">cancelado</span>' }[m.status] || esc(m.status)}${m.decidido_nome && m.status !== "aguardando" ? `<span class="sub">${esc(m.decidido_nome)}</span>` : ""}</td>
+                <td>${m.status !== "confirmado" ? "—" : m.incorporado_em ? "já na planilha" : "entra ao baixar"}</td></tr>`).join("")}</tbody>
+            </table></div>
+          </section>` : ""}
 
           <section class="painel">
             <h2>Histórico de envios</h2>
@@ -363,6 +392,7 @@
                 falta_integralizar: num(col(r, "Falta integralizar")) || 0,
                 aportes_brutos: num(col(r, "Aportes brutos")) || 0,
                 aportes_no_capital: num(col(r, "Aportes usados na integralização inicial")) || 0,
+                falta_inicial: num(col(r, "Falta integralizar das quotas iniciais")) || 0,
                 retiradas_ano: num(col(r, "Retiradas brutas no ano")) || 0
               };
             });
@@ -377,9 +407,20 @@
         }
 
         if ($("#fin-modelo")) $("#fin-modelo").onclick = async (ev) => {
-          const atual = await acao(ev.currentTarget, () => API.financeiro.ultimaPlanilha());
-          if (atual) { const a = document.createElement("a"); a.href = atual.url; a.download = atual.nome || "planilha-financeira.xlsx"; a.target = "_blank"; document.body.appendChild(a); a.click(); a.remove(); }
-          else toast("Não foi possível baixar a planilha atual.", "err");
+          const r = await acao(ev.currentTarget, async () => {
+            const atual = await API.financeiro.ultimaPlanilha();
+            if (!atual) throw new Error("Não foi possível baixar a planilha atual.");
+            if (!foraDaPlanilha.length) return { url: atual.url, nome: atual.nome, n: 0 };
+            const resp = await fetch(atual.url); if (!resp.ok) throw new Error("Não foi possível baixar a planilha atual.");
+            const out = await Fin.planilhaComLancamentos(await resp.arrayBuffer(), foraDaPlanilha, pessoas);
+            const blob = new Blob([out.buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+            return { url: URL.createObjectURL(blob), nome: atual.nome, n: out.adicionados, blob: true };
+          });
+          if (!r) return;
+          const a = document.createElement("a"); a.href = r.url; a.download = r.nome || "planilha-financeira.xlsx"; if (!r.blob) a.target = "_blank";
+          document.body.appendChild(a); a.click(); a.remove();
+          if (r.blob) setTimeout(() => URL.revokeObjectURL(r.url), 60000);
+          if (r.n) toast(`${r.n} lançamento(s) do site incluído(s) na aba Lançamentos do site. Abra no Excel, salve e envie de volta.`);
         };
 
         let wbAtual = null;
@@ -405,6 +446,8 @@
           const colNome = cabs.find((h) => norm(h) === "nome");
           if (!colEmail && !colNome) return toast("Não encontrei as colunas Nome ou E-mail na aba Posição.", "err");
           const colunas = {}; cabs.forEach((h) => { const k = mapa[norm(h)]; if (k) colunas[k] = h; });
+          const lanc = Fin.lerLancamentos(livro);
+          if (!lanc.recalculada) return toast("Esta planilha foi baixada pelo site e ainda não foi aberta e salva no Excel. Abra no Excel, salve e envie de novo, para os totais incluírem os lançamentos do site.", "err");
           const det = detalhesDaPasta(livro);
           const vistos = new Set();
           const nn = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
@@ -424,7 +467,7 @@
               if (Number.isNaN(v)) lin._erros.push(`valor inválido em "${h}"`);
               else lin[k] = k === "meses_em_atraso" && v != null ? Math.round(v) : v;
             });
-            lin.detalhes = det[nomePlan] || null;
+            lin.detalhes = det[nomePlan] ? { ...det[nomePlan], nome_planilha: nomePlan } : null;
             return lin;
           });
           const boas = previa.filter((l) => !l._erros.length && l._coop);
@@ -455,12 +498,32 @@
             const dados = (l) => { const o = { detalhes: l.detalhes }; Object.keys(C).forEach((k) => { if (k in l) o[k] = l[k]; }); return o; };
             const linhas = boas.map((l) => ({ cooperado_id: l._coop.id, ...dados(l) }));
             const pendentes = aguardando.map((l) => ({ nome: l._nome, email: l._email, dados: dados(l) }));
-            const ok = await acao(ev.currentTarget, () => API.financeiro.importar({ data_base: $("#fin-data").value, arquivo: arq, linhas, pendentes }), "Posição financeira atualizada. Esta é agora a planilha atual.");
+            const ok = await acao(ev.currentTarget, () => API.financeiro.importar({ data_base: $("#fin-data").value, arquivo: arq, linhas, pendentes, incorporar: lanc.codigos }), "Posição financeira atualizada. Esta é agora a planilha atual.");
             if (ok) paginas.financeiro.render(el, ctx);
           };
         });
 
         el.onclick = async (e) => {
+          const bc = e.target.closest("[data-confirmar]"), br = e.target.closest("[data-recusar]"), bv = e.target.closest("[data-comp]");
+          if (bv) { const m = movs.find((x) => x.id === bv.dataset.comp); const url = await acao(bv, () => API.movimentos.comprovante(m)); if (url) window.open(url, "_blank", "noopener"); return; }
+          if (bc) {
+            const m = movs.find((x) => x.id === bc.dataset.confirmar);
+            if (!(await confirmar(`Confirmar o Pix de ${moeda(m.valor)} de ${m.cooperado_nome}? Confirme só depois de ver o valor no extrato.`, "Confirmar Pix"))) return;
+            const ok = await acao(bc, () => API.movimentos.decidir(m.id, "confirmado"), "Pix confirmado.");
+            if (ok) { paginas.financeiro.render(el, ctx); ctx.atualizarContadores(); }
+            return;
+          }
+          if (br) {
+            const m = movs.find((x) => x.id === br.dataset.recusar);
+            const md = UI.modal(`<h2>Recusar Pix</h2><p class="muted">Pix de ${moeda(m.valor)} avisado por ${esc(m.cooperado_nome)}. O cooperado verá o motivo.</p>
+              <div class="field"><label for="rc-mot">Motivo</label><input class="input" id="rc-mot" maxlength="200" placeholder="Ex.: não encontrei o Pix no extrato"></div>
+              <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Voltar</button><button class="btn btn-danger btn-sm" id="rc-ok">Recusar</button></div>`);
+            $("#rc-ok", md.el).onclick = async (ev) => {
+              const ok = await acao(ev.currentTarget, () => API.movimentos.decidir(m.id, "recusado", $("#rc-mot", md.el).value.trim()), "Pix recusado.");
+              if (ok) { md.fechar(); paginas.financeiro.render(el, ctx); ctx.atualizarContadores(); }
+            };
+            return;
+          }
           const b = e.target.closest("[data-desfazer]"); if (!b) return;
           if (!(await confirmar("Desfazer este envio? As posições e a planilha desse envio são apagadas, e a planilha atual volta a ser a anterior.", "Desfazer"))) return;
           const ok = await acao(b, () => API.financeiro.excluirImportacao(b.dataset.desfazer), "Envio desfeito.");

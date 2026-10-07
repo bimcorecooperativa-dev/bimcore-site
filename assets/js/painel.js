@@ -119,13 +119,18 @@
       titulo: "Minha conta",
       async render(el) {
         const { moeda } = window.UI;
-        const pos = await API.financeiro.minhas();
+        const Fin = window.Fin;
+        const [pos, movs] = await Promise.all([API.financeiro.minhas(), API.movimentos.meus().catch(() => [])]);
         if (!pos.length) {
           el.innerHTML = `<div class="pag-cab"><div><p class="eyebrow">Financeiro</p><h1>Minha conta na cooperativa</h1></div></div>
             <p class="vazio">A tesouraria ainda não registrou a sua posição financeira. Quando registrar, aqui aparecem seu capital, contribuições, fundos e eventuais pendências.</p>`;
           return;
         }
-        const p = pos[0];
+        const bruta = pos[0];
+        const p = Fin.ajustada(bruta, movs);
+        const disp = Fin.componentes(bruta, movs);
+        const aguardando = movs.filter((m) => m.status === "aguardando");
+        const somaAguard = aguardando.reduce((a, m) => a + Number(m.valor), 0);
         const n = (k) => Number(p[k] || 0);
         const aIntegralizar = Math.max(0, n("capital_subscrito") - n("capital_integralizado"));
         const pct = n("capital_subscrito") ? Math.min(100, (n("capital_integralizado") / n("capital_subscrito")) * 100) : 0;
@@ -144,10 +149,33 @@
 
           <div class="kpis">
             <div class="kpi"><span class="rot">Contribuição mensal</span><span class="val">${moeda(n("contribuicao_mensal"))}</span><span class="det">Valor que você deve contribuir por mês</span></div>
-            <div class="kpi"><span class="rot">Em aberto</span><span class="val" style="color:${emDebito ? "var(--err)" : "var(--ok)"}">${moeda(n("valor_em_aberto"))}</span><span class="det">${emDebito ? (p.meses_em_atraso ? p.meses_em_atraso + " mês(es) em atraso" : "Regularize com a tesouraria") : "Nenhuma pendência"}</span></div>
+            <div class="kpi"><span class="rot">Em aberto</span><span class="val" style="color:${emDebito ? "var(--err)" : "var(--ok)"}">${moeda(n("valor_em_aberto"))}</span><span class="det">${emDebito ? (p.meses_em_atraso ? p.meses_em_atraso + " mês(es) em atraso" : "Regularize com a tesouraria") : "Nenhuma pendência"}${somaAguard ? ` · ${moeda(somaAguard)} em Pix aguardando confirmação` : ""}</span></div>
             <div class="kpi"><span class="rot">Total contribuído</span><span class="val">${moeda(contribuido)}</span><span class="det">Acumulado registrado pela tesouraria</span></div>
             <div class="kpi"><span class="rot">Aportes à cooperativa</span><span class="val">${moeda(aportes)}</span><span class="det">Devolvidos só no desligamento</span></div>
           </div>
+
+          ${disp.total > 0.005 || disp.maxAbater > 0.005 ? `<section class="painel acerto">
+            <div class="painel-cab"><h2>Acertar o que está em aberto</h2>${disp.total > 0.005 ? `<span class="selo err">Disponível para pagar: ${moeda(disp.total)}</span>` : ""}</div>
+            <p class="muted">Pague por Pix direto para a conta da cooperativa, escolhendo o valor.${disp.maxAbater > 0.005 ? " Se tiver aportes, também pode usá-los para integralizar suas quotas iniciais." : ""}</p>
+            <div class="sol-acoes">
+              ${disp.total > 0.005 ? '<button class="btn btn-primary" id="bt-pix">Pagar com Pix</button>' : ""}
+              ${disp.maxAbater > 0.005 ? `<button class="btn btn-ghost" id="bt-abater">Usar meus aportes na integralização (até ${moeda(disp.maxAbater)})</button>` : ""}
+            </div>
+          </section>` : ""}
+
+          ${movs.length ? `<section class="painel">
+            <h2>Pagamentos e abatimentos pelo site</h2>
+            <div class="tabela-wrap"><table class="tabela">
+              <thead><tr><th>Data</th><th>O quê</th><th class="num">Valor</th><th>Situação</th><th></th></tr></thead>
+              <tbody>${movs.map((m) => `<tr>
+                <td>${dataHora(m.criado_em)}</td>
+                <td>${m.tipo === "pix" ? "Pix" : "Abatimento com aportes"}<span class="sub">${(m.alocacao || []).map((a) => esc(Fin.descreverItem(a)) + " " + moeda(a.valor)).join("<br>")}</span></td>
+                <td class="num">${moeda(m.valor)}</td>
+                <td>${m.status === "aguardando" ? '<span class="selo warn">aguardando a tesouraria</span>' : m.status === "confirmado" ? '<span class="selo ok">confirmado</span>' : m.status === "recusado" ? `<span class="selo err">recusado</span>${m.motivo ? `<span class="sub">${esc(m.motivo)}</span>` : ""}` : '<span class="selo">cancelado</span>'}</td>
+                <td class="acoes-celula">${m.status === "aguardando" ? `<button class="btn btn-ghost btn-sm" data-cancelar="${m.id}">Cancelar</button>` : ""}</td></tr>`).join("")}</tbody>
+            </table></div>
+            <p class="hint">Pix aparecem como "aguardando" até a tesouraria conferir o extrato. Depois de confirmados, já descontam do seu valor em aberto aqui e entram sozinhos na planilha da tesouraria.</p>
+          </section>` : ""}
 
           <section class="painel">
             <h2>Capital social (quotas-parte)</h2>
@@ -177,7 +205,7 @@
             ${(det.aportes || []).filter((a) => a.tipo !== "Pagamento da sua parte").length ? `<div class="tabela-wrap"><table class="tabela">
               <thead><tr><th>Data</th><th>Para quê</th><th class="num">Valor</th></tr></thead>
               <tbody>${det.aportes.filter((a) => a.tipo !== "Pagamento da sua parte").map((a) => `<tr><td>${a.data ? data(a.data) : "—"}</td><td>${esc(a.descricao)}</td><td class="num">${moeda(a.valor)}</td></tr>`).join("")}</tbody>
-              <tfoot>${res.aportes_no_capital ? `<tr><td></td><td>Usado para integralizar suas quotas</td><td class="num">− ${moeda(res.aportes_no_capital)}</td></tr>` : ""}<tr><td></td><td>Saldo de aportes</td><td class="num">${moeda(aportes)}</td></tr></tfoot>
+              <tfoot>${res.aportes_no_capital ? `<tr><td></td><td>Usado para integralizar suas quotas</td><td class="num">− ${moeda(res.aportes_no_capital)}</td></tr>` : ""}${(p._ajustes || []).filter((m) => m.tipo === "compensacao").map((m) => `<tr><td></td><td>Usado para integralizar suas quotas (pelo site, ${data(m.criado_em)})</td><td class="num">− ${moeda(m.valor)}</td></tr>`).join("")}<tr><td></td><td>Saldo de aportes</td><td class="num">${moeda(aportes)}</td></tr></tfoot>
             </table></div>` : `<p class="vazio">${aportes ? "Saldo de aportes: " + moeda(aportes) : "Nenhum aporte registrado."}</p>`}
           </section>
 
@@ -210,6 +238,85 @@
           </table></div></section>` : ""}
 
           <p class="hint">Valores registrados pela tesouraria da BIMCORE, conforme o art. 7º, IV do Estatuto. Dúvidas ou divergências: fale com a tesouraria.</p>`;
+
+        const recarregar = () => paginas.conta.render(el);
+        const lerValor = (t) => { t = String(t || "").replace(/[R$\s]/g, ""); if (t.includes(",")) t = t.replace(/\./g, "").replace(",", "."); return Fin.centavos(Number(t)); };
+        const brl = (v) => Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+        const btPix = $("#bt-pix");
+        if (btPix) btPix.onclick = () => {
+          const m = window.UI.modal(`
+            <h2>Pagar com Pix</h2>
+            <p class="muted">Disponível para pagar agora: <b>${moeda(disp.total)}</b>. Você pode pagar tudo ou só uma parte.</p>
+            <div class="field"><label for="px-valor">Valor do Pix (R$)</label><input class="input" id="px-valor" inputmode="decimal" autocomplete="off" value="${brl(disp.total)}"></div>
+            <div id="px-aloc" class="pix-aloc"></div>
+            <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="px-gerar">Gerar QR code</button></div>`);
+          const mostrar = () => {
+            const v = lerValor($("#px-valor", m.el).value);
+            const box = $("#px-aloc", m.el);
+            if (!(v > 0)) { box.innerHTML = '<p class="hint">Digite um valor.</p>'; return null; }
+            if (v > disp.total + 0.005) { box.innerHTML = `<p class="hint" style="color:var(--err)">O valor passa do que está em aberto (${moeda(disp.total)}).</p>`; return null; }
+            const al = Fin.alocar(v, disp);
+            box.innerHTML = `<p class="hint">Este Pix quita:</p><ul>${al.itens.map((a) => `<li><span>${esc(Fin.descreverItem(a))}</span><b>${moeda(a.valor)}</b></li>`).join("")}</ul>`;
+            return { v, al };
+          };
+          $("#px-valor", m.el).addEventListener("input", mostrar); mostrar();
+          $("#px-gerar", m.el).onclick = async (ev) => {
+            const r = mostrar(); if (!r) return;
+            const codigo = Fin.novoCodigo();
+            const copia = Fin.pixCopiaECola(r.v, "BIMC" + codigo);
+            const svg = await acao(ev.currentTarget, () => Fin.qrSvg(copia)); if (!svg) return;
+            m.el.innerHTML = `
+              <h2>Pix de ${moeda(r.v)}</h2>
+              <div class="pix-qr">${svg}</div>
+              <div class="field"><label for="px-copia">Pix copia e cola</label><textarea class="input pix-codigo" id="px-copia" readonly rows="3">${esc(copia)}</textarea></div>
+              <button class="btn btn-ghost btn-sm" id="px-copiar" type="button">Copiar código</button>
+              <dl class="sol-dados pix-dados">
+                <div><dt>Favorecido</dt><dd>BIMCORE Cooperativa de Trabalho</dd></div>
+                <div><dt>Chave Pix (CNPJ)</dt><dd>${Fin.PIX.chaveFormatada}</dd></div>
+                <div><dt>Identificador</dt><dd>BIMC${codigo}</dd></div>
+              </dl>
+              <p class="hint">Abra o app do seu banco, escolha pagar com Pix (QR code ou copia e cola) e confira se o favorecido é a BIMCORE. Depois volte aqui e clique em <b>Já fiz o Pix</b>.</p>
+              <div class="field"><label for="px-comp">Comprovante (opcional)</label><input class="input" id="px-comp" type="file" accept="image/*,.pdf"></div>
+              <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Fechar sem avisar</button><button class="btn btn-primary btn-sm" id="px-feito">Já fiz o Pix</button></div>`;
+            $("#px-copiar", m.el).onclick = async () => {
+              try { await navigator.clipboard.writeText(copia); toast("Código copiado. Cole no app do seu banco."); }
+              catch (e) { const t = $("#px-copia", m.el); t.focus(); t.select(); toast("Selecione e copie o código."); }
+            };
+            $("#px-feito", m.el).onclick = async (e2) => {
+              const comp = $("#px-comp", m.el).files[0] || null;
+              const ok = await acao(e2.currentTarget, () => API.movimentos.pagarPix({ codigo, valor: r.v, alocacao: r.al.itens, comprovante: comp }), "Pronto! A tesouraria vai conferir e confirmar o seu Pix.");
+              if (ok) { m.fechar(); recarregar(); }
+            };
+          };
+        };
+
+        const btAb = $("#bt-abater");
+        if (btAb) btAb.onclick = () => {
+          const m = window.UI.modal(`
+            <h2>Usar aportes na integralização</h2>
+            <p class="muted">Seus aportes só podem ser usados para integralizar as <b>quotas iniciais</b>. O valor sai do seu saldo de aportes e entra no seu capital integralizado na hora. Isso não pode ser desfeito pelo site.</p>
+            <dl class="sol-dados">
+              <div><dt>Saldo de aportes</dt><dd>${moeda(disp.aportes)}</dd></div>
+              <div><dt>Falta integralizar das quotas iniciais</dt><dd>${moeda(disp.inicial)}</dd></div>
+            </dl>
+            <div class="field"><label for="ab-valor">Valor a usar (R$)</label><input class="input" id="ab-valor" inputmode="decimal" autocomplete="off" value="${brl(disp.maxAbater)}"><span class="hint">Máximo: ${moeda(disp.maxAbater)}</span></div>
+            <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="ab-ok">Confirmar abatimento</button></div>`);
+          $("#ab-ok", m.el).onclick = async (ev) => {
+            const v = lerValor($("#ab-valor", m.el).value);
+            if (!(v > 0)) return toast("Informe o valor.", "err");
+            if (v > disp.maxAbater + 0.005) return toast(`O máximo é ${moeda(disp.maxAbater)}.`, "err");
+            const ok = await acao(ev.currentTarget, () => API.movimentos.abater(v), "Abatimento feito. Seu capital integralizado já foi atualizado.");
+            if (ok) { m.fechar(); recarregar(); }
+          };
+        };
+
+        el.onclick = async (e) => {
+          const b = e.target.closest("[data-cancelar]"); if (!b) return;
+          if (!(await confirmar("Cancelar o aviso deste Pix? Faça isso só se você não chegou a pagar.", "Cancelar aviso"))) return;
+          const ok = await acao(b, () => API.movimentos.cancelarPix(b.dataset.cancelar), "Aviso de Pix cancelado.");
+          if (ok) recarregar();
+        };
       }
     },
 

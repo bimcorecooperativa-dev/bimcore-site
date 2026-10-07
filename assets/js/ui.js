@@ -63,6 +63,20 @@
     d.querySelector('[data-r="0"]').focus();
   });
 
+  /* Janela dentro da página; devolve o elemento e a função de fechar */
+  UI.modal = (html, aoFechar) => {
+    const d = document.createElement("div");
+    d.className = "modal-fundo";
+    d.innerHTML = `<div class="modal modal-largo" role="dialog" aria-modal="true">${html}</div>`;
+    const fechar = () => { d.remove(); document.removeEventListener("keydown", esc); if (aoFechar) aoFechar(); };
+    const esc = (e) => { if (e.key === "Escape") fechar(); };
+    d.addEventListener("click", (e) => { if (e.target === d || e.target.closest("[data-fechar]")) fechar(); });
+    document.addEventListener("keydown", esc);
+    document.body.appendChild(d);
+    const foco = d.querySelector("input, button:not([data-fechar])"); if (foco) foco.focus();
+    return { el: d.querySelector(".modal"), fechar };
+  };
+
   UI.barraDemo = () => {
     if (!window.API || !window.API.demo) return;
     const b = document.createElement("div");

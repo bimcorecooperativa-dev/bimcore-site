@@ -25,7 +25,7 @@ Com `config.js` vazio, tudo funciona com dados de exemplo guardados no navegador
 ## Ligar o banco real (uma vez)
 
 1. Em supabase.com, crie o projeto `bimcore` (região São Paulo).
-2. Em **SQL Editor**, rode `supabase/schema.sql` e depois as migrações `supabase/migracao-002-admissao.sql` `supabase/migracao-003-financeiro.sql` `supabase/migracao-004-planilha-financeira.sql` e `supabase/migracao-005-vinculo-automatico.sql`, nessa ordem.
+2. Em **SQL Editor**, rode `supabase/schema.sql` e depois as migrações `supabase/migracao-002-admissao.sql` `supabase/migracao-003-financeiro.sql` `supabase/migracao-004-planilha-financeira.sql` `supabase/migracao-005-vinculo-automatico.sql` e `supabase/migracao-006-pix-e-abatimento.sql`, nessa ordem.
 3. Em **Authentication > URL Configuration**, coloque `https://bimcore.com.br` em *Site URL* e adicione `https://bimcore.com.br/**` em *Redirect URLs*.
 4. Em **Project Settings > API**, copie *Project URL* e *anon public key* para `assets/js/config.js`.
 5. Publique os arquivos, cadastre-se em `bimcore.com.br/entrar.html` e rode no SQL Editor:
@@ -55,3 +55,11 @@ Envie todo o conteúdo desta pasta (inclusive o `.htaccess`) para `public_html` 
 4. Cada cooperado vê em **Minha conta** apenas a própria posição, aportes e contribuições mês a mês.
 
 As planilhas financeiras ficam no bucket privado `financeiro` do Supabase — nunca as coloque neste repositório (ele é público).
+
+### Pix e abatimento com aportes
+
+- Em **Minha conta**, o cooperado com valor em aberto escolhe quanto pagar e o site gera o QR code / Pix copia e cola (chave CNPJ 66.004.522/0001-70, BTG). Depois de pagar, ele clica em **Já fiz o Pix** (comprovante opcional).
+- A tesouraria vê os Pix em **Financeiro → Pix aguardando confirmação**, confere no extrato e confirma ou recusa. Confirmado, o valor sai do em aberto na hora.
+- Quem tem aportes pode usá-los, sozinho, só para integralizar as quotas iniciais. O limite é validado no banco (`abater_com_aportes`).
+- Ao clicar em **Baixar planilha atual**, os lançamentos confirmados entram na aba **Lançamentos do site**. A tesoureira abre no Excel, salva e envia de volta; o site recusa o arquivo se ele não foi recalculado e marca os lançamentos como incorporados.
+- Bibliotecas locais em `assets/vendor/`: qrcode-generator 1.4.4 e ExcelJS 4.4.0 (MIT).
