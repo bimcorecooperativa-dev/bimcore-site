@@ -284,10 +284,10 @@
 
         el.innerHTML = `
           <div class="pag-cab"><div><p class="eyebrow">Tesouraria</p><h1>Financeiro dos cooperados</h1></div>
-            <button class="btn btn-ghost" id="fin-modelo">${ultimaArq ? "Baixar planilha atual" : "Baixar planilha modelo"}</button></div>
+            ${ultimaArq ? `<button class="btn btn-ghost" id="fin-modelo">Baixar planilha atual</button>` : ""}</div>
           <p class="muted">${ultimaArq
             ? `A planilha atual é a última enviada: <b>${esc(ultimaArq.nome || "")}</b>, data-base ${data(ultimaArq.data_base)}. Baixe, atualize no Excel e envie de volta: ela passa a ser a nova planilha atual.`
-            : "Ainda não há planilha enviada. Envie a planilha financeira da BIMCORE; a partir daí, o botão acima sempre baixa a última versão enviada."}
+            : "Ainda não há planilha enviada. Envie a planilha financeira completa da BIMCORE; a partir daí, o botão Baixar planilha atual sempre entrega a última versão enviada, com todo o histórico de movimentações."}
             O site lê a aba <b>Posição</b> (identifica cada cooperado pelo e-mail), as abas mensais e a aba <b>Pagamentos</b>. Cada cooperado vê só a própria conta.</p>
 
           <section class="painel">
@@ -376,18 +376,10 @@
           return null;
         }
 
-        $("#fin-modelo").onclick = async (ev) => {
-          if (ultimaArq) {
-            const atual = await acao(ev.currentTarget, () => API.financeiro.ultimaPlanilha());
-            if (atual) { const a = document.createElement("a"); a.href = atual.url; a.download = atual.nome || "planilha-financeira.xlsx"; a.target = "_blank"; document.body.appendChild(a); a.click(); a.remove(); }
-            return;
-          }
-          if (!window.XLSX) return toast("Não foi possível carregar o gerador de planilhas. Recarregue a página.", "err");
-          const cab = ["Nome", "E-mail", ...Object.values(C)];
-          const linhas = ativos.map((c) => { const u = ultima[c.id] || {}; return [c.nome, c.email, ...Object.keys(C).map((k) => (u[k] == null ? "" : u[k]))]; });
-          const ws = XLSX.utils.aoa_to_sheet([cab, ...linhas]);
-          const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Posição");
-          XLSX.writeFile(wb, `bimcore-posicao-financeira-${UI.hoje()}.xlsx`);
+        if ($("#fin-modelo")) $("#fin-modelo").onclick = async (ev) => {
+          const atual = await acao(ev.currentTarget, () => API.financeiro.ultimaPlanilha());
+          if (atual) { const a = document.createElement("a"); a.href = atual.url; a.download = atual.nome || "planilha-financeira.xlsx"; a.target = "_blank"; document.body.appendChild(a); a.click(); a.remove(); }
+          else toast("Não foi possível baixar a planilha atual.", "err");
         };
 
         let wbAtual = null;
@@ -438,7 +430,7 @@
           const vazia = previa.length && previa.every((l) => numericos.every((k) => l[k] == null || l[k] === 0));
           const abasLidas = ["Posição", ...livro.SheetNames.filter((n) => /^\d{4}-\d{2}$/.test(n)).length ? ["abas mensais"] : [], ...(livro.Sheets["Pagamentos"] ? ["Pagamentos"] : []), ...(livro.Sheets["Resumo"] ? ["Resumo"] : [])];
           $("#fin-previa").innerHTML = `
-            ${vazia ? `<div class="notice warn" style="margin-top:1rem"><strong>Atenção: esta planilha não tem nenhum valor preenchido.</strong> Parece ser o modelo em branco. Envie a planilha financeira completa (com as abas Despesas, Pagamentos, meses etc.) para que os valores apareçam.</div>` : ""}
+            ${vazia ? `<div class="notice warn" style="margin-top:1rem"><strong>Atenção: esta planilha não tem nenhum valor preenchido.</strong> Ela não será importada, para não apagar os valores atuais. Envie a planilha financeira completa (com as abas Despesas, Pagamentos, meses etc.).</div>` : ""}
             <div class="notice ${boas.length === previa.length && !semEmail.length && !vazia ? "ok" : "warn"}" style="margin-top:1rem">
               Abas lidas: ${esc(abasLidas.join(", "))}. ${boas.length} de ${previa.length} cooperado(s) prontos para importar${previa.length - boas.length ? `; ${previa.length - boas.length} com problema` : ""}.
               ${semEmail.length ? `<br>Sem e-mail na planilha (não serão importados): ${esc(semEmail.join(", "))}. Preencha o e-mail na aba Cooperados.` : ""}
@@ -452,7 +444,7 @@
                 <td>${l._erros.length ? `<span class="selo err">${esc(l._erros.join("; "))}</span>` : '<span class="selo ok">ok</span>'}</td></tr>`).join("")}</tbody>
             </table></div>
             <div class="sol-acoes" style="margin-top:1rem">
-              <button class="btn btn-primary" id="fin-confirmar" ${boas.length ? "" : "disabled"}>Confirmar e tornar esta a planilha atual</button>
+              <button class="btn btn-primary" id="fin-confirmar" ${boas.length && !vazia ? "" : "disabled"}>Confirmar e tornar esta a planilha atual</button>
               <button class="btn btn-ghost" id="fin-cancelar">Cancelar</button>
             </div>`;
           $("#fin-cancelar").onclick = () => { $("#fin-previa").innerHTML = ""; };
