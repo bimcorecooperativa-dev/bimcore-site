@@ -393,6 +393,7 @@
                 aportes_brutos: num(col(r, "Aportes brutos")) || 0,
                 aportes_no_capital: num(col(r, "Aportes usados na integralização inicial")) || 0,
                 falta_inicial: num(col(r, "Falta integralizar das quotas iniciais")) || 0,
+                adiantado: num(col(r, "Contribuições pagas antecipadamente")) || 0,
                 retiradas_ano: num(col(r, "Retiradas brutas no ano")) || 0
               };
             });

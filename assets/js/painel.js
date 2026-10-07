@@ -130,7 +130,9 @@
         const p = Fin.ajustada(bruta, movs);
         const disp = Fin.componentes(bruta, movs);
         const aguardando = movs.filter((m) => m.status === "aguardando");
-        const somaAguard = aguardando.reduce((a, m) => a + Number(m.valor), 0);
+        const mesBase = String(bruta.data_base || "").slice(0, 7);
+        const somaAguard = aguardando.reduce((t, m) => t + (m.alocacao || []).filter((a) => !(a.destino === "contribuicao" && a.mes && a.mes > mesBase)).reduce((u, a) => u + Number(a.valor), 0), 0);
+        const prox = Fin.proxima(bruta, movs);
         const n = (k) => Number(p[k] || 0);
         const aIntegralizar = Math.max(0, n("capital_subscrito") - n("capital_integralizado"));
         const pct = n("capital_subscrito") ? Math.min(100, (n("capital_integralizado") / n("capital_subscrito")) * 100) : 0;
@@ -154,14 +156,26 @@
             <div class="kpi"><span class="rot">Aportes à cooperativa</span><span class="val">${moeda(aportes)}</span><span class="det">Devolvidos só no desligamento</span></div>
           </div>
 
-          ${disp.total > 0.005 || disp.maxAbater > 0.005 ? `<section class="painel acerto">
-            <div class="painel-cab"><h2>Acertar o que está em aberto</h2>${disp.total > 0.005 ? `<span class="selo err">Disponível para pagar: ${moeda(disp.total)}</span>` : ""}</div>
-            <p class="muted">Pague por Pix direto para a conta da cooperativa, escolhendo o valor.${disp.maxAbater > 0.005 ? " Se tiver aportes, também pode usá-los para integralizar suas quotas iniciais." : ""}</p>
-            <div class="sol-acoes">
-              ${disp.total > 0.005 ? '<button class="btn btn-primary" id="bt-pix">Pagar com Pix</button>' : ""}
-              ${disp.maxAbater > 0.005 ? `<button class="btn btn-ghost" id="bt-abater">Usar meus aportes na integralização (até ${moeda(disp.maxAbater)})</button>` : ""}
+          <section class="painel acerto">
+            <h2>Pagar à cooperativa por Pix</h2>
+            <p class="muted">O Pix vai direto para a conta da BIMCORE (chave CNPJ ${Fin.PIX.chaveFormatada}). Depois de pagar, avise no site; a tesouraria confere e confirma.</p>
+            <div class="pagar-grade">
+              <div class="pagar-item">
+                <span class="rot">Atrasados</span>
+                <b class="${disp.total > 0.005 ? "err" : "ok"}">${disp.total > 0.005 ? moeda(disp.total) : "Nada em atraso"}</b>
+                <span class="det">${disp.total > 0.005 ? "Você escolhe quanto pagar agora." : somaAguard ? "Há Pix aguardando confirmação." : "Tudo em dia até o último fechamento."}</span>
+                ${disp.total > 0.005 ? '<button class="btn btn-primary" id="bt-pix">Pagar atrasados</button>' : ""}
+              </div>
+              ${prox ? `<div class="pagar-item">
+                <span class="rot">Próxima contribuição · ${Fin.nomeMes(prox.mes)}</span>
+                <b>${moeda(prox.valor)}</b>
+                <span class="det">${prox.resta > 0.005 ? (prox.pago || prox.aguardando ? `Já pago ${moeda(prox.pago)}${prox.aguardando ? ` · aguardando ${moeda(prox.aguardando)}` : ""}. Falta ${moeda(prox.resta)}.` : "Valor definido pela tesouraria na última atualização.") : prox.aguardando ? "Pix aguardando confirmação da tesouraria." : "Já paga. Obrigado!"}</span>
+                ${prox.resta > 0.005 ? '<button class="btn btn-primary" id="bt-prox">Pagar a próxima contribuição</button>' : ""}
+              </div>` : ""}
             </div>
-          </section>` : ""}
+            ${disp.maxAbater > 0.005 ? `<div class="pagar-abater"><p class="hint">Você tem aportes à cooperativa e ainda falta integralizar parte das quotas iniciais. Pode usar os aportes para isso, sem Pix.</p>
+              <button class="btn btn-ghost" id="bt-abater">Usar meus aportes na integralização (até ${moeda(disp.maxAbater)})</button></div>` : ""}
+          </section>
 
           ${movs.length ? `<section class="painel">
             <h2>Pagamentos e abatimentos pelo site</h2>
@@ -243,22 +257,21 @@
         const lerValor = (t) => { t = String(t || "").replace(/[R$\s]/g, ""); if (t.includes(",")) t = t.replace(/\./g, "").replace(",", "."); return Fin.centavos(Number(t)); };
         const brl = (v) => Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-        const btPix = $("#bt-pix");
-        if (btPix) btPix.onclick = () => {
+        const abrirPix = ({ titulo, texto, valorInicial, max, fixo, alocar }) => {
           const m = window.UI.modal(`
-            <h2>Pagar com Pix</h2>
-            <p class="muted">Disponível para pagar agora: <b>${moeda(disp.total)}</b>. Você pode pagar tudo ou só uma parte.</p>
-            <div class="field"><label for="px-valor">Valor do Pix (R$)</label><input class="input" id="px-valor" inputmode="decimal" autocomplete="off" value="${brl(disp.total)}"></div>
+            <h2>${esc(titulo)}</h2>
+            <p class="muted">${texto}</p>
+            <div class="field"><label for="px-valor">Valor do Pix (R$)</label><input class="input" id="px-valor" inputmode="decimal" autocomplete="off" value="${brl(valorInicial)}" ${fixo ? "readonly" : ""}></div>
             <div id="px-aloc" class="pix-aloc"></div>
             <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="px-gerar">Gerar QR code</button></div>`);
           const mostrar = () => {
             const v = lerValor($("#px-valor", m.el).value);
             const box = $("#px-aloc", m.el);
             if (!(v > 0)) { box.innerHTML = '<p class="hint">Digite um valor.</p>'; return null; }
-            if (v > disp.total + 0.005) { box.innerHTML = `<p class="hint" style="color:var(--err)">O valor passa do que está em aberto (${moeda(disp.total)}).</p>`; return null; }
-            const al = Fin.alocar(v, disp);
-            box.innerHTML = `<p class="hint">Este Pix quita:</p><ul>${al.itens.map((a) => `<li><span>${esc(Fin.descreverItem(a))}</span><b>${moeda(a.valor)}</b></li>`).join("")}</ul>`;
-            return { v, al };
+            if (v > max + 0.005) { box.innerHTML = `<p class="hint" style="color:var(--err)">O valor passa do máximo (${moeda(max)}).</p>`; return null; }
+            const itens = alocar(v);
+            box.innerHTML = `<p class="hint">Este Pix quita:</p><ul>${itens.map((a) => `<li><span>${esc(Fin.descreverItem(a))}</span><b>${moeda(a.valor)}</b></li>`).join("")}</ul>`;
+            return { v, itens };
           };
           $("#px-valor", m.el).addEventListener("input", mostrar); mostrar();
           $("#px-gerar", m.el).onclick = async (ev) => {
@@ -285,11 +298,22 @@
             };
             $("#px-feito", m.el).onclick = async (e2) => {
               const comp = $("#px-comp", m.el).files[0] || null;
-              const ok = await acao(e2.currentTarget, () => API.movimentos.pagarPix({ codigo, valor: r.v, alocacao: r.al.itens, comprovante: comp }), "Pronto! A tesouraria vai conferir e confirmar o seu Pix.");
+              const ok = await acao(e2.currentTarget, () => API.movimentos.pagarPix({ codigo, valor: r.v, alocacao: r.itens, comprovante: comp }), "Pronto! A tesouraria vai conferir e confirmar o seu Pix.");
               if (ok) { m.fechar(); recarregar(); }
             };
           };
         };
+
+        const btPix = $("#bt-pix");
+        if (btPix) btPix.onclick = () => abrirPix({
+          titulo: "Pagar atrasados", texto: `Em atraso: <b>${moeda(disp.total)}</b>. Você pode pagar tudo ou só uma parte; o valor quita primeiro o que é mais antigo.`,
+          valorInicial: disp.total, max: disp.total, alocar: (v) => Fin.alocar(v, disp).itens
+        });
+        const btProx = $("#bt-prox");
+        if (btProx) btProx.onclick = () => abrirPix({
+          titulo: `Contribuição de ${Fin.nomeMes(prox.mes)}`, texto: `Contribuição mensal de capital de ${Fin.nomeMes(prox.mes)}, no valor definido pela tesouraria. Pagar antes não abate atrasados: este valor fica para ${Fin.nomeMes(prox.mes)}.`,
+          valorInicial: prox.resta, max: prox.resta, fixo: true, alocar: (v) => [{ destino: "contribuicao", mes: prox.mes, valor: v }]
+        });
 
         const btAb = $("#bt-abater");
         if (btAb) btAb.onclick = () => {

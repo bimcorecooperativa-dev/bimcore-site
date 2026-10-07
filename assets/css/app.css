@@ -207,3 +207,13 @@ select.mini { padding: 0.4rem 0.5rem; font-size: 0.85rem; width: auto; }
 .pix-aloc li { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.9rem; border-bottom: 1px dashed var(--line); padding-bottom: 0.25rem; }
 .pix-dados { grid-template-columns: 1fr; gap: 0.4rem; }
 .painel.acerto { border-color: rgba(47, 107, 255, 0.45); }
+.pagar-grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; }
+.pagar-item { border: 1px solid var(--line); border-radius: 8px; background: var(--bg-2); padding: 1rem 1.1rem; display: grid; gap: 0.35rem; align-content: start; }
+.pagar-item .rot { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
+.pagar-item b { font-family: var(--display); font-size: 1.5rem; }
+.pagar-item b.err { color: var(--err); } .pagar-item b.ok { color: var(--ok); font-size: 1.15rem; }
+.pagar-item .det { font-size: 0.85rem; color: var(--muted); }
+.pagar-item .btn { margin-top: 0.5rem; justify-self: start; }
+.pagar-abater { display: grid; gap: 0.5rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+.pagar-abater .btn { justify-self: start; }
+@media (max-width: 640px) { .pagar-item .btn, .pagar-abater .btn { justify-self: stretch; justify-content: center; } }

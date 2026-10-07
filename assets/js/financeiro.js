@@ -21,7 +21,8 @@
     const res = det.resumo || {};
     const n = (k) => Number((p && p[k]) || 0);
     let inicial = centavos(res.falta_inicial || 0);
-    const faltaTotal = res.falta_integralizar != null ? Number(res.falta_integralizar) : Math.max(0, n("capital_subscrito") - n("capital_integralizado"));
+    const faltaTotal = (res.falta_integralizar != null ? Number(res.falta_integralizar) : Math.max(0, n("capital_subscrito") - n("capital_integralizado"))) + Number(res.adiantado || 0);
+    const mesBase = String((p && p.data_base) || "").slice(0, 7);
     let meses = (det.mensal || []).map((m) => ({ mes: m.mes, aberto: centavos(Math.max(0, (m.devida || 0) - (m.paga || 0))) })).filter((m) => m.aberto > 0);
     const somaMeses = meses.reduce((a, m) => a + m.aberto, 0);
     const restoCapital = centavos(Math.max(0, faltaTotal) - inicial - somaMeses);
@@ -33,7 +34,7 @@
       (m.alocacao || []).forEach((a) => {
         if (a.destino === "integralizacao") inicial = centavos(inicial - a.valor);
         else if (a.destino === "despesa") despesa = centavos(despesa - a.valor);
-        else if (a.destino === "contribuicao") { const x = meses.find((mm) => mm.mes === (a.mes || null)) || meses.find((mm) => mm.aberto > 0); if (x) x.aberto = centavos(x.aberto - a.valor); }
+        else if (a.destino === "contribuicao" && !(a.mes && mesBase && a.mes > mesBase)) { const x = meses.find((mm) => mm.mes === (a.mes || null)) || meses.find((mm) => mm.aberto > 0); if (x) x.aberto = centavos(x.aberto - a.valor); }
       });
     });
     inicial = Math.max(0, inicial); despesa = Math.max(0, despesa); aportes = Math.max(0, aportes);
@@ -59,12 +60,16 @@
     const conf = (movs || []).filter((m) => m.cooperado_id === p.cooperado_id && vale(m));
     if (!conf.length) return { ...p, _ajustes: [] };
     const q = { ...p, _ajustes: conf };
-    let integ = 0, pix = 0, comp = 0;
+    const mesBase = String(p.data_base || "").slice(0, 7);
+    let integ = 0, pix = 0, comp = 0, quitou = 0;
     conf.forEach((m) => {
       if (m.tipo === "pix") pix += Number(m.valor); else comp += Number(m.valor);
-      (m.alocacao || []).forEach((a) => { if (a.destino !== "despesa") integ += Number(a.valor); });
+      (m.alocacao || []).forEach((a) => {
+        if (a.destino !== "despesa") integ += Number(a.valor);
+        if (!(a.destino === "contribuicao" && a.mes && a.mes > mesBase)) quitou += Number(a.valor);
+      });
     });
-    q.valor_em_aberto = centavos(Math.max(0, Number(p.valor_em_aberto || 0) - pix - comp));
+    q.valor_em_aberto = centavos(Math.max(0, Number(p.valor_em_aberto || 0) - quitou));
     q.capital_integralizado = centavos(Number(p.capital_integralizado || 0) + integ);
     q.contribuicoes_pagas = p.contribuicoes_pagas == null ? p.contribuicoes_pagas : centavos(Number(p.contribuicoes_pagas) + pix);
     q.outros_creditos = centavos(Math.max(0, Number(p.outros_creditos || 0) - comp));
@@ -80,6 +85,22 @@
       q.meses_em_atraso = mensal.filter((m) => m.em_aberto > 0.005).length;
     }
     return q;
+  }
+
+  /* Próxima contribuição mensal: o mês seguinte ao fechamento da planilha enviada pela tesouraria */
+  function proxima(p, movs) {
+    if (!p || !p.data_base) return null;
+    const [a, m] = String(p.data_base).slice(0, 7).split("-").map(Number);
+    const d = new Date(Date.UTC(a, m, 1));
+    const mes = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+    const valor = centavos(p.contribuicao_mensal || 0);
+    if (!(valor > 0)) return null;
+    const naPlanilha = ((p.detalhes || {}).mensal || []).filter((x) => x.mes === mes).reduce((s, x) => s + Number(x.paga || 0), 0);
+    let confirmado = 0, aguardando = 0;
+    (movs || []).filter((x) => x.cooperado_id === p.cooperado_id && !x.incorporado_em && (x.status === "confirmado" || x.status === "aguardando")).forEach((x) =>
+      (x.alocacao || []).forEach((al) => { if (al.destino === "contribuicao" && al.mes === mes) { if (x.status === "confirmado") confirmado += Number(al.valor); else aguardando += Number(al.valor); } }));
+    const pago = centavos(naPlanilha + confirmado);
+    return { mes, valor, pago, aguardando: centavos(aguardando), resta: centavos(Math.max(0, valor - pago - aguardando)) };
   }
 
   /* ---------- Pix: BR Code estático ---------- */
@@ -176,5 +197,5 @@
     return Array.from(a, (b) => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[b % 32]).join("");
   }
 
-  window.Fin = { PIX, ABA_LANC, centavos, nomeMes, componentes, alocar, descreverItem, ajustada, pixCopiaECola, crc16, qrSvg, planilhaComLancamentos, lerLancamentos, novoCodigo, vale };
+  window.Fin = { PIX, ABA_LANC, centavos, nomeMes, componentes, alocar, proxima, descreverItem, ajustada, pixCopiaECola, crc16, qrSvg, planilhaComLancamentos, lerLancamentos, novoCodigo, vale };
 })();
