@@ -249,7 +249,7 @@
         async minhas() { const s = ler(); const u = exigir(s); return espera((s.fin_posicoes || []).filter((p) => p.cooperado_id === u.id).sort((a, b) => b.data_base.localeCompare(a.data_base))); },
         async todas() { const s = ler(); exigir(s, "tes"); return espera((s.fin_posicoes || []).map((p) => ({ ...p, cooperado_nome: nomePessoa(s, p.cooperado_id) }))); },
         async importacoes() { const s = ler(); exigir(s, "tes"); return espera([...(s.fin_importacoes || [])].sort((a, b) => b.criado_em.localeCompare(a.criado_em))); },
-        async importar({ data_base, arquivo, linhas }) {
+        async importar({ data_base, arquivo, linhas, pendentes }) {
           const s = ler(); const u = exigir(s, "tes");
           let dataUrl = null;
           if (arquivo && arquivo.size < 1.5 * 1024 * 1024) dataUrl = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => ok(null); r.readAsDataURL(arquivo); });
@@ -406,7 +406,7 @@
           return rows.map((p) => ({ ...p, cooperado_nome: p.perfis ? p.perfis.nome : "—" }));
         },
         async importacoes() { return ok(await sb.from("financeiro_importacoes").select("*").order("criado_em", { ascending: false })); },
-        async importar({ data_base, arquivo, linhas }) {
+        async importar({ data_base, arquivo, linhas, pendentes }) {
           const uid = await meuId();
           const eu = ok(await sb.from("perfis").select("nome").eq("id", uid).single());
           let caminho = null;
@@ -416,7 +416,7 @@
             const up = await sb.storage.from("financeiro").upload(caminho, arquivo, { upsert: false, contentType: arquivo.type || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
             if (up.error) { console.warn("Arquivo não guardado (migração 004 pendente?)", up.error); caminho = null; }
           }
-          const base = { data_base, arquivo: arquivo ? arquivo.name : null, linhas: linhas.length, criado_por: uid, criado_nome: eu.nome };
+          const base = { data_base, arquivo: arquivo ? arquivo.name : null, linhas: linhas.length, criado_por: uid, criado_nome: eu.nome, ...(pendentes && pendentes.length ? { pendentes } : {}) };
           let ins = await sb.from("financeiro_importacoes").insert(caminho ? { ...base, caminho_arquivo: caminho } : base).select().single();
           if (ins.error && caminho) { await sb.storage.from("financeiro").remove([caminho]); caminho = null; ins = await sb.from("financeiro_importacoes").insert(base).select().single(); }
           const imp = ok(ins);

@@ -25,7 +25,7 @@ Com `config.js` vazio, tudo funciona com dados de exemplo guardados no navegador
 ## Ligar o banco real (uma vez)
 
 1. Em supabase.com, crie o projeto `bimcore` (região São Paulo).
-2. Em **SQL Editor**, rode `supabase/schema.sql` e depois as migrações `supabase/migracao-002-admissao.sql` `supabase/migracao-003-financeiro.sql` e `supabase/migracao-004-planilha-financeira.sql`, nessa ordem.
+2. Em **SQL Editor**, rode `supabase/schema.sql` e depois as migrações `supabase/migracao-002-admissao.sql` `supabase/migracao-003-financeiro.sql` `supabase/migracao-004-planilha-financeira.sql` e `supabase/migracao-005-vinculo-automatico.sql`, nessa ordem.
 3. Em **Authentication > URL Configuration**, coloque `https://bimcore.com.br` em *Site URL* e adicione `https://bimcore.com.br/**` em *Redirect URLs*.
 4. Em **Project Settings > API**, copie *Project URL* e *anon public key* para `assets/js/config.js`.
 5. Publique os arquivos, cadastre-se em `bimcore.com.br/entrar.html` e rode no SQL Editor:
@@ -50,7 +50,7 @@ Envie todo o conteúdo desta pasta (inclusive o `.htaccess`) para `public_html` 
 ## Financeiro (tesouraria)
 
 1. Na área interna → **Financeiro**, a tesoureira envia a planilha completa (`.xlsx`).
-2. O site lê a aba **Posição** (o e-mail identifica o cooperado), as abas mensais `AAAA-MM`, **Pagamentos**, **Resumo** e a data de fechamento em **Parâmetros**.
+2. O site lê a aba **Posição** (identifica o cooperado pelo e-mail ou pelo nome; quem ainda não tem cadastro recebe os valores automaticamente ao se cadastrar), as abas mensais `AAAA-MM`, **Pagamentos**, **Resumo** e a data de fechamento em **Parâmetros**.
 3. Ao confirmar, o arquivo enviado passa a ser a **planilha atual**: o botão "Baixar planilha atual" sempre entrega a última versão enviada, que serve de base para a próxima atualização.
 4. Cada cooperado vê em **Minha conta** apenas a própria posição, aportes e contribuições mês a mês.
 

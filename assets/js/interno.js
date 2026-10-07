@@ -403,18 +403,20 @@
           const cabs = Object.keys(rows[0]);
           const colEmail = cabs.find((h) => norm(h).includes("email"));
           const colNome = cabs.find((h) => norm(h) === "nome");
-          if (!colEmail) return toast("Não encontrei a coluna E-mail na aba Posição.", "err");
+          if (!colEmail && !colNome) return toast("Não encontrei as colunas Nome ou E-mail na aba Posição.", "err");
           const colunas = {}; cabs.forEach((h) => { const k = mapa[norm(h)]; if (k) colunas[k] = h; });
           const det = detalhesDaPasta(livro);
           const vistos = new Set();
-          const semEmail = rows.filter((r) => !String(r[colEmail]).trim() && colNome && String(r[colNome]).trim()).map((r) => String(r[colNome]).trim());
-          const previa = rows.filter((r) => String(r[colEmail]).trim()).map((r, i) => {
-            const email = String(r[colEmail]).toLowerCase().trim();
-            const c = porEmail[email];
+          const nn = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+          const combina = (a, b) => { a = nn(a); b = nn(b); if (!a || !b) return false; if (a === b) return true;
+            const pa = a.split(" "), pb = b.split(" "); return pa.length > 1 && pb.length > 1 && pa[0] === pb[0] && pa[pa.length - 1] === pb[pb.length - 1]; };
+          const acharCoop = (email, nome) => (email && porEmail[email]) || coops.find((c) => nn(c.nome) === nn(nome)) || coops.find((c) => combina(c.nome, nome));
+          const previa = rows.filter((r) => (colEmail && String(r[colEmail]).trim()) || (colNome && String(r[colNome]).trim())).map((r, i) => {
+            const email = colEmail ? String(r[colEmail]).toLowerCase().trim() : "";
             const nomePlan = colNome ? String(r[colNome]).trim() : "";
+            const c = acharCoop(email, nomePlan);
             const lin = { _n: i + 2, _email: email, _coop: c, _nome: nomePlan, _erros: [] };
-            if (!c) lin._erros.push("e-mail sem cadastro no site");
-            else if (vistos.has(c.id)) lin._erros.push("cooperado repetido");
+            if (c && vistos.has(c.id)) lin._erros.push("cooperado repetido");
             if (c) vistos.add(c.id);
             Object.entries(colunas).forEach(([k, h]) => {
               if (k === "observacao") { lin[k] = String(r[h] || "").slice(0, 1000) || null; return; }
@@ -425,15 +427,16 @@
             lin.detalhes = det[nomePlan] || null;
             return lin;
           });
-          const boas = previa.filter((l) => !l._erros.length);
+          const boas = previa.filter((l) => !l._erros.length && l._coop);
+          const aguardando = previa.filter((l) => !l._erros.length && !l._coop);
           const numericos = Object.keys(API.CAMPOS_FIN).filter((k) => k !== "observacao");
           const vazia = previa.length && previa.every((l) => numericos.every((k) => l[k] == null || l[k] === 0));
           const abasLidas = ["Posição", ...livro.SheetNames.filter((n) => /^\d{4}-\d{2}$/.test(n)).length ? ["abas mensais"] : [], ...(livro.Sheets["Pagamentos"] ? ["Pagamentos"] : []), ...(livro.Sheets["Resumo"] ? ["Resumo"] : [])];
           $("#fin-previa").innerHTML = `
             ${vazia ? `<div class="notice warn" style="margin-top:1rem"><strong>Atenção: esta planilha não tem nenhum valor preenchido.</strong> Ela não será importada, para não apagar os valores atuais. Envie a planilha financeira completa (com as abas Despesas, Pagamentos, meses etc.).</div>` : ""}
-            <div class="notice ${boas.length === previa.length && !semEmail.length && !vazia ? "ok" : "warn"}" style="margin-top:1rem">
-              Abas lidas: ${esc(abasLidas.join(", "))}. ${boas.length} de ${previa.length} cooperado(s) prontos para importar${previa.length - boas.length ? `; ${previa.length - boas.length} com problema` : ""}.
-              ${semEmail.length ? `<br>Sem e-mail na planilha (não serão importados): ${esc(semEmail.join(", "))}. Preencha o e-mail na aba Cooperados.` : ""}
+            <div class="notice ${boas.length + aguardando.length === previa.length && !vazia ? "ok" : "warn"}" style="margin-top:1rem">
+              Abas lidas: ${esc(abasLidas.join(", "))}. ${boas.length} cooperado(s) já cadastrado(s) no site${aguardando.length ? ` e ${aguardando.length} aguardando cadastro` : ""}${previa.length - boas.length - aguardando.length ? `; ${previa.length - boas.length - aguardando.length} com problema` : ""}.
+              ${aguardando.length ? `<br>Quem ainda não se cadastrou recebe os valores automaticamente assim que criar a conta no site (reconhecido pelo nome ou e-mail). Não é preciso reenviar a planilha.` : ""}
             </div>
             <div class="tabela-wrap" style="margin-top:1rem"><table class="tabela">
               <thead><tr><th>Cooperado</th><th class="num">Capital integralizado</th><th class="num">Em aberto</th><th class="num">Aportes</th><th class="num">Meses detalhados</th><th>Situação</th></tr></thead>
@@ -441,16 +444,18 @@
                 <td>${l._coop ? esc(l._coop.nome) : esc(l._nome || "—")}<span class="sub">${esc(l._email)}</span></td>
                 <td class="num">${moeda(l.capital_integralizado)}</td><td class="num">${moeda(l.valor_em_aberto)}</td><td class="num">${moeda(l.outros_creditos)}</td>
                 <td class="num">${l.detalhes ? l.detalhes.mensal.length : 0}</td>
-                <td>${l._erros.length ? `<span class="selo err">${esc(l._erros.join("; "))}</span>` : '<span class="selo ok">ok</span>'}</td></tr>`).join("")}</tbody>
+                <td>${l._erros.length ? `<span class="selo err">${esc(l._erros.join("; "))}</span>` : l._coop ? '<span class="selo ok">ok</span>' : '<span class="selo">aguardando cadastro</span>'}</td></tr>`).join("")}</tbody>
             </table></div>
             <div class="sol-acoes" style="margin-top:1rem">
-              <button class="btn btn-primary" id="fin-confirmar" ${boas.length && !vazia ? "" : "disabled"}>Confirmar e tornar esta a planilha atual</button>
+              <button class="btn btn-primary" id="fin-confirmar" ${boas.length + aguardando.length && !vazia ? "" : "disabled"}>Confirmar e tornar esta a planilha atual</button>
               <button class="btn btn-ghost" id="fin-cancelar">Cancelar</button>
             </div>`;
           $("#fin-cancelar").onclick = () => { $("#fin-previa").innerHTML = ""; };
           $("#fin-confirmar").onclick = async (ev) => {
-            const linhas = boas.map((l) => { const o = { cooperado_id: l._coop.id, detalhes: l.detalhes }; Object.keys(C).forEach((k) => { if (k in l) o[k] = l[k]; }); return o; });
-            const ok = await acao(ev.currentTarget, () => API.financeiro.importar({ data_base: $("#fin-data").value, arquivo: arq, linhas }), "Posição financeira atualizada. Esta é agora a planilha atual.");
+            const dados = (l) => { const o = { detalhes: l.detalhes }; Object.keys(C).forEach((k) => { if (k in l) o[k] = l[k]; }); return o; };
+            const linhas = boas.map((l) => ({ cooperado_id: l._coop.id, ...dados(l) }));
+            const pendentes = aguardando.map((l) => ({ nome: l._nome, email: l._email, dados: dados(l) }));
+            const ok = await acao(ev.currentTarget, () => API.financeiro.importar({ data_base: $("#fin-data").value, arquivo: arq, linhas, pendentes }), "Posição financeira atualizada. Esta é agora a planilha atual.");
             if (ok) paginas.financeiro.render(el, ctx);
           };
         });
