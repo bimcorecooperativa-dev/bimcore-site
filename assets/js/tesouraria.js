@@ -22,7 +22,9 @@
   const hojeISO = () => UI.hoje();
 
   async function render(el, ctx) {
-    const [base, movs, perfis] = await Promise.all([API.fin.tudo(), API.movimentos.todos().catch(() => []), API.cooperados.listar().catch(() => [])]);
+    const [base, movs, perfis, expAll] = await Promise.all([API.fin.tudo(), API.movimentos.todos().catch(() => []), API.cooperados.listar().catch(() => []), API.exp.todos().catch(() => ({ habilitacoes: [], experiencias: [], comprovantes: [] }))]);
+    base.habilitacoes = expAll.habilitacoes; base.experiencias = expAll.experiencias;
+    const pendExp = expAll.habilitacoes.filter((h) => h.status === "pendente").length + expAll.experiencias.filter((x) => x.status === "pendente").length;
     const calc = Fin.calcular(base);
     const coops = base.cooperados;
     const porId = {}; coops.forEach((c) => { porId[c.id] = c; });
@@ -38,7 +40,7 @@
       <div class="pag-cab"><div><p class="eyebrow">Tesouraria</p><h1>Financeiro</h1></div>
         <button class="btn btn-ghost" id="t-exportar">Exportar para Excel</button></div>
       <p class="muted">Contas calculadas pelo Estatuto até <b>${Fin.nomeMes(fech)}</b>${base.parametros.fechamento ? " (mês de fechamento fixado em Configurações)" : " (atualiza sozinho a cada mês)"}. Cada lançamento aparece na hora na "Minha conta" do cooperado.</p>
-      <nav class="subabas" role="tablist">${abas.map(([k, t]) => `<button role="tab" data-aba="${k}" aria-selected="${aba === k}">${t}${k === "resumo" && aguardando.length ? ` <span class="contador">${aguardando.length}</span>` : ""}</button>`).join("")}</nav>
+      <nav class="subabas" role="tablist">${abas.map(([k, t]) => `<button role="tab" data-aba="${k}" aria-selected="${aba === k}">${t}${k === "resumo" && aguardando.length ? ` <span class="contador">${aguardando.length}</span>` : ""}${k === "cadastro" && pendExp ? ` <span class="contador">${pendExp}</span>` : ""}</button>`).join("")}</nav>
       <div id="t-corpo"></div>`;
     el.querySelectorAll("[data-aba]").forEach((b) => { b.onclick = () => { aba = b.dataset.aba; recarregar(); }; });
     $("#t-exportar").onclick = (ev) => acao(ev.currentTarget, () => exportar(base, calc, perfilPorId), "Planilha exportada.");
@@ -88,18 +90,19 @@
       const linhas = coops.filter((c) => naFolha.has(c.id) || (c.data_admissao && Fin.mesDe(c.data_admissao) <= mes && (!c.data_desligamento || Fin.mesDe(c.data_desligamento) >= mes)));
       const folhaDe = (id) => (base.folha || []).find((f) => f.fin_cooperado_id === id && Fin.mesDe(f.mes) === mes) || {};
       const rec = (base.receitas || []).find((r) => Fin.mesDe(r.mes) === mes) || {};
-      const semCat = linhas.filter((c) => !c.categoria);
+      const enqDe = {}; linhas.forEach((c) => { enqDe[c.id] = Fin.enquadramento(c, base, mes); });
+      const semCat = linhas.filter((c) => !enqDe[c.id].categoria);
       corpo.innerHTML = `
         <section class="painel">
           <div class="painel-cab"><h2>Retiradas de ${Fin.nomeMes(mes)}</h2>
             <div class="sol-acoes"><div class="field"><label for="fm-mes">Mês</label><input class="input" id="fm-mes" type="month" value="${mes}"></div>
             <button class="btn btn-ghost btn-sm" id="fm-puxar" type="button">Puxar horas lançadas no site</button></div></div>
           <p class="hint">Preencha as horas de cada cooperado no mês (produtivas e de formação), os dias trabalhados e, quando houver, o 13º e as férias pagas. O site calcula a retirada pelo valor-hora da categoria (art. 8º), o INSS (11% até o teto), a contribuição de capital (1,5% da retirada), o FIC, as provisões de 13º e férias e os auxílios. Ao salvar, tudo aparece na hora na Minha conta de cada um.</p>
-          ${semCat.length ? `<div class="notice warn">Sem categoria salarial (valor-hora zerado): ${semCat.map((c) => esc(c.nome)).join(", ")}. Defina em <b>Cadastro</b> antes de fechar o mês.</div>` : ""}
+          ${semCat.length ? `<div class="notice warn">Sem enquadramento (valor-hora zerado): ${semCat.map((c) => esc(c.nome)).join(", ")}. O cooperado precisa enviar formação e experiências em <b>Minha experiência</b> e alguém validar em <b>Cadastro → Experiência</b>.</div>` : ""}
           <div class="tabela-wrap"><table class="tabela folha">
             <thead><tr><th>Cooperado</th><th class="num">Horas produtivas</th><th class="num">Horas de formação</th><th class="num">Dias trabalhados</th><th class="num">13º pago</th><th class="num">Férias pagas</th><th class="num">Retirada bruta</th><th class="num">INSS</th><th class="num">Contribuição</th><th class="num">Auxílios</th><th class="num">Líquido a pagar</th></tr></thead>
             <tbody>${linhas.map((c) => { const f = folhaDe(c.id); return `<tr data-coop="${c.id}">
-              <td>${esc(c.nome)}<span class="sub">${c.categoria ? esc(c.categoria) + " · " + esc(c.conselho || "sem conselho") + " · " + moeda(Fin.valorHora(c, base.parametros)) + "/h" : "sem categoria"}</span></td>
+              <td>${esc(c.nome)}<span class="sub">${enqDe[c.id].categoria ? esc(enqDe[c.id].categoria) + " · " + esc(enqDe[c.id].conselho || "sem conselho") + " · " + moeda(Fin.valorHoraDe(enqDe[c.id].categoria, enqDe[c.id].conselho, base.parametros)) + "/h" + (enqDe[c.id].origem === "automatico" ? " · " + enqDe[c.id].anos + " ano(s) comprovados" : " · manual") : "sem enquadramento"}</span></td>
               <td class="num"><input class="input mini-num" data-k="horas_produtivas" inputmode="decimal" value="${f.horas_produtivas ? brl(f.horas_produtivas) : ""}"></td>
               <td class="num"><input class="input mini-num" data-k="horas_formacao" inputmode="decimal" value="${f.horas_formacao ? brl(f.horas_formacao) : ""}"></td>
               <td class="num"><input class="input mini-num" data-k="dias" inputmode="numeric" value="${f.dias || ""}"></td>
@@ -239,13 +242,14 @@
           <div class="painel-cab"><h2>Cadastro financeiro dos cooperados</h2><button class="btn btn-primary btn-sm" id="t-novo-coop">Adicionar cooperado</button></div>
           <p class="hint">Todo cooperado tem cadastro aqui, mesmo sem conta no site. Quando ele criar a conta, ela é ligada sozinha pelo e-mail ou pelo nome; você também pode ligar manualmente em Editar.</p>
           ${coops.length ? `<div class="tabela-wrap"><table class="tabela">
-            <thead><tr><th>Cooperado</th><th>Conta no site</th><th>Categoria</th><th class="num">Quotas iniciais</th><th class="num">Integralizado na admissão</th><th>Admissão</th><th>Situação</th><th></th></tr></thead>
+            <thead><tr><th>Cooperado</th><th>Conta no site</th><th>Enquadramento</th><th class="num">Quotas iniciais</th><th class="num">Integralizado na admissão</th><th>Admissão</th><th>Situação</th><th></th></tr></thead>
             <tbody>${coops.map((c) => `<tr><td>${esc(c.nome)}<span class="sub">${esc(c.cargo || "")}</span></td>
               <td>${c.perfil_id ? `<span class="selo ok">ligada</span><span class="sub">${esc((perfilPorId[c.perfil_id] || {}).email || c.email || "")}</span>` : `<span class="selo">sem conta</span><span class="sub">${esc(c.email || "e-mail não informado")}</span>`}</td>
-              <td>${c.categoria ? `${esc(c.categoria)}<span class="sub">${esc(c.conselho || "")} · ${moeda(Fin.valorHora(c, base.parametros))}/h</span>` : '<span class="selo warn">definir</span>'}</td>
+              <td>${(() => { const e = Fin.enquadramento(c, base, fech); const pend = expAll.habilitacoes.concat(expAll.experiencias).filter((x) => x.fin_cooperado_id === c.id && x.status === "pendente").length;
+                return (e.categoria ? `${esc(e.categoria)}<span class="sub">${esc(e.conselho || "")} · ${moeda(Fin.valorHoraDe(e.categoria, e.conselho, base.parametros))}/h · ${e.origem === "automatico" ? e.anos + " ano(s)" : "manual"}</span>` : '<span class="selo warn">sem enquadramento</span>') + (pend ? `<span class="sub"><span class="selo warn">${pend} para validar</span></span>` : ""); })()}</td>
               <td class="num">${c.quotas_iniciais}</td><td class="num">${moeda(c.integralizado_admissao)}${c.compensar_aportes ? '<span class="sub">aportes usados na integralização</span>' : ""}</td>
               <td>${data(c.data_admissao)}</td><td>${c.situacao === "ativo" ? '<span class="selo ok">ativo</span>' : `<span class="selo">desligado</span><span class="sub">${data(c.data_desligamento)}</span>`}</td>
-              <td class="acoes-celula"><button class="btn btn-ghost btn-sm" data-ed-coop="${c.id}">Editar</button></td></tr>`).join("")}</tbody>
+              <td class="acoes-celula"><button class="btn btn-ghost btn-sm" data-exp-coop="${c.id}">Experiência</button> <button class="btn btn-ghost btn-sm" data-ed-coop="${c.id}">Editar</button></td></tr>`).join("")}</tbody>
           </table></div>` : '<p class="vazio">Nenhum cooperado cadastrado.</p>'}
         </section>`;
       $("#t-novo-coop").onclick = () => formCooperado(null);
@@ -279,6 +283,11 @@
           ${campoP("cp-res", "Fundo de Reserva (%)", pct(pr.reserva_pct), "Mínimo legal; a Assembleia define (art. 71, §3º).")}
           ${campoP("cp-fates", "FATES (%)", pct(pr.fates_pct), "Mínimo legal; a Assembleia define.")}
         </div></section>
+        <section class="painel"><h2>Enquadramento por experiência (art. 8º, IV e V)</h2>
+          <p class="hint">Júnior até 5 anos completos de experiência comprovada; Pleno de 6 a 10; Sênior a partir de 11 (teto). Coordenador só com designação do Conselho e mais de 10 anos. Conta apenas a experiência validada na função ligada à formação usada na cooperativa.</p>
+          <label class="ciente"><input type="checkbox" id="cp-exptec" ${par.exp_tecnico_antes === false ? "" : "checked"}> <span>Nível técnico: contar a prática na área anterior ao diploma</span></label>
+          <label class="ciente"><input type="checkbox" id="cp-expsup" ${par.exp_superior_antes ? "checked" : ""}> <span>Nível superior: contar experiência anterior ao diploma/registro</span></label>
+        </section>
         <section class="painel"><h2>Tabela salarial (art. 8º)</h2>
           <p class="hint">CREA/CAU: multiplicador × salário-mínimo. Demais conselhos: retirada de referência da categoria Pleno × (multiplicador ÷ multiplicador Pleno). A Assembleia aprova a tabela todo ano.</p>
           <div class="form-grid">
@@ -301,7 +310,8 @@
           fechamento: $("#cp-fech").value ? $("#cp-fech").value + "-01" : null, contrib_pct: pc("cp-contrib"), sm: v("cp-sm"), horas_ref: Number($("#cp-horas").value),
           inss_pct: pc("cp-inss"), inss_teto: v("cp-teto"), patronal_pct: pc("cp-patr"), fic_coop_pct: pc("cp-fic"), fic_vol_max: pc("cp-ficv"), tele_pct: pc("cp-tele"),
           alim_pct: pc("cp-alim"), custo_op_pct: pc("cp-cop"), reserva_pct: pc("cp-res"), fates_pct: pc("cp-fates"), base_demais_pleno: v("cp-base"),
-          mult_junior: v("cp-mj"), mult_pleno: v("cp-mp"), mult_senior: v("cp-ms"), mult_coord: v("cp-mc") };
+          mult_junior: v("cp-mj"), mult_pleno: v("cp-mp"), mult_senior: v("cp-ms"), mult_coord: v("cp-mc"),
+          exp_tecnico_antes: $("#cp-exptec").checked, exp_superior_antes: $("#cp-expsup").checked };
         const ruim = Object.entries(d).filter(([k, x]) => k !== "fechamento" && !(x === 0 || (x && Number.isFinite(Number(x))) || typeof x === "string"));
         if (!d.contrib_inicio || ruim.length || !(d.quota > 0) || !(d.sm > 0) || !(d.horas_ref > 0) || !(d.mult_pleno > 0)) return toast("Confira os campos: há valor vazio ou inválido.", "err");
         if (await acao($("#cp-btn"), () => API.fin.salvarParametros(d), "Parâmetros salvos.")) recarregar();
@@ -398,7 +408,7 @@
           <div class="field"><label for="fc-email">E-mail</label><input class="input" id="fc-email" type="email" value="${esc(c ? c.email || "" : "")}"></div>
           <div class="field"><label for="fc-cargo">Cargo / função</label><input class="input" id="fc-cargo" maxlength="80" value="${esc(c ? c.cargo || "" : "")}"></div>
           <div class="field"><label for="fc-cons">Conselho profissional</label><select class="input" id="fc-cons"><option value="">—</option>${Fin.CONSELHOS.map((x) => `<option ${c && c.conselho === x ? "selected" : ""}>${x}</option>`).join("")}</select></div>
-          <div class="field"><label for="fc-cat">Categoria salarial (art. 8º)</label><select class="input" id="fc-cat"><option value="">Definir</option>${Fin.CATEGORIAS_SAL.map(([x, , exp]) => `<option value="${x}" ${c && c.categoria === x ? "selected" : ""}>${x} (${exp})</option>`).join("")}</select></div>
+          <div class="field"><label for="fc-cat">Categoria manual (só sem formação validada)</label><select class="input" id="fc-cat"><option value="">Automática pela experiência</option>${Fin.CATEGORIAS_SAL.map(([x, , exp]) => `<option value="${x}" ${c && c.categoria === x ? "selected" : ""}>${x} (${exp})</option>`).join("")}</select></div>
           <div class="field"><label for="fc-ficv">FIC voluntário (% das retiradas)</label><input class="input" id="fc-ficv" inputmode="decimal" value="${c ? pct(c.fic_voluntario || 0) : "0"}"><span class="hint">De 0 a ${pct(Fin.params(base.parametros).fic_vol_max)}% (art. 78).</span></div>
           <div class="field"><label for="fc-ficr">FIC — rendimentos creditados (R$)</label><input class="input" id="fc-ficr" inputmode="decimal" value="${brl(c ? c.fic_rendimentos || 0 : 0)}"></div>
           <div class="field"><label for="fc-ficg">FIC — resgates feitos (R$)</label><input class="input" id="fc-ficg" inputmode="decimal" value="${brl(c ? c.fic_resgates || 0 : 0)}"></div>
@@ -439,6 +449,60 @@
       };
     }
 
+    function experiencia(id) {
+      const c = porId[id];
+      const habs = expAll.habilitacoes.filter((h) => h.fin_cooperado_id === id);
+      const exps = expAll.experiencias.filter((x) => x.fin_cooperado_id === id);
+      const habPor = {}; habs.forEach((h) => { habPor[h.id] = h; });
+      const docs = (rid) => expAll.comprovantes.filter((x) => x.ref_id === rid).map((x) => `<button class="link-botao" data-doc="${x.id}">${esc(x.nome_arquivo)}</button>`).join("<br>") || '<span class="sub">sem documento</span>';
+      const selo = (x) => x.status === "aprovada" ? `<span class="selo ok">validado</span><span class="sub">${esc(x.analise_nome || "")}</span>` : x.status === "recusada" ? `<span class="selo err">não validado</span><span class="sub">${esc(x.motivo || "")}</span>` : '<span class="selo warn">em análise</span>';
+      const botoes = (tab, x) => `<button class="btn btn-primary btn-sm" data-val="${tab}:${x.id}:aprovada">Validar</button> <button class="btn btn-danger btn-sm" data-val="${tab}:${x.id}:recusada">Não validar</button>`;
+      const enq = Fin.enquadramento(c, base, fech);
+      const aprov = habs.filter((h) => h.status === "aprovada");
+      const md = UI.modal(`
+        <h2>Experiência de ${esc(c.nome)}</h2>
+        <div class="notice ${enq.categoria ? "ok" : "warn"}">Enquadramento em ${Fin.nomeMes(fech)}: <b>${esc(enq.categoria || "pendente")}</b>${enq.habilitacao ? ` · ${esc(enq.habilitacao.titulo)} (${esc(enq.conselho || "")}) · ${enq.anos} ano(s) comprovados` : ""}${enq.proxima ? ` · vira ${esc(enq.proxima.categoria)} em ${data(enq.proxima.data)}` : ""}${enq.avisos.length ? "<br>" + enq.avisos.map(esc).join("<br>") : ""}</div>
+        <p class="hint">Valide com base nos documentos (art. 8º, V). Conta só o que tiver relação com a formação indicada; períodos em outra atividade não contam. Ninguém valida o próprio registro.</p>
+        <h3 class="mini-tit">Formações</h3>
+        ${habs.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Formação</th><th>Diploma / registro</th><th>Documentos</th><th>Situação</th><th></th></tr></thead>
+          <tbody>${habs.map((h) => `<tr><td>${esc(h.titulo)}<span class="sub">${esc(Fin.NIVEIS[h.nivel] || "")} · ${esc(h.conselho || "")}</span></td><td>${data(h.data_habilitacao)}${h.registro ? `<span class="sub">${esc(h.registro)}</span>` : ""}</td><td>${docs(h.id)}</td><td>${selo(h)}</td><td class="acoes-celula">${botoes("habilitacoes", h)}</td></tr>`).join("")}</tbody></table></div>` : '<p class="vazio">Nenhuma formação enviada.</p>'}
+        <h3 class="mini-tit">Experiências</h3>
+        ${exps.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Experiência</th><th>Formação</th><th>Período</th><th>Documentos</th><th>Situação</th><th></th></tr></thead>
+          <tbody>${exps.map((x) => `<tr><td>${esc(x.descricao)}</td><td>${esc((habPor[x.habilitacao_id] || {}).titulo || "—")}</td><td>${data(x.inicio)} a ${x.fim ? data(x.fim) : "hoje"}</td><td>${docs(x.id)}</td><td>${selo(x)}</td><td class="acoes-celula">${botoes("experiencias", x)}</td></tr>`).join("")}</tbody></table></div>` : '<p class="vazio">Nenhuma experiência enviada.</p>'}
+        <h3 class="mini-tit">Função na cooperativa</h3>
+        <div class="form-grid">
+          <div class="field full"><label for="xq-hab">Formação usada na remuneração</label><select class="input" id="xq-hab"><option value="">${aprov.length === 1 ? "Automática (única validada)" : "Escolha"}</option>${aprov.map((h) => `<option value="${h.id}" ${c.habilitacao_remuneracao === h.id ? "selected" : ""}>${esc(h.titulo)} (${esc(h.conselho || "")})</option>`).join("")}</select></div>
+        </div>
+        <label class="ciente"><input type="checkbox" id="xq-coord" ${c.coordenador_designado ? "checked" : ""}> <span>Designado coordenador pelo Conselho de Administração (só vale com mais de 10 anos comprovados)</span></label>
+        <div class="form-grid" id="xq-cw" ${c.coordenador_designado ? "" : "hidden"}>
+          <div class="field"><label for="xq-desde">A partir de</label><input class="input" id="xq-desde" type="date" value="${c.coordenador_desde || ""}"></div>
+          <div class="field"><label for="xq-ato">Ato de designação (ata, data)</label><input class="input" id="xq-ato" maxlength="200" value="${esc(c.coordenador_ato || "")}"></div>
+        </div>
+        <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Fechar</button><button class="btn btn-primary btn-sm" id="xq-ok">Salvar função</button></div>`);
+      $("#xq-coord", md.el).onchange = (e) => { $("#xq-cw", md.el).hidden = !e.target.checked; };
+      $("#xq-ok", md.el).onclick = async (ev) => {
+        const reg = { id: c.id, habilitacao_remuneracao: $("#xq-hab", md.el).value || null, coordenador_designado: $("#xq-coord", md.el).checked,
+          coordenador_desde: $("#xq-coord", md.el).checked ? $("#xq-desde", md.el).value || null : null, coordenador_ato: $("#xq-coord", md.el).checked ? $("#xq-ato", md.el).value.trim() || null : null };
+        if (reg.coordenador_designado && (!reg.coordenador_desde || !reg.coordenador_ato)) return toast("Informe a data e o ato de designação.", "err");
+        if (await acao(ev.currentTarget, () => API.fin.salvar("cooperados", reg), "Função salva.")) { md.fechar(); recarregar(); }
+      };
+      md.el.addEventListener("click", async (e) => {
+        const dv = e.target.closest("[data-doc]");
+        if (dv) { const cp = expAll.comprovantes.find((y) => y.id === dv.dataset.doc); const url = await acao(null, () => API.exp.link(cp)); if (url) window.open(url, "_blank", "noopener"); return; }
+        const b = e.target.closest("[data-val]"); if (!b) return;
+        const [tab, rid, st] = b.dataset.val.split(":");
+        const mot = st === "recusada" ? await new Promise((ok) => {
+          const mm = UI.modal(`<h2>Não validar</h2><div class="field"><label for="mv-m">Motivo (o cooperado verá)</label><input class="input" id="mv-m" maxlength="200" placeholder="Ex.: período fora da área, falta comprovante"></div>
+            <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Voltar</button><button class="btn btn-danger btn-sm" id="mv-ok">Confirmar</button></div>`, () => ok(undefined));
+          $("#mv-ok", mm.el).onclick = () => { const v = $("#mv-m", mm.el).value.trim(); ok(v || "Não validado"); mm.fechar(); };
+        }) : null;
+        if (st === "recusada" && mot === undefined) return;
+        if (await acao(b, () => API.exp.analisar(tab, rid, st, mot), st === "aprovada" ? "Validado." : "Marcado como não validado.")) {
+          md.fechar(); await recarregar(); const bt = el.querySelector(`[data-exp-coop="${id}"]`); if (bt) bt.click();
+        }
+      });
+    }
+
     function extrato(id) {
       const p = calc[id];
       const pags = base.pagamentos.filter((x) => x.fin_cooperado_id === id);
@@ -468,6 +532,7 @@
       const t = (sel) => e.target.closest(sel);
       let b;
       if ((b = t("[data-extrato]"))) return extrato(b.dataset.extrato);
+      if ((b = t("[data-exp-coop]"))) return experiencia(b.dataset.expCoop);
       if ((b = t("[data-ed-desp]"))) return formDespesa(despPorId[b.dataset.edDesp]);
       if ((b = t("[data-ed-pag]"))) return formPagamento(base.pagamentos.find((x) => x.id === b.dataset.edPag));
       if ((b = t("[data-ed-coop]"))) return formCooperado(porId[b.dataset.edCoop]);

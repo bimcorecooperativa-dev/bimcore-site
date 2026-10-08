@@ -230,3 +230,6 @@ select.mini { padding: 0.4rem 0.5rem; font-size: 0.85rem; width: auto; }
 #t-corpo { display: grid; gap: 1.6rem; }
 .tabela.folha input.mini-num { width: 6.5rem; padding: 0.4rem 0.5rem; text-align: right; font-variant-numeric: tabular-nums; }
 @media (max-width: 640px) { .tabela.folha input.mini-num { width: 100%; text-align: left; } }
+.link-botao.perigo { color: var(--err); font-size: 0.8rem; }
+.docs-mini { font-size: 0.85rem; line-height: 1.6; overflow-wrap: anywhere; }
+.notice.ok { border-color: rgba(60, 207, 145, 0.4); }

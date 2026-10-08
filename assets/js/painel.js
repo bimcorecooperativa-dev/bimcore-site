@@ -384,6 +384,133 @@
       }
     },
 
+    experiencia: {
+      titulo: "Minha experiência",
+      async render(el, ctx) {
+        const Fin = window.Fin, { moeda } = window.UI;
+        const d = await API.exp.meu();
+        if (!d.cooperado) {
+          el.innerHTML = `<div class="pag-cab"><div><p class="eyebrow">Enquadramento</p><h1>Minha experiência</h1></div></div>
+            <p class="vazio">Sua conta ainda não está ligada ao seu cadastro na cooperativa. A tesouraria faz essa ligação; depois disso você poderá enviar seus documentos aqui.</p>`;
+          return;
+        }
+        const c = d.cooperado, recarregar = () => paginas.experiencia.render(el, ctx);
+        const base = { parametros: d.parametros, habilitacoes: d.habilitacoes, experiencias: d.experiencias };
+        const enq = Fin.enquadramento(c, base, mesAtual());
+        const comps = (id) => d.comprovantes.filter((x) => x.ref_id === id);
+        const habPor = {}; d.habilitacoes.forEach((h) => { habPor[h.id] = h; });
+        const selo = (x) => x.status === "aprovada" ? '<span class="selo ok">validado</span>' : x.status === "recusada" ? `<span class="selo err">não validado</span>${x.motivo ? `<span class="sub">${esc(x.motivo)}</span>` : ""}` : '<span class="selo warn">em análise</span>';
+        const duracao = (ini, fim) => { const a = new Date(ini + "T12:00:00"), b = fim ? new Date(fim + "T12:00:00") : new Date(); const m = Math.max(0, (b.getFullYear() - a.getFullYear()) * 12 + b.getMonth() - a.getMonth() + 1); return (m >= 12 ? Math.floor(m / 12) + " ano(s)" + (m % 12 ? " e " : "") : "") + (m % 12 ? (m % 12) + " mês(es)" : ""); };
+        const anosTxt = (e) => { if (e.anos_exatos == null) return "—"; const m = Math.floor(e.anos_exatos * 12 + 1e-9); return Math.floor(m / 12) + " ano(s)" + (m % 12 ? " e " + (m % 12) + " mês(es)" : ""); };
+        const docs = (id, tipo, podeMexer) => `<div class="docs-mini">${comps(id).map((x) => `<button class="link-botao" data-doc="${x.id}">${esc(x.nome_arquivo)}</button>${podeMexer ? ` <button class="link-botao perigo" data-rmdoc="${x.id}" aria-label="Remover ${esc(x.nome_arquivo)}">remover</button>` : ""}`).join("<br>") || '<span class="sub">nenhum documento</span>'}</div>`;
+        el.innerHTML = `
+          <div class="pag-cab"><div><p class="eyebrow">Enquadramento · art. 8º do Estatuto</p><h1>Minha experiência</h1></div></div>
+          <section class="painel acerto">
+            <h2>Seu enquadramento hoje</h2>
+            <div class="kpis">
+              <div class="kpi"><span class="rot">Categoria</span><span class="val">${esc(enq.categoria || "Pendente")}</span><span class="det">${enq.habilitacao ? esc(enq.habilitacao.titulo) + " · " + esc(enq.conselho || "") : "sem formação validada"}</span></div>
+              <div class="kpi"><span class="rot">Experiência comprovada</span><span class="val">${anosTxt(enq)}</span><span class="det">${enq.origem === "manual" ? "categoria informada pela tesouraria" : "só períodos validados nesta formação"}</span></div>
+              <div class="kpi"><span class="rot">Valor-hora</span><span class="val">${moeda(Fin.valorHoraDe(enq.categoria, enq.conselho, d.parametros))}</span><span class="det">Tabela aprovada pela Assembleia</span></div>
+              <div class="kpi"><span class="rot">Próxima progressão</span><span class="val">${enq.proxima ? esc(enq.proxima.categoria) : "—"}</span><span class="det">${enq.proxima ? "a partir de " + data(enq.proxima.data) + ", automática" : enq.categoria === "Sênior" ? "Sênior é o teto do Estatuto" : enq.categoria === "Coordenador" ? "função designada pelo Conselho" : "sem experiência em andamento"}</span></div>
+            </div>
+            ${enq.avisos.length ? `<div class="notice warn">${enq.avisos.map(esc).join("<br>")}</div>` : ""}
+            <ul class="hint" style="margin:0;padding-left:1.1rem;display:grid;gap:.3rem">
+              <li>Júnior: até 5 anos de experiência comprovada · Pleno: 6 a 10 anos · Sênior: acima de 10 anos (teto).</li>
+              <li>Coordenador: acima de 10 anos na formação, só por necessidade da cooperativa e designação formal do Conselho de Administração.</li>
+              <li>Conta só a experiência na função ligada à formação que você exerce na cooperativa. ${d.parametros.exp_tecnico_antes === false ? "" : "Em nível técnico, a prática na área antes do diploma também conta. "}${d.parametros.exp_superior_antes ? "" : "Em nível superior, conta a partir do diploma ou registro."}</li>
+              <li>Cada registro é validado pela coordenação ou pela tesouraria, com base nos documentos (art. 8º, V). A progressão é automática quando o tempo é atingido.</li>
+            </ul>
+          </section>
+
+          <section class="painel">
+            <div class="painel-cab"><h2>Formações</h2><button class="btn btn-primary btn-sm" id="ex-nova-hab">Adicionar formação</button></div>
+            <p class="hint">Diploma, certificado de conclusão ou registro no conselho (CREA, CAU, CFT, CRA…).</p>
+            ${d.habilitacoes.length ? `<div class="tabela-wrap"><table class="tabela">
+              <thead><tr><th>Formação</th><th>Conselho</th><th>Diploma / registro</th><th>Documentos</th><th>Situação</th><th></th></tr></thead>
+              <tbody>${d.habilitacoes.map((h) => `<tr><td>${esc(h.titulo)}<span class="sub">${esc(Fin.NIVEIS[h.nivel] || h.nivel)}</span></td><td>${esc(h.conselho || "—")}${h.registro ? `<span class="sub">${esc(h.registro)}</span>` : ""}</td>
+                <td>${h.data_habilitacao ? data(h.data_habilitacao) : "—"}</td><td>${docs(h.id, "habilitacao", h.status !== "aprovada")}</td><td>${selo(h)}</td>
+                <td class="acoes-celula">${h.status !== "aprovada" ? `<button class="btn btn-ghost btn-sm" data-anexar="habilitacao:${h.id}">Anexar</button> <button class="btn btn-ghost btn-sm" data-ed-hab="${h.id}">Editar</button> <button class="btn btn-danger btn-sm" data-rm-hab="${h.id}">Excluir</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : '<p class="vazio">Nenhuma formação enviada.</p>'}
+          </section>
+
+          <section class="painel">
+            <div class="painel-cab"><h2>Experiências</h2><button class="btn btn-primary btn-sm" id="ex-nova-exp" ${d.habilitacoes.length ? "" : "disabled"}>Adicionar experiência</button></div>
+            <p class="hint">Cada período em que você trabalhou na área: cargo, empresa e atividades. Comprovantes aceitos: carteira de trabalho, contratos, ARTs/RRTs, declarações de empregadores, notas fiscais de serviço, currículo com referências. Períodos fora da área não contam.</p>
+            ${d.experiencias.length ? `<div class="tabela-wrap"><table class="tabela">
+              <thead><tr><th>Experiência</th><th>Formação ligada</th><th>Período</th><th>Documentos</th><th>Situação</th><th></th></tr></thead>
+              <tbody>${d.experiencias.map((x) => `<tr><td>${esc(x.descricao)}</td><td>${esc((habPor[x.habilitacao_id] || {}).titulo || "—")}</td>
+                <td>${data(x.inicio)} a ${x.fim ? data(x.fim) : "hoje"}<span class="sub">${duracao(x.inicio, x.fim)}</span></td><td>${docs(x.id, "experiencia", x.status !== "aprovada")}</td><td>${selo(x)}</td>
+                <td class="acoes-celula">${x.status !== "aprovada" ? `<button class="btn btn-ghost btn-sm" data-anexar="experiencia:${x.id}">Anexar</button> <button class="btn btn-ghost btn-sm" data-ed-exp="${x.id}">Editar</button> <button class="btn btn-danger btn-sm" data-rm-exp="${x.id}">Excluir</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : `<p class="vazio">${d.habilitacoes.length ? "Nenhuma experiência enviada." : "Adicione primeiro a sua formação."}</p>`}
+          </section>`;
+
+        const formHab = (h) => {
+          const m = window.UI.modal(`
+            <h2>${h ? "Editar formação" : "Adicionar formação"}</h2>
+            <div class="form-grid">
+              <div class="field full"><label for="h-tit">Formação</label><input class="input" id="h-tit" maxlength="120" placeholder="Ex.: Técnico em edificações, Engenharia civil" value="${esc(h ? h.titulo : "")}"></div>
+              <div class="field"><label for="h-niv">Nível</label><select class="input" id="h-niv">${Object.entries(Fin.NIVEIS).map(([k, t]) => `<option value="${k}" ${h && h.nivel === k ? "selected" : ""}>${t}</option>`).join("")}</select></div>
+              <div class="field"><label for="h-con">Conselho</label><select class="input" id="h-con">${Fin.CONSELHOS.map((x) => `<option ${h && h.conselho === x ? "selected" : ""}>${x}</option>`).join("")}</select></div>
+              <div class="field"><label for="h-data">Data do diploma ou registro</label><input class="input" id="h-data" type="date" value="${h && h.data_habilitacao ? h.data_habilitacao : ""}"></div>
+              <div class="field"><label for="h-reg">Nº do registro (se houver)</label><input class="input" id="h-reg" maxlength="40" value="${esc(h ? h.registro || "" : "")}"></div>
+              ${h ? "" : '<div class="field full"><label for="h-arq">Documentos (diploma, carteira do conselho)</label><input class="input" id="h-arq" type="file" multiple accept="image/*,.pdf"></div>'}
+            </div>
+            <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="h-ok">Enviar para validação</button></div>`);
+          $("#h-ok", m.el).onclick = async (ev) => {
+            const reg = { fin_cooperado_id: c.id, titulo: $("#h-tit", m.el).value.trim(), nivel: $("#h-niv", m.el).value, conselho: $("#h-con", m.el).value, data_habilitacao: $("#h-data", m.el).value || null, registro: $("#h-reg", m.el).value.trim() || null };
+            if (!reg.titulo || !reg.data_habilitacao) return toast("Informe a formação e a data do diploma ou registro.", "err");
+            if (h) reg.id = h.id;
+            const arqs = h ? [] : [...($("#h-arq", m.el).files || [])];
+            const ok = await acao(ev.currentTarget, async () => { const id = await API.exp.salvar("habilitacoes", reg); for (const a of arqs) await API.exp.anexar(c.id, "habilitacao", id, a); return true; }, "Formação enviada para validação.");
+            if (ok) { m.fechar(); recarregar(); }
+          };
+        };
+        const formExp = (x) => {
+          const m = window.UI.modal(`
+            <h2>${x ? "Editar experiência" : "Adicionar experiência"}</h2>
+            <div class="form-grid">
+              <div class="field full"><label for="e-hab">Formação a que esta experiência se refere</label><select class="input" id="e-hab">${d.habilitacoes.map((h) => `<option value="${h.id}" ${x && x.habilitacao_id === h.id ? "selected" : ""}>${esc(h.titulo)} (${esc(h.conselho || "")})</option>`).join("")}</select></div>
+              <div class="field full"><label for="e-desc">Cargo, empresa e principais atividades</label><textarea class="input" id="e-desc" maxlength="600" rows="3">${esc(x ? x.descricao : "")}</textarea></div>
+              <div class="field"><label for="e-ini">Início</label><input class="input" id="e-ini" type="date" value="${x ? x.inicio : ""}"></div>
+              <div class="field"><label for="e-fim">Fim</label><input class="input" id="e-fim" type="date" value="${x && x.fim ? x.fim : ""}" ${x && !x.fim ? "disabled" : ""}></div>
+              <label class="ciente full"><input type="checkbox" id="e-atual" ${x && !x.fim ? "checked" : ""}> <span>Ainda trabalho nesta função</span></label>
+              ${x ? "" : '<div class="field full"><label for="e-arq">Comprovantes</label><input class="input" id="e-arq" type="file" multiple accept="image/*,.pdf"></div>'}
+            </div>
+            <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="e-ok">Enviar para validação</button></div>`);
+          $("#e-atual", m.el).onchange = (e) => { $("#e-fim", m.el).disabled = e.target.checked; if (e.target.checked) $("#e-fim", m.el).value = ""; };
+          $("#e-ok", m.el).onclick = async (ev) => {
+            const atual = $("#e-atual", m.el).checked;
+            const reg = { fin_cooperado_id: c.id, habilitacao_id: $("#e-hab", m.el).value, descricao: $("#e-desc", m.el).value.trim(), inicio: $("#e-ini", m.el).value, fim: atual ? null : $("#e-fim", m.el).value || null };
+            if (!reg.descricao || !reg.inicio) return toast("Informe a experiência e o início.", "err");
+            if (!atual && !reg.fim) return toast("Informe o fim ou marque que ainda trabalha nesta função.", "err");
+            if (reg.fim && reg.fim < reg.inicio) return toast("O fim não pode ser antes do início.", "err");
+            if (x) reg.id = x.id;
+            const arqs = x ? [] : [...($("#e-arq", m.el).files || [])];
+            const ok = await acao(ev.currentTarget, async () => { const id = await API.exp.salvar("experiencias", reg); for (const a of arqs) await API.exp.anexar(c.id, "experiencia", id, a); return true; }, "Experiência enviada para validação.");
+            if (ok) { m.fechar(); recarregar(); }
+          };
+        };
+        $("#ex-nova-hab").onclick = () => formHab(null);
+        $("#ex-nova-exp").onclick = () => formExp(null);
+        el.onclick = async (e) => {
+          const b = (sel) => e.target.closest(sel); let x;
+          if ((x = b("[data-doc]"))) { const cp = d.comprovantes.find((y) => y.id === x.dataset.doc); const url = await acao(null, () => API.exp.link(cp)); if (url) abrirArquivo(url, cp.nome_arquivo); return; }
+          if ((x = b("[data-rmdoc]"))) { const cp = d.comprovantes.find((y) => y.id === x.dataset.rmdoc); if (!(await confirmar(`Remover o documento ${cp.nome_arquivo}?`, "Remover"))) return; if (await acao(null, () => API.exp.excluirComprovante(cp), "Documento removido.")) recarregar(); return; }
+          if ((x = b("[data-anexar]"))) {
+            const [tipo, id] = x.dataset.anexar.split(":");
+            const inp = document.createElement("input"); inp.type = "file"; inp.multiple = true; inp.accept = "image/*,.pdf";
+            inp.onchange = async () => { const arqs = [...inp.files]; if (!arqs.length) return; if (await acao(x, async () => { for (const a of arqs) await API.exp.anexar(c.id, tipo, id, a); return true; }, "Documento anexado.")) recarregar(); };
+            inp.click(); return;
+          }
+          if ((x = b("[data-ed-hab]"))) return formHab(d.habilitacoes.find((y) => y.id === x.dataset.edHab));
+          if ((x = b("[data-ed-exp]"))) return formExp(d.experiencias.find((y) => y.id === x.dataset.edExp));
+          if ((x = b("[data-rm-hab]")) || (x = b("[data-rm-exp]"))) {
+            const tab = x.dataset.rmHab ? "habilitacoes" : "experiencias";
+            if (!(await confirmar("Excluir este registro e os documentos dele?", "Excluir"))) return;
+            if (await acao(x, () => API.exp.excluir(tab, x.dataset.rmHab || x.dataset.rmExp), "Registro excluído.")) recarregar();
+          }
+        };
+      }
+    },
+
     perfil: {
       titulo: "Meu perfil",
       separador: true,

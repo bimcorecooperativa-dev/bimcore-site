@@ -25,7 +25,7 @@ Com `config.js` vazio, tudo funciona com dados de exemplo guardados no navegador
 ## Ligar o banco real (uma vez)
 
 1. Em supabase.com, crie o projeto `bimcore` (região São Paulo).
-2. Em **SQL Editor**, rode `supabase/schema.sql` e depois as migrações `supabase/migracao-002-admissao.sql` `supabase/migracao-003-financeiro.sql` `supabase/migracao-004-planilha-financeira.sql` `supabase/migracao-005-vinculo-automatico.sql` `supabase/migracao-006-pix-e-abatimento.sql`, `supabase/migracao-007-sistema-financeiro.sql` e `supabase/migracao-008-retiradas.sql`, nessa ordem.
+2. Em **SQL Editor**, rode `supabase/schema.sql` e depois as migrações `supabase/migracao-002-admissao.sql` `supabase/migracao-003-financeiro.sql` `supabase/migracao-004-planilha-financeira.sql` `supabase/migracao-005-vinculo-automatico.sql` `supabase/migracao-006-pix-e-abatimento.sql`, `supabase/migracao-007-sistema-financeiro.sql` `supabase/migracao-008-retiradas.sql` e `supabase/migracao-009-enquadramento.sql`, nessa ordem.
 3. Em **Authentication > URL Configuration**, coloque `https://bimcore.com.br` em *Site URL* e adicione `https://bimcore.com.br/**` em *Redirect URLs*.
 4. Em **Project Settings > API**, copie *Project URL* e *anon public key* para `assets/js/config.js`.
 5. Publique os arquivos, cadastre-se em `bimcore.com.br/entrar.html` e rode no SQL Editor:
@@ -71,3 +71,7 @@ Com `fin_parametros.modo = 'sistema'` (migração 007), a tesouraria lança tudo
 ### Sistema financeiro (etapa 2)
 
 Migração 008. Aba **Fechamento do mês**: a tesouraria informa horas (ou puxa de "Minhas horas"), dias, 13º e férias pagos; o site calcula retirada pelo valor-hora da categoria (art. 8º), INSS até o teto, contribuição de 1,5%, FIC (5,5% sobre o mês anterior + voluntário), provisões de 13º e férias, auxílios e líquido. Aba **Cooperativa**: movimento mensal, custo de operação, INSS patronal e apuração das sobras (reserva, FATES, FEI, rateio por horas). Todos os percentuais e a tabela salarial ficam em **Configurações**. Cálculo conferido célula a célula com a planilha.
+
+### Enquadramento automático (art. 8º, IV e V)
+
+Migração 009. Em **Minha experiência**, o cooperado envia formações (diploma/registro) e experiências com comprovantes. A coordenação ou a tesouraria valida em **Financeiro → Cadastro → Experiência** (o banco impede validar o próprio registro). O site soma só os períodos validados ligados à formação usada na cooperativa (técnico: conta a prática anterior ao diploma; superior: só depois do diploma — ambos configuráveis) e define a categoria mês a mês: até 5 anos Júnior, 6–10 Pleno, 11+ Sênior (teto). Coordenador só com designação formal e mais de 10 anos. A progressão é automática.

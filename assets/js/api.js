@@ -73,7 +73,7 @@
   /* Motor de demonstração                                               */
   /* ------------------------------------------------------------------ */
   function demoApi() {
-    const KEY = "bimcore-demo-v6";
+    const KEY = "bimcore-demo-v7";
     const SKEY = "bimcore-demo-sessao";
     const novoId = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
     const hoje = new Date();
@@ -120,6 +120,14 @@
             { id: "fc-sem", nome: "Cooperado Sem Conta (exemplo)", email: "", perfil_id: null, cargo: "", quotas_iniciais: 10, integralizado_admissao: 500, data_admissao: "2026-01-28", situacao: "ativo", data_desligamento: null, compensar_aportes: false, observacao: "" }
           ],
           folha: [], receitas: [],
+          habilitacoes: [
+            { id: "fh-1", fin_cooperado_id: "fc-coop", titulo: "Arquitetura e urbanismo", nivel: "superior", conselho: "CAU", data_habilitacao: "2022-12-15", registro: "A000000-0", status: "aprovada", analise_nome: "Coordenação (exemplo)", criado_em: "2026-09-01T10:00:00Z" }
+          ],
+          experiencias: [
+            { id: "fe-1", fin_cooperado_id: "fc-coop", habilitacao_id: "fh-1", descricao: "Arquiteta em escritório de projetos (exemplo)", inicio: "2023-02-01", fim: null, status: "aprovada", analise_nome: "Coordenação (exemplo)", criado_em: "2026-09-01T10:00:00Z" },
+            { id: "fe-2", fin_cooperado_id: "fc-coop", habilitacao_id: "fh-1", descricao: "Estágio em arquitetura (exemplo)", inicio: "2021-01-01", fim: "2022-11-30", status: "pendente", criado_em: "2026-09-02T10:00:00Z" }
+          ],
+          comprovantes: [],
           despesas: [
             { id: "fd-1", data: "2026-02-10", descricao: "Registro na junta comercial (exemplo)", categoria: "Abertura e registro", valor: 300, cobrar: false, participantes: [], observacao: "", criado_nome: "Exemplo" },
             { id: "fd-2", data: "2026-09-15", descricao: "Taxa aprovada em assembleia (exemplo)", categoria: "Outras", valor: 90, cobrar: true, participantes: ["fc-coop", "fc-coord", "fc-sem"], observacao: "", criado_nome: "Exemplo" }
@@ -335,6 +343,35 @@
         },
         async comprovante() { falha("No modo demonstração os comprovantes não são guardados."); }
       },
+      exp: {
+        async meu() {
+          const s = ler(); const u = exigir(s); const c = s.fin.cooperados.find((x) => x.perfil_id === u.id) || null;
+          const f = (k) => (c ? (s.fin[k] || []).filter((x) => x.fin_cooperado_id === c.id) : []);
+          return espera({ parametros: { ...s.fin.parametros }, cooperado: c, habilitacoes: f("habilitacoes"), experiencias: f("experiencias"), comprovantes: f("comprovantes") });
+        },
+        async todos() { const s = ler(); exigir(s, "tes"); return espera({ habilitacoes: s.fin.habilitacoes || [], experiencias: s.fin.experiencias || [], comprovantes: s.fin.comprovantes || [] }); },
+        async salvar(tabela, d) {
+          const s = ler(); const u = exigir(s); const lista = (s.fin[tabela] = s.fin[tabela] || []);
+          const meu = s.fin.cooperados.find((x) => x.perfil_id === u.id);
+          if (!meu || d.fin_cooperado_id !== meu.id) { if (!(u.papel === "coordenacao" || u.tesouraria)) falha("permission denied"); }
+          if (d.id) { const x = lista.find((r) => r.id === d.id); if (!x) falha("Registro não encontrado."); if (x.status === "aprovada" && meu && x.fin_cooperado_id === meu.id) falha("Registro já validado: peça à tesouraria para alterar."); Object.assign(x, d, { status: "pendente", analise_nome: null, motivo: null }); }
+          else lista.push({ ...d, id: novoId(), status: "pendente", criado_em: new Date().toISOString() });
+          gravar(s); return espera(d.id || lista[lista.length - 1].id);
+        },
+        async excluir(tabela, id) { const s = ler(); exigir(s); s.fin[tabela] = (s.fin[tabela] || []).filter((r) => r.id !== id); s.fin.comprovantes = (s.fin.comprovantes || []).filter((c) => c.ref_id !== id); gravar(s); return espera(true); },
+        async anexar(fin_cooperado_id, ref_tipo, ref_id, arquivo) {
+          const s = ler(); exigir(s); s.fin.comprovantes = s.fin.comprovantes || [];
+          s.fin.comprovantes.push({ id: novoId(), fin_cooperado_id, ref_tipo, ref_id, caminho: "demo/" + arquivo.name, nome_arquivo: arquivo.name, tamanho: arquivo.size, criado_em: new Date().toISOString() });
+          gravar(s); return espera(true);
+        },
+        async link() { falha("No modo demonstração os arquivos não são guardados."); },
+        async excluirComprovante(c) { const s = ler(); exigir(s); s.fin.comprovantes = (s.fin.comprovantes || []).filter((x) => x.id !== c.id); gravar(s); return espera(true); },
+        async analisar(tabela, id, status, motivo) {
+          const s = ler(); const u = exigir(s, "tes"); const x = (s.fin[tabela] || []).find((r) => r.id === id); if (!x) falha("Registro não encontrado.");
+          const meu = s.fin.cooperados.find((c) => c.perfil_id === u.id); if (meu && x.fin_cooperado_id === meu.id) falha("Você não pode validar o seu próprio registro.");
+          Object.assign(x, { status, motivo: motivo || null, analise_nome: u.nome, analise_em: new Date().toISOString() }); gravar(s); return espera(true);
+        }
+      },
       fin: {
         async parametros() { const s = ler(); exigir(s); return espera({ ...s.fin.parametros }); },
         async extrato() {
@@ -343,8 +380,10 @@
           const despesas = c ? s.fin.despesas.filter((d) => (d.cobrar && d.participantes.includes(c.id)) || pags.some((p) => p.despesa_id === d.id))
             .map((d) => ({ id: d.id, data: d.data, descricao: d.descricao, valor: d.valor, cobrar: d.cobrar, n_participantes: d.participantes.length, participantes: d.participantes.includes(c.id) ? [c.id] : [] })) : [];
           const folha = c ? (s.fin.folha || []).filter((f) => f.fin_cooperado_id === c.id) : [];
+          const habilitacoes = c ? (s.fin.habilitacoes || []).filter((f) => f.fin_cooperado_id === c.id) : [];
+          const experiencias = c ? (s.fin.experiencias || []).filter((f) => f.fin_cooperado_id === c.id) : [];
           const horas_total = (s.fin.folha || []).reduce((t, f) => t + Number(f.horas_produtivas || 0) + Number(f.horas_formacao || 0), 0);
-          return espera({ parametros: { ...s.fin.parametros }, cooperado: c, pagamentos: pags, despesas, folha, horas_total });
+          return espera({ parametros: { ...s.fin.parametros }, cooperado: c, pagamentos: pags, despesas, folha, horas_total, habilitacoes, experiencias });
         },
         async tudo() { const s = ler(); exigir(s, "tes"); s.fin.folha = s.fin.folha || []; s.fin.receitas = s.fin.receitas || []; return espera(JSON.parse(JSON.stringify(s.fin))); },
         async horasLancadas(mes) {
@@ -591,19 +630,71 @@
           return d.signedUrl;
         }
       },
+      exp: {
+        async meu() {
+          const uid = await meuId();
+          const [par, coo] = await Promise.all([sb.from("fin_parametros").select("*").eq("id", 1).maybeSingle(), sb.from("fin_cooperados").select("*").eq("perfil_id", uid).maybeSingle()]);
+          const c = coo.error ? null : coo.data;
+          if (!c) return { parametros: par.data || {}, cooperado: null, habilitacoes: [], experiencias: [], comprovantes: [] };
+          const [h, e, d] = await Promise.all([
+            sb.from("fin_habilitacoes").select("*").eq("fin_cooperado_id", c.id).order("data_habilitacao", { nullsFirst: false }),
+            sb.from("fin_experiencias").select("*").eq("fin_cooperado_id", c.id).order("inicio"),
+            sb.from("fin_comprovantes").select("*").eq("fin_cooperado_id", c.id).order("criado_em")]);
+          return { parametros: par.data || {}, cooperado: c, habilitacoes: ok(h), experiencias: ok(e), comprovantes: ok(d) };
+        },
+        async todos() {
+          const [h, e, d] = await Promise.all([sb.from("fin_habilitacoes").select("*").order("criado_em"), sb.from("fin_experiencias").select("*").order("inicio"), sb.from("fin_comprovantes").select("*").order("criado_em")]);
+          return { habilitacoes: ok(h), experiencias: ok(e), comprovantes: ok(d) };
+        },
+        async salvar(tabela, d) {
+          const t = { habilitacoes: "fin_habilitacoes", experiencias: "fin_experiencias" }[tabela];
+          const dados = { ...d }; delete dados.id; delete dados.criado_em;
+          if (d.id) { ok(await sb.from(t).update({ ...dados, status: "pendente", analise_nome: null, analise_em: null, motivo: null }).eq("id", d.id)); return d.id; }
+          const r = ok(await sb.from(t).insert({ ...dados, status: "pendente" }).select("id").single()); return r.id;
+        },
+        async excluir(tabela, id) {
+          const t = { habilitacoes: "fin_habilitacoes", experiencias: "fin_experiencias" }[tabela];
+          const comps = ok(await sb.from("fin_comprovantes").select("*").eq("ref_id", id));
+          ok(await sb.from(t).delete().eq("id", id));
+          if (comps.length) { await sb.storage.from("experiencia").remove(comps.map((c) => c.caminho)); await sb.from("fin_comprovantes").delete().eq("ref_id", id); }
+          return true;
+        },
+        async anexar(fin_cooperado_id, ref_tipo, ref_id, arquivo) {
+          if (arquivo.size > 20 * 1024 * 1024) falha("Cada arquivo pode ter até 20 MB.");
+          const seguro = arquivo.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w.\-]+/g, "_");
+          const caminho = `${fin_cooperado_id}/${ref_tipo}/${Date.now()}_${seguro}`;
+          ok(await sb.storage.from("experiencia").upload(caminho, arquivo, { upsert: false, contentType: arquivo.type || undefined }));
+          const r = await sb.from("fin_comprovantes").insert({ fin_cooperado_id, ref_tipo, ref_id, caminho, nome_arquivo: arquivo.name, tamanho: arquivo.size });
+          if (r.error) { await sb.storage.from("experiencia").remove([caminho]); falha(r.error); }
+          return true;
+        },
+        async link(c) { const d = ok(await sb.storage.from("experiencia").createSignedUrl(c.caminho, 120)); return d.signedUrl; },
+        async excluirComprovante(c) { ok(await sb.from("fin_comprovantes").delete().eq("id", c.id)); await sb.storage.from("experiencia").remove([c.caminho]); return true; },
+        async analisar(tabela, id, status, motivo) {
+          const t = { habilitacoes: "fin_habilitacoes", experiencias: "fin_experiencias" }[tabela];
+          const uid = await meuId(); const eu = ok(await sb.from("perfis").select("nome").eq("id", uid).single());
+          const q = await sb.from(t).update({ status, motivo: motivo || null, analise_nome: eu.nome, analise_em: new Date().toISOString() }).eq("id", id).select("id");
+          if (q.error && /row-level security|permission/i.test(q.error.message || "")) falha("Você não pode validar o seu próprio registro.");
+          const r = ok(q);
+          if (!r.length) falha("Você não pode validar o seu próprio registro.");
+          return true;
+        }
+      },
       fin: {
         async parametros() { const r = await sb.from("fin_parametros").select("*").eq("id", 1).maybeSingle(); return r.error || !r.data ? { modo: "planilha" } : r.data; },
         async extrato() { return ok(await sb.rpc("meu_extrato")); },
         async tudo() {
-          const [par, coo, desp, pag, fol, rec] = await Promise.all([
+          const [par, coo, desp, pag, fol, rec, hab, exps] = await Promise.all([
             sb.from("fin_parametros").select("*").eq("id", 1).single(),
             sb.from("fin_cooperados").select("*").order("nome"),
             sb.from("fin_despesas").select("*").order("data", { ascending: false, nullsFirst: false }),
             sb.from("fin_pagamentos").select("*").order("data", { ascending: false, nullsFirst: false }),
             sb.from("fin_folha").select("*").order("mes"),
-            sb.from("fin_receitas").select("*").order("mes")
+            sb.from("fin_receitas").select("*").order("mes"),
+            sb.from("fin_habilitacoes").select("*"),
+            sb.from("fin_experiencias").select("*")
           ]);
-          return { parametros: ok(par), cooperados: ok(coo), despesas: ok(desp), pagamentos: ok(pag), folha: fol.error ? [] : fol.data, receitas: rec.error ? [] : rec.data };
+          return { parametros: ok(par), cooperados: ok(coo), despesas: ok(desp), pagamentos: ok(pag), folha: fol.error ? [] : fol.data, receitas: rec.error ? [] : rec.data, habilitacoes: hab.error ? [] : hab.data, experiencias: exps.error ? [] : exps.data };
         },
         async horasLancadas(mes) { return ok(await sb.rpc("horas_lancadas", { p_mes: mes })); },
         async salvarFolha(linhas, receita) {

@@ -134,10 +134,80 @@
       return { categoria: cat, experiencia: exp, multiplicador: p[k], crea_mensal: crea, crea_hora: crea / p.horas_ref, demais_mensal: demais, demais_hora: demais / p.horas_ref };
     });
   }
-  function valorHora(c, par) {
-    if (!c.categoria) return 0;
-    const t = tabelaSalarial(par).find((x) => x.categoria === c.categoria); if (!t) return 0;
-    return c.conselho === "CREA" || c.conselho === "CAU" ? t.crea_hora : t.demais_hora;
+  function valorHoraDe(categoria, conselho, par) {
+    if (!categoria) return 0;
+    const t = tabelaSalarial(par).find((x) => x.categoria === categoria); if (!t) return 0;
+    return conselho === "CREA" || conselho === "CAU" ? t.crea_hora : t.demais_hora;
+  }
+
+  /* ================================================================
+     Enquadramento automático (art. 8º, IV e V do Estatuto)
+     - Conta só a experiência comprovada e validada na função ligada à
+       formação usada na cooperativa (períodos sobrepostos contam uma vez).
+     - Nível técnico: conta a prática anterior ao diploma (parâmetro).
+       Nível superior: conta só a partir do diploma/registro (parâmetro).
+     - Até 5 anos completos: Júnior; 6 a 10: Pleno; 11 ou mais: Sênior (teto).
+     - Coordenador só com designação formal do Conselho e mais de 10 anos.
+     - A progressão é automática, mês a mês.
+     ================================================================ */
+  const DIA = 86400000;
+  const diaUTC = (iso) => { const [a, m, d] = String(iso).slice(0, 10).split("-").map(Number); return Date.UTC(a, m - 1, d || 1); };
+  const isoDe = (ms) => new Date(ms).toISOString().slice(0, 10);
+  const NIVEIS = { tecnico: "Técnico", superior: "Superior (graduação)", outro: "Outro" };
+  function habilitacaoUsada(c, habs) {
+    const aprov = (habs || []).filter((h) => h.fin_cooperado_id === c.id && h.status === "aprovada");
+    const escolhida = aprov.find((h) => h.id === c.habilitacao_remuneracao);
+    if (escolhida) return { hab: escolhida, definida: true };
+    if (aprov.length === 1) return { hab: aprov[0], definida: true };
+    return { hab: null, definida: false, opcoes: aprov };
+  }
+  function diasDeExperiencia(c, hab, exps, ateISO, par) {
+    if (!hab) return { dias: 0, continua: false };
+    const p = { exp_tecnico_antes: true, exp_superior_antes: false, ...(par || {}) };
+    const antesConta = hab.nivel === "tecnico" ? p.exp_tecnico_antes !== false : p.exp_superior_antes === true;
+    const piso = !antesConta && hab.data_habilitacao ? diaUTC(hab.data_habilitacao) : -Infinity;
+    const teto = diaUTC(ateISO) + DIA;
+    const ints = (exps || []).filter((e) => e.fin_cooperado_id === c.id && e.status === "aprovada" && e.habilitacao_id === hab.id && e.inicio)
+      .map((e) => [Math.max(diaUTC(e.inicio), piso), Math.min(e.fim ? diaUTC(e.fim) + DIA : Infinity, teto), !e.fim])
+      .filter(([a, b]) => b > a).sort((x, y) => x[0] - y[0]);
+    let dias = 0, cur = null, continua = false;
+    ints.forEach(([a, b, aberto]) => { if (aberto) continua = true; if (!cur || a > cur[1]) { if (cur) dias += (cur[1] - cur[0]) / DIA; cur = [a, b]; } else cur[1] = Math.max(cur[1], b); });
+    if (cur) dias += (cur[1] - cur[0]) / DIA;
+    return { dias, continua };
+  }
+  const categoriaPorAnos = (anos) => (anos <= 5 ? "Júnior" : anos <= 10 ? "Pleno" : "Sênior");
+  function enquadramento(c, base, mes) {
+    const par = base.parametros || {};
+    const ref = mes ? fimDoMes(mes) : isoDe(Date.now());
+    const avisos = [];
+    const { hab, definida, opcoes } = habilitacaoUsada(c, base.habilitacoes);
+    if (!hab) {
+      const varias = opcoes && opcoes.length > 1;
+      const motivo = varias ? "Há mais de uma formação validada: defina em Cadastro → Experiência qual é usada na cooperativa." : "Sem formação validada: o cooperado precisa enviar diploma e experiências em Minha experiência.";
+      if (c.categoria) return { categoria: c.categoria, conselho: c.conselho, anos: null, origem: "manual", habilitacao: null, avisos: [motivo + " Até lá vale a categoria informada manualmente."] };
+      return { categoria: null, conselho: c.conselho, anos: 0, origem: "nenhum", habilitacao: null, avisos: [motivo] };
+    }
+    const { dias, continua } = diasDeExperiencia(c, hab, base.experiencias, ref, par);
+    const anosExatos = dias / 365.25, anos = Math.floor(anosExatos + 1e-9);
+    let categoria = categoriaPorAnos(anos);
+    if (c.coordenador_designado) {
+      const desde = c.coordenador_desde ? mesDe(c.coordenador_desde) : null;
+      if (!desde || !mes || desde <= mes) {
+        if (anos >= 11) categoria = "Coordenador";
+        else avisos.push(`Designado coordenador, mas tem ${anos} ano(s) comprovados nesta formação: o Estatuto exige mais de 10. Fica como ${categoria}.`);
+      }
+    }
+    let proxima = null;
+    if (continua && categoria !== "Coordenador") {
+      const alvo = anos <= 5 ? 6 : anos <= 10 ? 11 : null;
+      if (alvo) proxima = { categoria: categoriaPorAnos(alvo), data: isoDe(diaUTC(ref) + DIA + Math.ceil(alvo * 365.25 - dias) * DIA) };
+    }
+    if (!definida) avisos.push("Defina a formação usada na cooperativa.");
+    return { categoria, conselho: hab.conselho, anos, anos_exatos: anosExatos, origem: "automatico", habilitacao: hab, proxima, avisos };
+  }
+  function valorHora(c, par, base, mes) {
+    if (base && (base.habilitacoes || []).length) { const e = enquadramento(c, base, mes); return valorHoraDe(e.categoria, e.conselho, par); }
+    return valorHoraDe(c.categoria, c.conselho, par);
   }
   const horasTotais = (base) => base.horas_total != null ? Number(base.horas_total) :
     (base.folha || []).reduce((t, f) => t + Number(f.horas_produtivas || 0) + Number(f.horas_formacao || 0), 0);
@@ -158,9 +228,10 @@
     const ehAporte = (p) => p.tipo === "aporte" || (p.tipo === "despesa" && !(p.despesa_id && desp[p.despesa_id] && desp[p.despesa_id].cobrar));
     const soma = (arr, f) => centavos(arr.reduce((t, x) => t + Number(f ? f(x) : x.valor), 0));
     const somaBruta = (arr, f) => arr.reduce((t, x) => t + Number(f(x)), 0);
-    const vh = valorHora(c, base.parametros || {});
+    const vhMes = {};
+    const vhDe = (m) => (vhMes[m] !== undefined ? vhMes[m] : (vhMes[m] = valorHora(c, base.parametros || {}, base, m)));
     const ficVol = Math.min(Number(c.fic_voluntario || 0), par.fic_vol_max);
-    const retiradaDe = (m) => { const f = folha[m]; return f ? (Number(f.horas_produtivas || 0) + Number(f.horas_formacao || 0)) * vh : 0; };
+    const retiradaDe = (m) => { const f = folha[m]; return f ? (Number(f.horas_produtivas || 0) + Number(f.horas_formacao || 0)) * vhDe(m) : 0; };
 
     const mesesSet = new Set();
     for (let m = inicio; m <= fech; m = somaMes(m, 1)) mesesSet.add(m);
@@ -171,6 +242,7 @@
     const mensal = meses.map((m) => {
       const f = folha[m] || {};
       const hp = Number(f.horas_produtivas || 0), hf = Number(f.horas_formacao || 0), dias = Number(f.dias || 0);
+      const vh = vhDe(m);
       const ret = (hp + hf) * vh;
       const inss = Math.min(ret, par.inss_teto) * par.inss_pct;
       const devida = ativo(m) && m >= inicio && m <= fech ? (ret > 0 ? ret * par.contrib_pct : quota) : 0;
@@ -186,7 +258,7 @@
       const v = somaBruta(partes.filter((x) => x.mes === m), (x) => x.valor);
       const w = somaBruta(pags.filter((p) => cobrada(p) && mesDe(p.data) === m), (p) => p.valor);
       const liquido = ret - inss - descontada - ficV + tele + alim + d13 + dfer;
-      return { mes: m, horas_produtivas: hp, horas_formacao: hf, dias, retirada: centavos(ret), inss: centavos(inss), devida: centavos(devida), descontada: centavos(descontada),
+      return { mes: m, valor_hora: vh, horas_produtivas: hp, horas_formacao: hf, dias, retirada: centavos(ret), inss: centavos(inss), devida: centavos(devida), descontada: centavos(descontada),
         paga: centavos(paga), fic_coop: centavos(ficCoop), fic_vol: centavos(ficV), prov_13: centavos(p13), prov_ferias: centavos(pfer), decimo_pago: d13, ferias_pago: dfer,
         aux_tele: centavos(tele), aux_alim: centavos(alim), liquido: centavos(liquido), em_aberto: centavos(devida - paga + Math.max(0, v - w)),
         _ret: ret, _inss: inss, _dev: devida, _paga: paga, _fic: ficCoop + ficV, _p13: p13, _pf: pfer };
@@ -223,7 +295,7 @@
     mensal.forEach((x) => ['_ret', '_inss', '_dev', '_paga', '_fic', '_p13', '_pf'].forEach((k) => { const v = x[k]; delete x[k]; Object.defineProperty(x, k, { value: v, enumerable: false }); }));
     return {
       id: c.id, fin_cooperado_id: c.id, cooperado_id: c.perfil_id || null, cooperado_nome: c.nome, email: c.email || "",
-      data_base: fimDoMes(fech), criado_em: new Date().toISOString(), valor_hora: vh,
+      data_base: fimDoMes(fech), criado_em: new Date().toISOString(), valor_hora: vhDe(fech), enquadramento: enquadramento(c, base, fech),
       quotas_subscritas: centavos(E / quota), capital_subscrito: E, capital_integralizado: F, contribuicoes_pagas: U,
       contribuicao_mensal: centavos(retFech > 0 ? retFech * par.contrib_pct : quota), valor_em_aberto: L, meses_em_atraso: mensal.filter((x) => x.em_aberto > 0.005).length,
       fic_saldo: fic, fundo_13: f13, fundo_ferias: ffer, sobras_a_receber: sobras, outros_creditos: T,
@@ -350,5 +422,5 @@
     return Array.from(a, (b) => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[b % 32]).join("");
   }
 
-  window.Fin = { calcular, calcularCooperado, cooperativa, tabelaSalarial, valorHora, params, PADRAO, CATEGORIAS_SAL, CONSELHOS, TIPOS_PAG, mesFechamento, mesDe, somaMes, PIX, ABA_LANC, centavos, nomeMes, componentes, alocar, proxima, descreverItem, ajustada, pixCopiaECola, crc16, qrSvg, planilhaComLancamentos, lerLancamentos, novoCodigo, vale };
+  window.Fin = { enquadramento, diasDeExperiencia, habilitacaoUsada, valorHoraDe, NIVEIS, calcular, calcularCooperado, cooperativa, tabelaSalarial, valorHora, params, PADRAO, CATEGORIAS_SAL, CONSELHOS, TIPOS_PAG, mesFechamento, mesDe, somaMes, PIX, ABA_LANC, centavos, nomeMes, componentes, alocar, proxima, descreverItem, ajustada, pixCopiaECola, crc16, qrSvg, planilhaComLancamentos, lerLancamentos, novoCodigo, vale };
 })();
