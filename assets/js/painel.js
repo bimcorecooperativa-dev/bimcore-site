@@ -121,6 +121,17 @@
 
     conta: {
       titulo: "Minha conta",
+      async sinal() {
+        const Fin = window.Fin;
+        const par = await API.fin.parametros().catch(() => ({ modo: "planilha" }));
+        let bruta, movs = await API.movimentos.meus().catch(() => []);
+        if (par.modo === "sistema") {
+          const ext = await API.fin.extrato(); if (!ext || !ext.cooperado) return null;
+          bruta = Fin.calcularCooperado(ext.cooperado, ext);
+        } else { const pos = await API.financeiro.minhas(); if (!pos.length) return null; bruta = pos[0]; }
+        const aberto = Number(Fin.ajustada(bruta, movs).valor_em_aberto || 0);
+        return aberto > 0.005 ? { cor: "err", texto: "Pendência com a cooperativa: " + window.UI.moeda(aberto) + " em aberto" } : null;
+      },
       async render(el, ctx) {
         const { moeda } = window.UI;
         const Fin = window.Fin;
