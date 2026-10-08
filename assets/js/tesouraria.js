@@ -455,14 +455,14 @@
       const exps = expAll.experiencias.filter((x) => x.fin_cooperado_id === id);
       const habPor = {}; habs.forEach((h) => { habPor[h.id] = h; });
       const docs = (rid) => expAll.comprovantes.filter((x) => x.ref_id === rid).map((x) => `<button class="link-botao" data-doc="${x.id}">${esc(x.nome_arquivo)}</button>`).join("<br>") || '<span class="sub">sem documento</span>';
-      const selo = (x) => x.status === "aprovada" ? `<span class="selo ok">validado</span><span class="sub">${esc(x.analise_nome || "")}</span>` : x.status === "recusada" ? `<span class="selo err">não validado</span><span class="sub">${esc(x.motivo || "")}</span>` : '<span class="selo warn">em análise</span>';
-      const botoes = (tab, x) => `<button class="btn btn-primary btn-sm" data-val="${tab}:${x.id}:aprovada">Validar</button> <button class="btn btn-danger btn-sm" data-val="${tab}:${x.id}:recusada">Não validar</button>`;
+      const selo = (x) => x.status === "aprovada" ? `<span class="selo ok">validado</span><span class="sub">${esc(x.analise_nome || "")}</span>` : x.status === "recusada" ? `<span class="selo warn">em exigência</span><span class="sub">${esc(x.motivo || "")}</span>` : '<span class="selo warn">em análise</span>';
+      const botoes = (tab, x) => `<button class="btn btn-primary btn-sm" data-val="${tab}:${x.id}:aprovada">Validar</button> <button class="btn btn-ghost btn-sm" data-val="${tab}:${x.id}:recusada">Pôr em exigência</button>`;
       const enq = Fin.enquadramento(c, base, fech);
       const aprov = habs.filter((h) => h.status === "aprovada");
       const md = UI.modal(`
         <h2>Experiência de ${esc(c.nome)}</h2>
         <div class="notice ${enq.categoria ? "ok" : "warn"}">Enquadramento em ${Fin.nomeMes(fech)}: <b>${esc(enq.categoria || "pendente")}</b>${enq.habilitacao ? ` · ${esc(enq.habilitacao.titulo)} (${esc(enq.conselho || "")}) · ${enq.anos} ano(s) comprovados` : ""}${enq.proxima ? ` · vira ${esc(enq.proxima.categoria)} em ${data(enq.proxima.data)}` : ""}${enq.avisos.length ? "<br>" + enq.avisos.map(esc).join("<br>") : ""}</div>
-        <p class="hint">Valide com base nos documentos (art. 8º, V). Conta só o que tiver relação com a formação indicada; períodos em outra atividade não contam. Ninguém valida o próprio registro.</p>
+        <p class="hint">Valide com base nos documentos (art. 8º, V). Conta só o que tiver relação com a formação indicada; períodos em outra atividade não contam. Se faltar algo, ponha em exigência dizendo o que falta. Ninguém valida o próprio registro.</p>
         <h3 class="mini-tit">Formações</h3>
         ${habs.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Formação</th><th>Diploma / registro</th><th>Documentos</th><th>Situação</th><th></th></tr></thead>
           <tbody>${habs.map((h) => `<tr><td>${esc(h.titulo)}<span class="sub">${esc(Fin.NIVEIS[h.nivel] || "")} · ${esc(h.conselho || "")}</span></td><td>${data(h.data_habilitacao)}${h.registro ? `<span class="sub">${esc(h.registro)}</span>` : ""}</td><td>${docs(h.id)}</td><td>${selo(h)}</td><td class="acoes-celula">${botoes("habilitacoes", h)}</td></tr>`).join("")}</tbody></table></div>` : '<p class="vazio">Nenhuma formação enviada.</p>'}
@@ -492,12 +492,12 @@
         const b = e.target.closest("[data-val]"); if (!b) return;
         const [tab, rid, st] = b.dataset.val.split(":");
         const mot = st === "recusada" ? await new Promise((ok) => {
-          const mm = UI.modal(`<h2>Não validar</h2><div class="field"><label for="mv-m">Motivo (o cooperado verá)</label><input class="input" id="mv-m" maxlength="200" placeholder="Ex.: período fora da área, falta comprovante"></div>
+          const mm = UI.modal(`<h2>Pôr em exigência</h2><div class="field"><label for="mv-m">O que falta ou o que precisa ser corrigido (o cooperado verá)</label><input class="input" id="mv-m" maxlength="200" placeholder="Ex.: enviar a carteira de trabalho deste período; período fora da área não conta"></div>
             <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Voltar</button><button class="btn btn-danger btn-sm" id="mv-ok">Confirmar</button></div>`, () => ok(undefined));
-          $("#mv-ok", mm.el).onclick = () => { const v = $("#mv-m", mm.el).value.trim(); ok(v || "Não validado"); mm.fechar(); };
+          $("#mv-ok", mm.el).onclick = () => { const v = $("#mv-m", mm.el).value.trim(); ok(v || "Ver com a tesouraria"); mm.fechar(); };
         }) : null;
         if (st === "recusada" && mot === undefined) return;
-        if (await acao(b, () => API.exp.analisar(tab, rid, st, mot), st === "aprovada" ? "Validado." : "Marcado como não validado.")) {
+        if (await acao(b, () => API.exp.analisar(tab, rid, st, mot), st === "aprovada" ? "Validado." : "Colocado em exigência. O cooperado vê o que falta.")) {
           md.fechar(); await recarregar(); const bt = el.querySelector(`[data-exp-coop="${id}"]`); if (bt) bt.click();
         }
       });

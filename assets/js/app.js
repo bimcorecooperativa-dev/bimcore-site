@@ -32,9 +32,9 @@
         </div>
       </div></header>
       <div class="app-corpo">
-        <button class="app-nav-botao" id="app-nav-botao" type="button" aria-expanded="false" aria-controls="app-nav"><span class="rot">Seção</span><b id="app-nav-atual"></b><i aria-hidden="true"></i></button>
+        <button class="app-nav-botao" id="app-nav-botao" type="button" aria-expanded="false" aria-controls="app-nav"><span class="rot">Seção</span><b id="app-nav-atual"></b><span class="sinal" id="app-nav-sinal" hidden></span><i aria-hidden="true"></i></button>
         <nav class="app-nav" id="app-nav" aria-label="Seções">
-          ${chaves.map((k) => (paginas[k].separador ? '<span class="sep" aria-hidden="true"></span>' : "") + `<a href="#${k}" data-k="${k}">${esc(paginas[k].titulo)}<span class="contador" data-cont="${k}" hidden></span></a>`).join("")}
+          ${chaves.map((k) => (paginas[k].separador ? '<span class="sep" aria-hidden="true"></span>' : "") + `<a href="#${k}" data-k="${k}"><span>${esc(paginas[k].titulo)}<span class="sinal" data-sinal="${k}" hidden></span></span><span class="contador" data-cont="${k}" hidden></span></a>`).join("")}
         </nav>
         <main class="app-main" id="pagina" tabindex="-1"></main>
       </div>`;
@@ -67,6 +67,17 @@
       async recarregarSessao() { ctx.sessao = await API.getSession(); return ctx.sessao; },
       ir(k) { location.hash = k; },
       async atualizarContadores() {
+        let pior = null;
+        for (const k of chaves) {
+          if (!paginas[k].sinal) continue;
+          const el = document.querySelector(`[data-sinal="${k}"]`);
+          try {
+            const r = await paginas[k].sinal(ctx);
+            el.hidden = !r; el.className = "sinal" + (r ? " " + r.cor : ""); el.title = r ? r.texto : ""; el.setAttribute("aria-label", r ? r.texto : "");
+            if (r && (r.cor === "err" || !pior)) pior = r.cor;
+          } catch (e) { el.hidden = true; }
+        }
+        const sb = document.querySelector("#app-nav-sinal"); if (sb) { sb.hidden = !pior; sb.className = "sinal" + (pior ? " " + pior : ""); }
         for (const k of chaves) {
           if (!paginas[k].contador) continue;
           const el = document.querySelector(`[data-cont="${k}"]`);

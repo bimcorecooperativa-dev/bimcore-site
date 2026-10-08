@@ -205,6 +205,14 @@
     if (!definida) avisos.push("Defina a formação usada na cooperativa.");
     return { categoria, conselho: hab.conselho, anos, anos_exatos: anosExatos, origem: "automatico", habilitacao: hab, proxima, avisos };
   }
+  /* Sinal para o cooperado: vermelho = nada enviado; amarelo = algo em exigência; nada = em dia ou só aguardando análise */
+  function sinalExperiencia(d) {
+    const habs = d.habilitacoes || [], exps = d.experiencias || [];
+    const exig = habs.concat(exps).filter((x) => x.status === "recusada");
+    if (exig.length) return { cor: "warn", texto: `${exig.length} registro(s) em exigência: veja o que falta e envie o documento`, exigencias: exig };
+    if (!habs.length || !exps.length) return { cor: "err", texto: !habs.length ? "Envie sua formação e suas experiências" : "Envie suas experiências" };
+    return null;
+  }
   function valorHora(c, par, base, mes) {
     if (base && (base.habilitacoes || []).length) { const e = enquadramento(c, base, mes); return valorHoraDe(e.categoria, e.conselho, par); }
     return valorHoraDe(c.categoria, c.conselho, par);
@@ -422,5 +430,5 @@
     return Array.from(a, (b) => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[b % 32]).join("");
   }
 
-  window.Fin = { enquadramento, diasDeExperiencia, habilitacaoUsada, valorHoraDe, NIVEIS, calcular, calcularCooperado, cooperativa, tabelaSalarial, valorHora, params, PADRAO, CATEGORIAS_SAL, CONSELHOS, TIPOS_PAG, mesFechamento, mesDe, somaMes, PIX, ABA_LANC, centavos, nomeMes, componentes, alocar, proxima, descreverItem, ajustada, pixCopiaECola, crc16, qrSvg, planilhaComLancamentos, lerLancamentos, novoCodigo, vale };
+  window.Fin = { sinalExperiencia, enquadramento, diasDeExperiencia, habilitacaoUsada, valorHoraDe, NIVEIS, calcular, calcularCooperado, cooperativa, tabelaSalarial, valorHora, params, PADRAO, CATEGORIAS_SAL, CONSELHOS, TIPOS_PAG, mesFechamento, mesDe, somaMes, PIX, ABA_LANC, centavos, nomeMes, componentes, alocar, proxima, descreverItem, ajustada, pixCopiaECola, crc16, qrSvg, planilhaComLancamentos, lerLancamentos, novoCodigo, vale };
 })();

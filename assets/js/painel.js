@@ -386,6 +386,7 @@
 
     experiencia: {
       titulo: "Minha experiência",
+      async sinal() { const d = await API.exp.meu(); return d.cooperado ? window.Fin.sinalExperiencia(d) : null; },
       async render(el, ctx) {
         const Fin = window.Fin, { moeda } = window.UI;
         const d = await API.exp.meu();
@@ -394,17 +395,19 @@
             <p class="vazio">Sua conta ainda não está ligada ao seu cadastro na cooperativa. A tesouraria faz essa ligação; depois disso você poderá enviar seus documentos aqui.</p>`;
           return;
         }
-        const c = d.cooperado, recarregar = () => paginas.experiencia.render(el, ctx);
+        const c = d.cooperado, recarregar = () => { ctx.atualizarContadores(); return paginas.experiencia.render(el, ctx); };
+        const sinal = Fin.sinalExperiencia(d);
         const base = { parametros: d.parametros, habilitacoes: d.habilitacoes, experiencias: d.experiencias };
         const enq = Fin.enquadramento(c, base, mesAtual());
         const comps = (id) => d.comprovantes.filter((x) => x.ref_id === id);
         const habPor = {}; d.habilitacoes.forEach((h) => { habPor[h.id] = h; });
-        const selo = (x) => x.status === "aprovada" ? '<span class="selo ok">validado</span>' : x.status === "recusada" ? `<span class="selo err">não validado</span>${x.motivo ? `<span class="sub">${esc(x.motivo)}</span>` : ""}` : '<span class="selo warn">em análise</span>';
+        const selo = (x) => x.status === "aprovada" ? '<span class="selo ok">validado</span>' : x.status === "recusada" ? `<span class="selo warn">em exigência</span>${x.motivo ? `<span class="sub">O que falta: ${esc(x.motivo)}</span>` : ""}` : '<span class="selo warn">em análise</span>';
         const duracao = (ini, fim) => { const a = new Date(ini + "T12:00:00"), b = fim ? new Date(fim + "T12:00:00") : new Date(); const m = Math.max(0, (b.getFullYear() - a.getFullYear()) * 12 + b.getMonth() - a.getMonth() + 1); return (m >= 12 ? Math.floor(m / 12) + " ano(s)" + (m % 12 ? " e " : "") : "") + (m % 12 ? (m % 12) + " mês(es)" : ""); };
         const anosTxt = (e) => { if (e.anos_exatos == null) return "—"; const m = Math.floor(e.anos_exatos * 12 + 1e-9); return Math.floor(m / 12) + " ano(s)" + (m % 12 ? " e " + (m % 12) + " mês(es)" : ""); };
         const docs = (id, tipo, podeMexer) => `<div class="docs-mini">${comps(id).map((x) => `<button class="link-botao" data-doc="${x.id}">${esc(x.nome_arquivo)}</button>${podeMexer ? ` <button class="link-botao perigo" data-rmdoc="${x.id}" aria-label="Remover ${esc(x.nome_arquivo)}">remover</button>` : ""}`).join("<br>") || '<span class="sub">nenhum documento</span>'}</div>`;
         el.innerHTML = `
           <div class="pag-cab"><div><p class="eyebrow">Enquadramento · art. 8º do Estatuto</p><h1>Minha experiência</h1></div></div>
+          ${sinal ? `<div class="notice ${sinal.cor}"><b>${sinal.cor === "err" ? "Pendente:" : "Em exigência:"}</b> ${sinal.cor === "err" ? "você ainda não enviou " + (d.habilitacoes.length ? "suas experiências" : "sua formação e suas experiências") + ". Sem isso a sua categoria não pode ser definida e o valor-hora fica zerado no fechamento do mês." : sinal.exigencias.map((x) => `<br>• <b>${esc(x.titulo || x.descricao)}</b>: ${esc(x.motivo || "veja o motivo e envie o documento que falta")}`).join("") + "<br>Corrija ou anexe o documento pedido no próprio registro (Anexar ou Editar); ele volta para análise."}</div>` : ""}
           <section class="painel acerto">
             <h2>Seu enquadramento hoje</h2>
             <div class="kpis">
