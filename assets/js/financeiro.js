@@ -384,6 +384,13 @@
         retiradas_ano: centavos(somaBruta(mensal, (x) => x.retirada)), horas: horas, chamadas: J, chamadas_pagas: K } }
     };
   }
+  /* Retirada mínima: com 0 em Configurações, é automática = 1 quota-parte ÷ 1,5%, arredondado para cima
+     (assim o desconto de capital de uma retirada nunca fica abaixo da quota; Estatuto, art. 23, §4º) */
+  function retiradaMinima(par) {
+    const p = params(par || {});
+    if (p.retirada_minima > 0) return { valor: p.retirada_minima, auto: false };
+    return { valor: p.contrib_pct > 0 ? Math.ceil(p.quota / p.contrib_pct - 1e-9) : 0, auto: true };
+  }
   /* Prazo da retirada: N-ésimo dia útil do mês seguinte ao pedido */
   function prazoRetirada(dataPedido, par) {
     const p = params(par || {}); const n = Math.max(1, Number(p.retirada_dia_util || 5));
@@ -519,5 +526,5 @@
     return Array.from(a, (b) => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[b % 32]).join("");
   }
 
-  window.Fin = { prazoRetirada, descontosRetirada, experienciaInterna, diasUteis, feriadosDoAno, sinalExperiencia, enquadramento, diasDeExperiencia, habilitacaoUsada, valorHoraDe, NIVEIS, calcular, calcularCooperado, cooperativa, tabelaSalarial, valorHora, params, PADRAO, CATEGORIAS_SAL, CONSELHOS, TIPOS_PAG, mesFechamento, mesDe, somaMes, PIX, ABA_LANC, centavos, nomeMes, componentes, alocar, proxima, descreverItem, ajustada, pixCopiaECola, crc16, qrSvg, planilhaComLancamentos, lerLancamentos, novoCodigo, vale };
+  window.Fin = { retiradaMinima, prazoRetirada, descontosRetirada, experienciaInterna, diasUteis, feriadosDoAno, sinalExperiencia, enquadramento, diasDeExperiencia, habilitacaoUsada, valorHoraDe, NIVEIS, calcular, calcularCooperado, cooperativa, tabelaSalarial, valorHora, params, PADRAO, CATEGORIAS_SAL, CONSELHOS, TIPOS_PAG, mesFechamento, mesDe, somaMes, PIX, ABA_LANC, centavos, nomeMes, componentes, alocar, proxima, descreverItem, ajustada, pixCopiaECola, crc16, qrSvg, planilhaComLancamentos, lerLancamentos, novoCodigo, vale };
 })();

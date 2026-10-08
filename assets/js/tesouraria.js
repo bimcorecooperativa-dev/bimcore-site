@@ -303,7 +303,7 @@
           ${campoP("cp-tele", "Auxílio-teletrabalho (% do SM por mês)", pct(pr.tele_pct), "Art. 80, §1º.")}
           ${campoP("cp-alim", "Auxílio-alimentação (% do SM por dia)", pct(pr.alim_pct), "Art. 80, §2º.")}
           ${campoP("cp-cop", "Custo de Operação e Gestão (%)", pct(pr.custo_op_pct), "Art. 23, §7º.")}
-          ${campoP("cp-rmin", "Valor mínimo para pedir retirada (R$)", brl(pr.retirada_minima), "Abaixo disso o crédito fica acumulando. 0 = sem mínimo.")}
+          ${campoP("cp-rmin", "Valor mínimo para pedir retirada (R$)", brl(pr.retirada_minima), `0 = automático: 1 quota ÷ 1,5% = ${moeda(Fin.retiradaMinima({ ...base.parametros, retirada_minima: 0 }).valor)}, que acompanha o reajuste da quota. Abaixo do mínimo, o crédito fica acumulando.`)}
           ${campoP("cp-rdia", "Prazo da transferência (dia útil do mês seguinte)", pr.retirada_dia_util, "Ex.: 5 = até o 5º dia útil.")}
           ${campoP("cp-res", "Fundo de Reserva (%)", pct(pr.reserva_pct), "Mínimo legal; a Assembleia define (art. 71, §3º).")}
           ${campoP("cp-fates", "FATES (%)", pct(pr.fates_pct), "Mínimo legal; a Assembleia define.")}
