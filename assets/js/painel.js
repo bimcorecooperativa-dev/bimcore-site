@@ -1,9 +1,12 @@
 /* Área do cooperado: início, horas, documentos, perfil */
 (function () {
   "use strict";
+  const UI = window.UI;
   const { $, esc, data, dataHora, horas, bytes, hoje, mesAtual, acao, confirmar, toast } = window.UI;
   const API = window.API;
   const TIPOS = API.TIPOS_HORA;
+  const DESC = API.DESC_HORA || {};
+  const iTipo = (k) => DESC[k] ? UI.info(DESC[k], "O que é " + (TIPOS[k] || k).split(" (")[0] + "?") : "";
   const LIMITE_FTI = 0.10;
 
   const resumo = (lista) => {
@@ -29,9 +32,9 @@
           <div class="pag-cab"><div><p class="eyebrow">${esc(nomeMes)}</p><h1>Olá, ${esc((ctx.sessao.perfil.nome || "").split(" ")[0] || "cooperado")}</h1></div>
             <a class="btn btn-primary" href="#horas">Lançar horas</a></div>
           <div class="kpis">
-            <div class="kpi"><span class="rot">Produção técnica</span><span class="val">${horas(t.produtiva)}</span><span class="det">Base do cálculo das sobras</span></div>
-            <div class="kpi"><span class="rot">Formação integrada</span><span class="val">${horas(t.formacao)}</span><span class="det">${seloFti(t.fti)} · limite 10%</span></div>
-            <div class="kpi"><span class="rot">Pendência externa</span><span class="val">${horas(t.ociosidade_estrategica)}</span><span class="det">Não afeta o seu IEO</span></div>
+            <div class="kpi"><span class="rot">Produção técnica ${iTipo("produtiva")}</span><span class="val">${horas(t.produtiva)}</span><span class="det">Base do cálculo das sobras</span></div>
+            <div class="kpi"><span class="rot">Formação integrada ${iTipo("formacao")}</span><span class="val">${horas(t.formacao)}</span><span class="det">${seloFti(t.fti)} · limite 10%</span></div>
+            <div class="kpi"><span class="rot">Pendência externa ${iTipo("ociosidade_estrategica")}</span><span class="val">${horas(t.ociosidade_estrategica)}</span><span class="det">Não afeta o seu IEO</span></div>
           </div>
           <section class="painel"><h2>Comunicados da coordenação</h2>
             ${coms.length ? `<div class="comunicados">${coms.map((c) => `
@@ -55,12 +58,12 @@
             <form id="f-hora" class="form-grid" novalidate>
               <div class="field"><label for="h-proj">Projeto</label>
                 <select class="input" id="h-proj">${ativos.length ? ativos.map((p) => `<option value="${p.id}">${esc(p.nome)}</option>`).join("") : ""}<option value="">Sem projeto (atividade interna)</option></select></div>
-              <div class="field"><label for="h-tipo">Tipo de hora</label>
+              <div class="field"><label for="h-tipo">Tipo de hora ${UI.info(Object.keys(TIPOS).map((k) => TIPOS[k].split(" (")[0] + ": " + DESC[k]).join("\n\n"), "O que significa cada tipo de hora?")}</label>
                 <select class="input" id="h-tipo">${Object.entries(TIPOS).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select></div>
               <div class="field"><label for="h-data">Data</label><input class="input" id="h-data" type="date" value="${hoje()}" max="${hoje()}"></div>
               <div class="field"><label for="h-horas">Horas</label><input class="input" id="h-horas" type="number" min="0.25" max="12" step="0.25" inputmode="decimal" placeholder="Ex.: 6"></div>
               <div class="field full"><label for="h-desc">O que foi feito</label><input class="input" id="h-desc" maxlength="300" placeholder="Ex.: Compatibilização arquitetura x estrutura do bloco A"></div>
-              <p class="hint full">Pendência externa (ociosidade estratégica) é o tempo parado por atraso do órgão público. Registre o número do protocolo ou o e-mail na descrição.</p>
+              <p class="hint full" id="h-tipo-desc">${esc(DESC[Object.keys(TIPOS)[0]] || "")}</p>
               <div class="full"><button class="btn btn-primary" id="h-btn" type="submit">Lançar</button></div>
             </form>
           </section>
@@ -77,7 +80,7 @@
           if (!doMes.length) { lista.innerHTML = '<p class="vazio">Nenhum lançamento neste mês.</p>'; return; }
           lista.innerHTML = `
             <div class="kpis" style="margin-bottom:1rem">
-              ${Object.entries(TIPOS).map(([k, v]) => `<div class="kpi"><span class="rot">${esc(v.split(" (")[0])}</span><span class="val">${horas(t[k])}</span></div>`).join("")}
+              ${Object.entries(TIPOS).map(([k, v]) => `<div class="kpi"><span class="rot">${esc(v.split(" (")[0])} ${iTipo(k)}</span><span class="val">${horas(t[k])}</span></div>`).join("")}
             </div>
             <div class="tabela-wrap"><table class="tabela">
               <thead><tr><th>Data</th><th>Projeto</th><th>Tipo</th><th class="num">Horas</th><th><span class="sr-only">Ações</span></th></tr></thead>
@@ -91,6 +94,7 @@
         };
         desenhar();
 
+        $("#h-tipo").addEventListener("change", (e) => { $("#h-tipo-desc").textContent = DESC[e.target.value] || ""; });
         $("#h-mes").addEventListener("change", (e) => { filtroMes = e.target.value; desenhar(); });
         lista.addEventListener("click", async (e) => {
           const b = e.target.closest("[data-del]"); if (!b) return;

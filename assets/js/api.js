@@ -746,6 +746,12 @@
 
   const api = DEMO ? demoApi() : supaApi();
   api.TIPOS_HORA = TIPOS_HORA;
+  api.DESC_HORA = {
+    produtiva: "Trabalho técnico nos projetos da cooperativa: modelagem, compatibilização, desenhos, memoriais, relatórios. É remunerada pelo valor-hora da sua categoria e é a base da divisão das sobras.",
+    formacao: "Estudo ligado diretamente a um projeto em andamento, como aprender a ferramenta ou a norma necessária para entregar o trabalho. É remunerada como a produção técnica, até 10% das suas horas do mês.",
+    ociosidade_estrategica: "Tempo parado à espera de órgão público ou terceiro (prefeitura, concessionária, cliente). Não é remunerada, mas comprova o atraso e não pesa no seu IEO. Informe o número do protocolo ou o e-mail na descrição.",
+    ociosidade_operacional: "Tempo disponível sem tarefa por motivo interno, como projeto parado ou espera de outra disciplina da equipe. Não é remunerada; serve para a coordenação ver a capacidade livre e redistribuir o trabalho."
+  };
   api.STATUS_PROJETO = STATUS_PROJETO;
   api.MODALIDADES = MODALIDADES;
   api.CATEGORIAS_DOC = CATEGORIAS_DOC;

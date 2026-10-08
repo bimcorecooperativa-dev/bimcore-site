@@ -85,5 +85,34 @@
     document.body.prepend(b);
   };
 
+  /* Ícone "i": explicação ao passar o mouse, focar ou tocar */
+  UI.info = (texto, rotulo) => `<button type="button" class="info-i" data-info="${UI.esc(texto)}" aria-label="${UI.esc(rotulo || "O que é isto?")}">i</button>`;
+  (function () {
+    let pop = null, dono = null, fixo = false;
+    const fechar = () => { if (pop) pop.remove(); pop = null; dono = null; fixo = false; };
+    const abrir = (b) => {
+      if (dono === b) return;
+      fechar(); dono = b;
+      pop = document.createElement("div");
+      pop.className = "info-pop"; pop.setAttribute("role", "tooltip");
+      pop.textContent = b.dataset.info;
+      document.body.appendChild(pop);
+      const r = b.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight, m = 8;
+      let x = Math.min(Math.max(m, r.left + r.width / 2 - w / 2), window.innerWidth - w - m);
+      let y = r.bottom + 8; if (y + h > window.innerHeight - m) y = Math.max(m, r.top - h - 8);
+      pop.style.left = x + "px"; pop.style.top = y + "px";
+    };
+    document.addEventListener("mouseover", (e) => { const b = e.target.closest && e.target.closest(".info-i"); if (b) abrir(b); else if (dono && !fixo) fechar(); });
+    document.addEventListener("focusin", (e) => { if (e.target.classList && e.target.classList.contains("info-i")) abrir(e.target); });
+    document.addEventListener("focusout", (e) => { if (e.target === dono && !fixo) fechar(); });
+    document.addEventListener("click", (e) => {
+      const b = e.target.closest && e.target.closest(".info-i");
+      if (b) { e.preventDefault(); e.stopPropagation(); if (dono === b && fixo) fechar(); else { abrir(b); fixo = true; } return; }
+      fechar();
+    }, true);
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") fechar(); });
+    window.addEventListener("scroll", () => { if (!fixo) fechar(); else if (dono) { const b = dono; dono = null; fixo = false; abrir(b); fixo = true; } }, true);
+  })();
+
   window.UI = UI;
 })();
