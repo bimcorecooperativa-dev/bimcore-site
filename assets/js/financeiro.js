@@ -122,12 +122,14 @@
   /* Parâmetros do Estatuto com os valores padrão da planilha */
   const PADRAO = { quota: 50, quotas_minimas: 10, contrib_inicio: "2026-04-01", sm: 1621, horas_ref: 120, contrib_pct: 0.015, inss_pct: 0.11, inss_teto: 8475.55,
     patronal_pct: 0.2, fic_coop_pct: 0.055, fic_vol_max: 0.025, tele_pct: 0.0925, alim_pct: 0.0278, custo_op_pct: 0.2, reserva_pct: 0.1, fates_pct: 0.05,
-    base_demais_pleno: 6600, mult_junior: 8.5, mult_pleno: 11, mult_senior: 14, mult_coord: 17.5, sobras_mercado: 0, sobras_publicas: 0, rateio_pct: 1, fti_max: 0.1, retirada_minima: 0, retirada_dia_util: 5, reserva_caixa: 0,
+    // Piso Júnior dos demais conselhos, em salários-mínimos (base: piso regional do RJ, proposta Ceter/RJ 2027)
+    piso_cft: 2.36, piso_cra: 2.97, piso_crc: 2.97, piso_oab: 2.97, piso_outro: 2.97,
+    mult_junior: 8.5, mult_pleno: 11, mult_senior: 14, mult_coord: 17.5, sobras_mercado: 0, sobras_publicas: 0, rateio_pct: 1, fti_max: 0.1, retirada_minima: 0, retirada_dia_util: 5, reserva_caixa: 0,
     // IR retido na fonte (tabela mensal 2026 e redução da Lei 15.270/2025)
     ir_f1: 2428.80, ir_f2: 2826.65, ir_f3: 3751.05, ir_f4: 4664.68, ir_d1: 182.16, ir_d2: 394.16, ir_d3: 675.49, ir_d4: 908.73,
     ir_dep: 189.59, ir_simpl: 607.20, ir_red_lim1: 5000, ir_red_max1: 312.89, ir_red_lim2: 7350, ir_red_a: 978.62, ir_red_b: 0.133145 };
   /* Valores que mudam todo ano e valem a partir de um mês (não reescrevem o passado) */
-  const VIG_KEYS = ["sm", "quota", "horas_ref", "mult_junior", "mult_pleno", "mult_senior", "mult_coord", "base_demais_pleno", "contrib_pct", "inss_pct", "inss_teto", "patronal_pct",
+  const VIG_KEYS = ["sm", "quota", "horas_ref", "mult_junior", "mult_pleno", "mult_senior", "mult_coord", "piso_cft", "piso_cra", "piso_crc", "piso_oab", "piso_outro", "contrib_pct", "inss_pct", "inss_teto", "patronal_pct",
     "fic_coop_pct", "fic_vol_max", "tele_pct", "alim_pct", "ir_f1", "ir_f2", "ir_f3", "ir_f4", "ir_d1", "ir_d2", "ir_d3", "ir_d4", "ir_dep", "ir_simpl", "ir_red_lim1", "ir_red_max1", "ir_red_lim2", "ir_red_a", "ir_red_b"];
   function parametrosDoMes(base, m) {
     const vs = (base.vigencias || []).filter((v) => mesDe(v.vigencia) <= m).sort((a, b) => String(b.vigencia).localeCompare(String(a.vigencia)));
@@ -150,18 +152,22 @@
   const CATEGORIAS_SAL = [["Júnior", "mult_junior", "Até 5 anos"], ["Pleno", "mult_pleno", "6 a 10 anos"], ["Sênior", "mult_senior", "Acima de 10 anos"], ["Coordenador", "mult_coord", "Acima de 10 anos, com designação do Conselho"]];
   const CONSELHOS = ["CREA", "CAU", "CFT", "CRA", "OAB", "CRC", "Outro", "Nenhum"];
   const params = (par) => { const o = { ...PADRAO }; Object.keys(PADRAO).forEach((k) => { if (par && par[k] != null && par[k] !== "") o[k] = typeof PADRAO[k] === "number" ? Number(par[k]) : par[k]; }); return o; };
-  /* Tabela salarial (art. 8º): CREA/CAU = multiplicador × SM; demais conselhos = base Pleno × multiplicador ÷ multiplicador Pleno */
-  function tabelaSalarial(par) {
+  /* Tabela salarial (art. 8º, II): o piso do conselho é a base do Júnior; as demais categorias aplicam
+     os multiplicadores (Pleno = Júnior × 11 ÷ 8,5 etc.). CREA/CAU: 8,5 SM (Lei 4.950-A). Demais: piso em SM. */
+  const PISO_CONSELHO = { CREA: null, CAU: null, CFT: "piso_cft", CRA: "piso_cra", CRC: "piso_crc", OAB: "piso_oab", Outro: "piso_outro", Nenhum: "piso_outro" };
+  function pisoJunior(conselho, p) { const k = PISO_CONSELHO[conselho]; return (k ? p[k] : p.mult_junior) * p.sm; }
+  function tabelaSalarial(par, conselho) {
     const p = params(par);
+    const base = pisoJunior(conselho || "CREA", p);
     return CATEGORIAS_SAL.map(([cat, k, exp]) => {
-      const crea = p[k] * p.sm, demais = p.base_demais_pleno * p[k] / p.mult_pleno;
-      return { categoria: cat, experiencia: exp, multiplicador: p[k], crea_mensal: crea, crea_hora: crea / p.horas_ref, demais_mensal: demais, demais_hora: demais / p.horas_ref };
+      const mensal = base * p[k] / p.mult_junior;
+      return { categoria: cat, experiencia: exp, multiplicador: p[k], mensal, hora: mensal / p.horas_ref,
+        crea_mensal: p[k] * p.sm, crea_hora: p[k] * p.sm / p.horas_ref };
     });
   }
   function valorHoraDe(categoria, conselho, par) {
     if (!categoria) return 0;
-    const t = tabelaSalarial(par).find((x) => x.categoria === categoria); if (!t) return 0;
-    return conselho === "CREA" || conselho === "CAU" ? t.crea_hora : t.demais_hora;
+    const t = tabelaSalarial(par, conselho || "Outro").find((x) => x.categoria === categoria); return t ? t.hora : 0;
   }
 
   /* ================================================================
@@ -569,5 +575,5 @@
     return Array.from(a, (b) => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[b % 32]).join("");
   }
 
-  window.Fin = { irMensal, parametrosDoMes, VIG_KEYS, caixaLivre, retiradaMinima, prazoRetirada, descontosRetirada, experienciaInterna, diasUteis, feriadosDoAno, sinalExperiencia, enquadramento, diasDeExperiencia, habilitacaoUsada, valorHoraDe, NIVEIS, calcular, calcularCooperado, cooperativa, tabelaSalarial, valorHora, params, PADRAO, CATEGORIAS_SAL, CONSELHOS, TIPOS_PAG, mesFechamento, mesDe, somaMes, PIX, ABA_LANC, centavos, nomeMes, componentes, alocar, proxima, descreverItem, ajustada, pixCopiaECola, crc16, qrSvg, planilhaComLancamentos, lerLancamentos, novoCodigo, vale };
+  window.Fin = { PISO_CONSELHO, irMensal, parametrosDoMes, VIG_KEYS, caixaLivre, retiradaMinima, prazoRetirada, descontosRetirada, experienciaInterna, diasUteis, feriadosDoAno, sinalExperiencia, enquadramento, diasDeExperiencia, habilitacaoUsada, valorHoraDe, NIVEIS, calcular, calcularCooperado, cooperativa, tabelaSalarial, valorHora, params, PADRAO, CATEGORIAS_SAL, CONSELHOS, TIPOS_PAG, mesFechamento, mesDe, somaMes, PIX, ABA_LANC, centavos, nomeMes, componentes, alocar, proxima, descreverItem, ajustada, pixCopiaECola, crc16, qrSvg, planilhaComLancamentos, lerLancamentos, novoCodigo, vale };
 })();

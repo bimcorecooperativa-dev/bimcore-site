@@ -390,16 +390,20 @@
           <p class="hint" id="cp-prev"></p>
         </section>
         <section class="painel"><h2>Tabela salarial (art. 8º)</h2>
-          <p class="hint">CREA/CAU: multiplicador × salário-mínimo. Demais conselhos: retirada de referência da categoria Pleno × (multiplicador ÷ multiplicador Pleno). A Assembleia aprova a tabela todo ano.</p>
+          <p class="hint">O piso de cada conselho é a base do Júnior; Pleno, Sênior e Coordenador aplicam os multiplicadores sobre ele (art. 8º, II). CREA/CAU: 8,5 SM (Lei 4.950-A). Demais: piso em salários-mínimos, um valor único para todo o estado, tomando como referência o piso regional do RJ. A Assembleia aprova a tabela todo ano (RI, art. 88).</p>
           <div class="form-grid">
-            ${campoP("cp-base", "Retirada de referência Pleno — demais conselhos (R$)", brl(pr.base_demais_pleno))}
+            ${campoP("cp-pcft", "Piso Júnior — CFT/técnicos (× SM)", brl(pr.piso_cft), "Ref.: técnicos da construção civil, faixa III da proposta Ceter/RJ (R$ 3.821,40).")}
+            ${campoP("cp-pcra", "Piso Júnior — CRA/administração (× SM)", brl(pr.piso_cra), "Ref.: faixa IV, nível superior (R$ 4.811,40).")}
+            ${campoP("cp-pcrc", "Piso Júnior — CRC/contabilidade (× SM)", brl(pr.piso_crc), "Ref.: faixa IV.")}
+            ${campoP("cp-poab", "Piso Júnior — OAB/direito (× SM)", brl(pr.piso_oab), "Ref.: faixa IV.")}
+            ${campoP("cp-pout", "Piso Júnior — outros e sem conselho (× SM)", brl(pr.piso_outro), "Ref.: faixa IV (nível superior).")}
             ${campoP("cp-mj", "Multiplicador Júnior (× SM)", brl(pr.mult_junior))}
             ${campoP("cp-mp", "Multiplicador Pleno (× SM)", brl(pr.mult_pleno))}
             ${campoP("cp-ms", "Multiplicador Sênior (× SM)", brl(pr.mult_senior))}
             ${campoP("cp-mc", "Multiplicador Coordenador (× SM)", brl(pr.mult_coord))}
           </div>
-          <div class="tabela-wrap"><table class="tabela"><thead><tr><th>Categoria</th><th>Experiência</th><th class="num">CREA/CAU — mês</th><th class="num">CREA/CAU — hora</th><th class="num">Demais — mês</th><th class="num">Demais — hora</th></tr></thead>
-            <tbody>${tab.map((t) => `<tr><td>${t.categoria}</td><td>${t.experiencia}</td><td class="num">${moeda(t.crea_mensal)}</td><td class="num">${moeda(t.crea_hora)}</td><td class="num">${moeda(t.demais_mensal)}</td><td class="num">${moeda(t.demais_hora)}</td></tr>`).join("")}</tbody></table></div>
+          <div class="tabela-wrap"><table class="tabela"><thead><tr><th>Valor-hora</th>${["CREA/CAU", "CFT", "CRA", "CRC", "OAB", "Outros"].map((c) => `<th class="num">${c}</th>`).join("")}</tr></thead>
+            <tbody>${Fin.CATEGORIAS_SAL.map(([cat, , exp]) => `<tr><td>${cat}<span class="sub">${exp}</span></td>${["CREA", "CFT", "CRA", "CRC", "OAB", "Outro"].map((c) => `<td class="num">${moeda(Fin.valorHoraDe(cat, c, par))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
         </section>
         <div class="sol-acoes"><button class="btn btn-primary" id="cp-btn" type="submit">Salvar parâmetros</button></div>
         </form>
@@ -417,7 +421,7 @@
         const d = { quota: v("cp-quota"), quotas_minimas: Number($("#cp-min").value), contrib_inicio: $("#cp-ini").value ? $("#cp-ini").value + "-01" : null,
           fechamento: $("#cp-fech").value ? $("#cp-fech").value + "-01" : null, contrib_pct: pc("cp-contrib"), sm: v("cp-sm"), horas_ref: Number($("#cp-horas").value),
           inss_pct: pc("cp-inss"), inss_teto: v("cp-teto"), patronal_pct: pc("cp-patr"), fic_coop_pct: pc("cp-fic"), fic_vol_max: pc("cp-ficv"), tele_pct: pc("cp-tele"),
-          alim_pct: pc("cp-alim"), custo_op_pct: pc("cp-cop"), retirada_minima: v("cp-rmin") || 0, retirada_dia_util: Math.round(Number($("#cp-rdia").value)) || 5, reserva_pct: pc("cp-res"), fates_pct: pc("cp-fates"), base_demais_pleno: v("cp-base"),
+          alim_pct: pc("cp-alim"), custo_op_pct: pc("cp-cop"), retirada_minima: v("cp-rmin") || 0, retirada_dia_util: Math.round(Number($("#cp-rdia").value)) || 5, reserva_pct: pc("cp-res"), fates_pct: pc("cp-fates"), piso_cft: v("cp-pcft"), piso_cra: v("cp-pcra"), piso_crc: v("cp-pcrc"), piso_oab: v("cp-poab"), piso_outro: v("cp-pout"),
           mult_junior: v("cp-mj"), mult_pleno: v("cp-mp"), mult_senior: v("cp-ms"), mult_coord: v("cp-mc"),
           exp_tecnico_antes: $("#cp-exptec").checked, exp_superior_antes: $("#cp-expsup").checked,
           horas_dia: v("cp-hdia"), meses_ano: Number($("#cp-mano").value), feriados_extras: $("#cp-fer").value.trim(), facultativos_folga: $("#cp-facult").checked,
