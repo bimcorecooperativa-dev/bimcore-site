@@ -386,7 +386,42 @@
         }
       },
       fin: {
+        _horasMes(s, coopIds) {
+          const out = {};
+          s.fin.cooperados.filter((c) => c.perfil_id && (!coopIds || coopIds.includes(c.id))).forEach((c) => {
+            s.producao.filter((h) => h.cooperado_id === c.perfil_id && ["produtiva", "formacao", "administrativa"].includes(h.tipo)).forEach((h) => {
+              const k = c.id + "|" + String(h.data).slice(0, 7);
+              const o = out[k] = out[k] || { fin_cooperado_id: c.id, mes: String(h.data).slice(0, 7) + "-01", produtivas: 0, formacao: 0, administrativas: 0, _dias: new Set() };
+              o[{ produtiva: "produtivas", formacao: "formacao", administrativa: "administrativas" }[h.tipo]] += Number(h.horas); o._dias.add(h.data);
+            });
+          });
+          return Object.values(out).map((o) => { const d = o._dias.size; delete o._dias; return { ...o, dias: d }; });
+        },
         async parametros() { const s = ler(); exigir(s); return espera({ ...s.fin.parametros }); },
+        async solicitarRetirada(d) {
+          const s = ler(); const u = exigir(s); const c = s.fin.cooperados.find((x) => x.perfil_id === u.id); if (!c) falha("Cadastro financeiro não ligado.");
+          s.fin.retiradas = s.fin.retiradas || [];
+          s.fin.retiradas.push({ id: novoId(), fin_cooperado_id: c.id, valor: d.valor, prazo: d.prazo, status: "solicitada", solicitado_em: new Date().toISOString(), solicitado_nome: u.nome });
+          gravar(s); return espera(true);
+        },
+        async cancelarRetirada(id, motivo) {
+          const s = ler(); const u = exigir(s); const r = (s.fin.retiradas || []).find((x) => x.id === id); if (!r || r.status !== "solicitada") falha("Esta solicitação não pode mais ser cancelada.");
+          const meu = s.fin.cooperados.find((x) => x.perfil_id === u.id);
+          if (!(meu && meu.id === r.fin_cooperado_id) && !(u.papel === "coordenacao" || u.tesouraria)) falha("permission denied");
+          Object.assign(r, { status: "cancelada", motivo: motivo || null }); gravar(s); return espera(true);
+        },
+        async pagarRetirada(id, d) {
+          const s = ler(); const u = exigir(s, "tes"); const r = (s.fin.retiradas || []).find((x) => x.id === id); if (!r) falha("Solicitação não encontrada.");
+          Object.assign(r, d, { status: "paga", pago_nome: u.nome }); gravar(s); return espera(true);
+        },
+        async desfazerPagamento(id) {
+          const s = ler(); exigir(s, "tes"); const r = (s.fin.retiradas || []).find((x) => x.id === id); if (!r) falha("Solicitação não encontrada.");
+          Object.assign(r, { status: "solicitada", pago_em: null, pago_nome: null, inss: null, contribuicao: null, fic_vol: null, liquido: null }); gravar(s); return espera(true);
+        },
+        async salvarReceita(receita) {
+          const s = ler(); exigir(s, "tes"); s.fin.receitas = s.fin.receitas || [];
+          const r = s.fin.receitas.find((x) => x.mes === receita.mes); if (r) Object.assign(r, receita); else s.fin.receitas.push({ ...receita }); gravar(s); return espera(true);
+        },
         async extrato() {
           const s = ler(); const u = exigir(s); const c = s.fin.cooperados.find((x) => x.perfil_id === u.id) || null;
           const pags = c ? s.fin.pagamentos.filter((p) => p.fin_cooperado_id === c.id) : [];
@@ -395,10 +430,16 @@
           const folha = c ? (s.fin.folha || []).filter((f) => f.fin_cooperado_id === c.id) : [];
           const habilitacoes = c ? (s.fin.habilitacoes || []).filter((f) => f.fin_cooperado_id === c.id) : [];
           const experiencias = c ? (s.fin.experiencias || []).filter((f) => f.fin_cooperado_id === c.id) : [];
-          const horas_total = (s.fin.folha || []).reduce((t, f) => t + Number(f.horas_produtivas || 0) + Number(f.horas_formacao || 0), 0);
-          return espera({ parametros: { ...s.fin.parametros }, cooperado: c, pagamentos: pags, despesas, folha, horas_total, habilitacoes, experiencias });
+          const horas_total = s.producao.filter((h) => h.tipo === "produtiva" || h.tipo === "formacao").reduce((t, h) => t + Number(h.horas), 0);
+          const horas_mes = c ? this._horasMes(s, [c.id]) : [];
+          const retiradas = c ? (s.fin.retiradas || []).filter((r) => r.fin_cooperado_id === c.id) : [];
+          return espera(JSON.parse(JSON.stringify({ parametros: { ...s.fin.parametros }, cooperado: c, pagamentos: pags, despesas, folha, horas_total, habilitacoes, experiencias, horas_mes, retiradas })));
         },
-        async tudo() { const s = ler(); exigir(s, "tes"); s.fin.folha = s.fin.folha || []; s.fin.receitas = s.fin.receitas || []; return espera(JSON.parse(JSON.stringify(s.fin))); },
+        async tudo() {
+          const s = ler(); exigir(s, "tes"); s.fin.folha = s.fin.folha || []; s.fin.receitas = s.fin.receitas || []; s.fin.retiradas = s.fin.retiradas || [];
+          const horas_total = s.producao.filter((h) => h.tipo === "produtiva" || h.tipo === "formacao").reduce((t, h) => t + Number(h.horas), 0);
+          return espera(JSON.parse(JSON.stringify({ ...s.fin, horas_mes: this._horasMes(s), horas_total })));
+        },
         async horasLancadas(mes) {
           const s = ler(); exigir(s, "tes"); const m = String(mes).slice(0, 7);
           return espera(s.fin.cooperados.filter((c) => c.perfil_id).map((c) => {
@@ -699,9 +740,37 @@
       },
       fin: {
         async parametros() { const r = await sb.from("fin_parametros").select("*").eq("id", 1).maybeSingle(); return r.error || !r.data ? { modo: "planilha" } : r.data; },
-        async extrato() { return ok(await sb.rpc("meu_extrato")); },
+        async extrato() {
+          const ext = ok(await sb.rpc("meu_extrato"));
+          if (!ext || !ext.cooperado) return ext;
+          const [hm, rt, ht] = await Promise.all([sb.rpc("horas_mensais"), sb.from("fin_retiradas").select("*").eq("fin_cooperado_id", ext.cooperado.id).order("solicitado_em"), sb.rpc("horas_produtivas_total")]);
+          ext.horas_mes = hm.error ? [] : (hm.data || []).filter((h) => h.fin_cooperado_id === ext.cooperado.id);
+          ext.retiradas = rt.error ? [] : rt.data;
+          if (!ht.error && ht.data != null) ext.horas_total = Number(ht.data);
+          return ext;
+        },
+        async solicitarRetirada(d) {
+          const uid = await meuId(); const eu = ok(await sb.from("perfis").select("nome").eq("id", uid).single());
+          const c = ok(await sb.from("fin_cooperados").select("id").eq("perfil_id", uid).single());
+          ok(await sb.from("fin_retiradas").insert({ fin_cooperado_id: c.id, valor: d.valor, prazo: d.prazo, solicitado_nome: eu.nome })); return true;
+        },
+        async cancelarRetirada(id, motivo) {
+          const r = await sb.from("fin_retiradas").update({ status: "cancelada", motivo: motivo || null, atualizado_em: new Date().toISOString() }).eq("id", id).eq("status", "solicitada").select("id");
+          ok(r); if (!r.data || !r.data.length) falha("Esta solicitação não pode mais ser cancelada."); return true;
+        },
+        async pagarRetirada(id, d) {
+          const uid = await meuId(); const eu = ok(await sb.from("perfis").select("nome").eq("id", uid).single());
+          ok(await sb.from("fin_retiradas").update({ ...d, status: "paga", pago_nome: eu.nome, atualizado_em: new Date().toISOString() }).eq("id", id)); return true;
+        },
+        async desfazerPagamento(id) {
+          ok(await sb.from("fin_retiradas").update({ status: "solicitada", pago_em: null, pago_nome: null, inss: null, contribuicao: null, fic_vol: null, liquido: null, atualizado_em: new Date().toISOString() }).eq("id", id)); return true;
+        },
+        async salvarReceita(receita) {
+          const uid = await meuId(); const eu = ok(await sb.from("perfis").select("nome").eq("id", uid).single());
+          ok(await sb.from("fin_receitas").upsert({ ...receita, atualizado_nome: eu.nome, atualizado_em: new Date().toISOString() }, { onConflict: "mes" })); return true;
+        },
         async tudo() {
-          const [par, coo, desp, pag, fol, rec, hab, exps] = await Promise.all([
+          const [par, coo, desp, pag, fol, rec, hab, exps, hm, rt, ht] = await Promise.all([
             sb.from("fin_parametros").select("*").eq("id", 1).single(),
             sb.from("fin_cooperados").select("*").order("nome"),
             sb.from("fin_despesas").select("*").order("data", { ascending: false, nullsFirst: false }),
@@ -709,9 +778,13 @@
             sb.from("fin_folha").select("*").order("mes"),
             sb.from("fin_receitas").select("*").order("mes"),
             sb.from("fin_habilitacoes").select("*"),
-            sb.from("fin_experiencias").select("*")
+            sb.from("fin_experiencias").select("*"),
+            sb.rpc("horas_mensais"),
+            sb.from("fin_retiradas").select("*").order("solicitado_em"),
+            sb.rpc("horas_produtivas_total")
           ]);
-          return { parametros: ok(par), cooperados: ok(coo), despesas: ok(desp), pagamentos: ok(pag), folha: fol.error ? [] : fol.data, receitas: rec.error ? [] : rec.data, habilitacoes: hab.error ? [] : hab.data, experiencias: exps.error ? [] : exps.data };
+          return { parametros: ok(par), cooperados: ok(coo), despesas: ok(desp), pagamentos: ok(pag), folha: fol.error ? [] : fol.data, receitas: rec.error ? [] : rec.data, habilitacoes: hab.error ? [] : hab.data, experiencias: exps.error ? [] : exps.data,
+            horas_mes: hm.error ? [] : hm.data, retiradas: rt.error ? [] : rt.data, horas_total: ht.error ? null : Number(ht.data) };
         },
         async horasLancadas(mes) { return ok(await sb.rpc("horas_lancadas", { p_mes: mes })); },
         async salvarFolha(linhas, receita) {
@@ -750,9 +823,9 @@
   const api = DEMO ? demoApi() : supaApi();
   api.TIPOS_HORA = TIPOS_HORA;
   api.DESC_HORA = {
-    produtiva: "Trabalho técnico nos projetos da cooperativa: modelagem, compatibilização, desenhos, memoriais, relatórios. É remunerada pelo valor-hora da sua categoria e é a base da divisão das sobras.",
-    formacao: "Estudo ligado diretamente a um projeto em andamento, como aprender a ferramenta ou a norma necessária para entregar o trabalho. É remunerada como a produção técnica, até 10% das suas horas do mês.",
-    administrativa: "Execução das atividades administrativas, financeiras e de suporte da cooperativa: planilhas, conciliação bancária, documentos, fechamento do mês (art. 53, §4º e §5º). É remunerada pelo valor-hora da sua categoria e paga pelo Custo de Operação e Gestão (os 20%). Não inclui o exercício do cargo no Conselho, que é voluntário (art. 53, §1º). Não entra na divisão das sobras.",
+    produtiva: "Trabalho técnico nos projetos da cooperativa: modelagem, compatibilização, desenhos, memoriais, relatórios. Gera crédito pelo valor-hora da sua categoria e é a base da divisão das sobras.",
+    formacao: "Estudo ligado diretamente a um projeto em andamento, como aprender a ferramenta ou a norma necessária para entregar o trabalho. Gera crédito como a produção técnica, até 10% das suas horas do mês.",
+    administrativa: "Execução das atividades administrativas, financeiras e de suporte da cooperativa: planilhas, conciliação bancária, documentos, controle das retiradas (art. 53, §4º e §5º). Gera crédito pelo valor-hora da sua categoria, custeado pelo Custo de Operação e Gestão (os 20%). Não inclui o exercício do cargo no Conselho, que é voluntário (art. 53, §1º). Não entra na divisão das sobras.",
     ociosidade_estrategica: "Tempo parado à espera de órgão público ou terceiro (prefeitura, concessionária, cliente). Não é remunerada, mas comprova o atraso e não pesa no seu IEO. Informe o número do protocolo ou o e-mail na descrição.",
     ociosidade_operacional: "Tempo disponível sem tarefa por motivo interno, como projeto parado ou espera de outra disciplina da equipe. Não é remunerada; serve para a coordenação ver a capacidade livre e redistribuir o trabalho."
   };

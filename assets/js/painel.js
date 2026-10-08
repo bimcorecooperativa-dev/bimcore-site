@@ -137,6 +137,7 @@
           }
           const calc = Fin.calcularCooperado(ext.cooperado, ext);
           calc.cooperado_id = ctx.sessao.perfil.id;
+          Object.defineProperty(calc, "_ext", { value: ext, enumerable: false });
           pos = [calc];
         } else {
           [pos, movs] = await Promise.all([API.financeiro.minhas(), API.movimentos.meus().catch(() => [])]);
@@ -165,6 +166,59 @@
         const comRet = (det.mensal || []).some((m) => Number(m.retirada) > 0);
         const restituivel = Math.max(0, n("capital_integralizado") + fundosInd + aportes - n("valor_em_aberto"));
         const linhaFundo = (rot, k, art) => `<tr><td>${rot}<span class="sub">${art}</span></td><td class="num">${moeda(n(k))}</td></tr>`;
+        const ext = sistema ? bruta._ext : null;
+        const cr = sistema ? (p.credito || bruta.credito) : null;
+        const parR = Fin.params(par);
+        const hojeIso = hoje();
+        const prazoNovo = Fin.prazoRetirada(hojeIso, par);
+        const podePedir = cr && cr.saldo > 0.005 && cr.saldo + 0.005 >= parR.retirada_minima;
+        const STR = { solicitada: '<span class="selo warn">aguardando transferência</span>', paga: '<span class="selo ok">paga</span>', cancelada: '<span class="selo">cancelada</span>' };
+        const INFO = {
+          credito: "Cada hora de produção técnica, de formação (até 10% das horas do mês) e de suporte administrativo lançada em Minhas horas vale o valor-hora da sua categoria naquele mês (Estatuto, art. 8º; Regimento, art. 87). O total fica guardado como crédito até você pedir a retirada. Ociosidade não gera crédito.",
+          bruto: "O valor do crédito que você pediu para retirar. É sobre ele que saem os descontos abaixo.",
+          inss: "Contribuição previdenciária individual de 11% sobre a retirada, até o teto do INSS. A cooperativa retém e recolhe para você (Estatuto, art. 24; Regimento, art. 94). Conta para a sua aposentadoria.",
+          contrib: "1,5% da retirada vai para o seu capital social (quotas-parte). Continua sendo seu e volta no desligamento. Nos meses sem retirada, a contribuição é de 1 quota-parte, paga por Pix (Estatuto, art. 23, §4º).",
+          ficvol: "Aporte voluntário que você escolheu para o seu Fundo Individual de Capitalização, até 2,5% da retirada. É seu e é resgatado no desligamento (Regimento, art. 123).",
+          liquido: "O que cai na sua conta bancária.",
+          ficcoop: "Além disso, a cooperativa deposita no seu FIC 5,5% da retirada do mês anterior. Não sai do seu bruto (Regimento, art. 123).",
+          provisoes: "A cooperativa guarda 1/12 de cada retirada para o seu 13º (pago até 20 de dezembro) e 1/12 para as suas férias (pagas no recesso). Não sai do seu bruto (Regimento, art. 124).",
+          auxilios: "Auxílio-teletrabalho (9,25% do salário-mínimo por mês) e auxílio-alimentação (2,78% do salário-mínimo por dia trabalhado). São indenizatórios, não saem do seu crédito e não fazem parte da retirada (Regimento, art. 125).",
+          patronal: "A cooperativa ainda paga 20% de INSS patronal sobre a sua retirada. Esse custo é da cooperativa, não sai do seu bruto (Regimento, art. 94)."
+        };
+        const i = (k) => window.UI.info(INFO[k]);
+        const blocoCredito = !cr ? "" : `
+          <section class="painel">
+            <h2>Crédito de trabalho e retiradas</h2>
+            <div class="kpis">
+              <div class="kpi"><span class="rot">Crédito gerado ${i("credito")}</span><span class="val">${moeda(cr.gerado)}</span><span class="det">Horas lançadas × valor-hora</span></div>
+              <div class="kpi"><span class="rot">Já retirado</span><span class="val">${moeda(cr.retirado)}</span><span class="det">Retiradas pagas pela tesouraria</span></div>
+              <div class="kpi"><span class="rot">Em solicitação</span><span class="val">${moeda(cr.solicitado)}</span><span class="det">Aguardando transferência</span></div>
+              <div class="kpi"><span class="rot">Disponível para retirada</span><span class="val" style="color:var(--ok)">${moeda(cr.saldo)}</span><span class="det">${parR.retirada_minima > 0 ? "Mínimo para pedir: " + moeda(parR.retirada_minima) : "Você pede quando quiser"}</span></div>
+            </div>
+            ${!bruta.enquadramento || !bruta.enquadramento.categoria ? '<div class="notice warn">Você ainda não tem categoria validada, então o valor-hora está zerado. Suas horas ficam guardadas: quando a formação e as experiências forem validadas em <b>Minha experiência</b>, o crédito delas aparece aqui.</div>' : ""}
+            <div class="sol-acoes">${podePedir ? '<button class="btn btn-primary" id="bt-ret">Solicitar retirada</button>' : `<span class="hint">${cr.saldo > 0.005 ? `Seu saldo ainda não chegou ao mínimo de ${moeda(parR.retirada_minima)} para pedir retirada.` : "Sem crédito disponível no momento."}</span>`}</div>
+            <p class="hint">Ao pedir, a tesouraria tem até o ${parR.retirada_dia_util}º dia útil do mês seguinte para fazer a transferência. Quando ela marcar como paga, o valor vira retirada e os descontos são registrados.</p>
+            ${cr.retiradas.length ? `<div class="tabela-wrap"><table class="tabela">
+              <thead><tr><th>Pedido em</th><th class="num">Bruto</th><th class="num">Líquido</th><th>Prazo</th><th>Situação</th><th></th></tr></thead>
+              <tbody>${cr.retiradas.slice().reverse().map((r) => { const d = r.status === "paga" ? r : Fin.descontosRetirada(ext.cooperado, ext, Number(r.valor), Fin.mesDe(r.prazo || hojeIso)); return `<tr>
+                <td>${dataHora(r.solicitado_em)}</td><td class="num">${moeda(r.valor)}</td>
+                <td class="num">${moeda(d.liquido)}${r.status === "paga" ? `<span class="sub">INSS ${moeda(r.inss)} · capital ${moeda(r.contribuicao)}${Number(r.fic_vol) ? " · FIC " + moeda(r.fic_vol) : ""}</span>` : r.status === "solicitada" ? '<span class="sub">estimado</span>' : ""}</td>
+                <td>${r.status === "paga" ? "paga em " + data(r.pago_em) : data(r.prazo)}</td>
+                <td>${STR[r.status] || esc(r.status)}${r.motivo ? `<span class="sub">${esc(r.motivo)}</span>` : ""}</td>
+                <td class="acoes-celula">${r.status === "solicitada" ? `<button class="btn btn-ghost btn-sm" data-cancret="${r.id}">Cancelar</button>` : ""}</td></tr>`; }).join("")}</tbody>
+            </table></div>` : ""}
+            <details class="explica"><summary>O que é cada valor da retirada</summary>
+              <ul class="hint" style="margin:.5rem 0 0;padding-left:1.1rem;display:grid;gap:.35rem">
+                <li><b>INSS (11%)</b> ${i("inss")} — retido e recolhido pela cooperativa.</li>
+                <li><b>Contribuição de capital (1,5%)</b> ${i("contrib")} — vai para as suas quotas.</li>
+                <li><b>FIC voluntário</b> ${i("ficvol")} — só se você escolheu aportar.</li>
+                <li><b>FIC da cooperativa (5,5%)</b> ${i("ficcoop")} — pago pela cooperativa.</li>
+                <li><b>13º e férias</b> ${i("provisoes")} — provisão de 1/12 cada.</li>
+                <li><b>Auxílios</b> ${i("auxilios")} — indenizatórios, à parte.</li>
+                <li><b>INSS patronal (20%)</b> ${i("patronal")} — custo da cooperativa.</li>
+              </ul>
+            </details>
+          </section>`;
 
         el.innerHTML = `
           <div class="pag-cab"><div><p class="eyebrow">Financeiro · posição em ${data(p.data_base)}</p><h1>Minha conta na cooperativa</h1></div>
@@ -176,6 +230,8 @@
             <div class="kpi"><span class="rot">Total contribuído</span><span class="val">${moeda(contribuido)}</span><span class="det">Acumulado registrado pela tesouraria</span></div>
             <div class="kpi"><span class="rot">Aportes à cooperativa</span><span class="val">${moeda(aportes)}</span><span class="det">Devolvidos só no desligamento</span></div>
           </div>
+
+          ${blocoCredito}
 
           <section class="painel acerto">
             <h2>Pagar à cooperativa por Pix</h2>
@@ -246,10 +302,10 @@
 
           ${(det.mensal || []).length ? `<section class="painel">
             <h2>${comRet ? "Retiradas e contribuição de capital, mês a mês" : "Contribuição mensal de capital, mês a mês"}</h2>
-            ${comRet ? '<p class="hint">Retirada = horas × valor-hora da sua categoria (art. 8º). Do bruto saem o INSS (11%), a contribuição de capital (1,5%) e o FIC voluntário, se houver; entram os auxílios e o 13º e férias quando pagos.</p>' : ""}
+            ${comRet ? '<p class="hint">Retirada = crédito que você pediu e a tesouraria pagou no mês. Do bruto saem o INSS (11%), a contribuição de capital (1,5%) e o FIC voluntário, se houver.</p>' : ""}
             <div class="tabela-wrap"><table class="tabela">
-              <thead><tr><th>Mês</th><th class="num">Retirada</th>${comRet ? '<th class="num">INSS</th><th class="num">Auxílios</th><th class="num">Líquido a receber</th>' : ""}<th class="num">Devida</th><th class="num">Paga</th><th class="num">Em aberto</th></tr></thead>
-              <tbody>${det.mensal.map((m) => { const [a, mm] = m.mes.split("-"); return `<tr><td>${["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"][Number(mm) - 1]}/${a}</td><td class="num">${moeda(m.retirada)}</td>${comRet ? `<td class="num">${moeda(m.inss || 0)}</td><td class="num">${moeda((m.aux_tele || 0) + (m.aux_alim || 0))}</td><td class="num">${moeda(m.liquido || 0)}</td>` : ""}<td class="num">${moeda(m.devida)}</td><td class="num">${moeda(m.paga)}</td><td class="num">${m.em_aberto > 0.005 ? `<span class="selo err">${moeda(m.em_aberto)}</span>` : '<span class="selo ok">ok</span>'}</td></tr>`; }).join("")}</tbody>
+              <thead><tr><th>Mês</th><th class="num">Retirada</th>${comRet ? '<th class="num">INSS</th><th class="num">Líquido</th>' : ""}<th class="num">Devida</th><th class="num">Paga</th><th class="num">Em aberto</th></tr></thead>
+              <tbody>${det.mensal.map((m) => { const [a, mm] = m.mes.split("-"); return `<tr><td>${["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"][Number(mm) - 1]}/${a}</td><td class="num">${moeda(m.retirada)}</td>${comRet ? `<td class="num">${moeda(m.inss || 0)}</td><td class="num">${moeda(m.liquido || 0)}</td>` : ""}<td class="num">${moeda(m.devida)}</td><td class="num">${moeda(m.paga)}</td><td class="num">${m.em_aberto > 0.005 ? `<span class="selo err">${moeda(m.em_aberto)}</span>` : '<span class="selo ok">ok</span>'}</td></tr>`; }).join("")}</tbody>
             </table></div>
           </section>` : ""}
 
@@ -357,7 +413,44 @@
           };
         };
 
+        const btRet = $("#bt-ret");
+        if (btRet) btRet.onclick = () => {
+          const m = window.UI.modal(`
+            <h2>Solicitar retirada</h2>
+            <p class="muted">Disponível: <b>${moeda(cr.saldo)}</b>. A tesouraria transfere até <b>${data(prazoNovo)}</b> (${parR.retirada_dia_util}º dia útil do mês seguinte).</p>
+            <div class="field"><label for="rt-valor">Valor bruto a retirar (R$)</label><input class="input" id="rt-valor" inputmode="decimal" autocomplete="off" value="${brl(cr.saldo)}"></div>
+            <div id="rt-conta" class="pix-aloc"></div>
+            <p class="hint">Estimativa. Os valores definitivos são registrados pela tesouraria quando ela fizer a transferência.</p>
+            <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="rt-ok">Solicitar</button></div>`);
+          const conta = () => {
+            const v = lerValor($("#rt-valor", m.el).value), box = $("#rt-conta", m.el);
+            if (!(v > 0)) { box.innerHTML = '<p class="hint">Digite um valor.</p>'; return null; }
+            if (v > cr.saldo + 0.005) { box.innerHTML = `<p class="hint" style="color:var(--err)">Passa do seu saldo (${moeda(cr.saldo)}).</p>`; return null; }
+            if (v + 0.005 < parR.retirada_minima) { box.innerHTML = `<p class="hint" style="color:var(--err)">O mínimo é ${moeda(parR.retirada_minima)}.</p>`; return null; }
+            const d = Fin.descontosRetirada(ext.cooperado, ext, v, Fin.mesDe(prazoNovo));
+            box.innerHTML = `<ul>
+              <li><span>Bruto ${i("bruto")}</span><b>${moeda(d.valor)}</b></li>
+              <li><span>− INSS 11% ${i("inss")}</span><b>${moeda(d.inss)}</b></li>
+              <li><span>− Contribuição de capital 1,5% ${i("contrib")}</span><b>${moeda(d.contribuicao)}</b></li>
+              ${d.fic_vol ? `<li><span>− FIC voluntário ${i("ficvol")}</span><b>${moeda(d.fic_vol)}</b></li>` : ""}
+              <li><span><b>Líquido na sua conta</b> ${i("liquido")}</span><b>${moeda(d.liquido)}</b></li></ul>`;
+            return v;
+          };
+          $("#rt-valor", m.el).addEventListener("input", conta); conta();
+          $("#rt-ok", m.el).onclick = async (ev) => {
+            const v = conta(); if (!v) return;
+            const ok = await acao(ev.currentTarget, () => API.fin.solicitarRetirada({ valor: v, prazo: prazoNovo }), "Retirada solicitada. A tesouraria foi avisada pelo site.");
+            if (ok) { m.fechar(); recarregar(); }
+          };
+        };
+
         el.onclick = async (e) => {
+          const cr2 = e.target.closest("[data-cancret]");
+          if (cr2) {
+            if (!(await confirmar("Cancelar esta solicitação de retirada? O valor volta para o seu saldo.", "Cancelar solicitação"))) return;
+            const ok = await acao(cr2, () => API.fin.cancelarRetirada(cr2.dataset.cancret), "Solicitação cancelada.");
+            if (ok) recarregar(); return;
+          }
           const b = e.target.closest("[data-cancelar]"); if (!b) return;
           if (!(await confirmar("Cancelar o aviso deste Pix? Faça isso só se você não chegou a pagar.", "Cancelar aviso"))) return;
           const ok = await acao(b, () => API.movimentos.cancelarPix(b.dataset.cancelar), "Aviso de Pix cancelado.");
@@ -411,7 +504,7 @@
         const docs = (id, tipo, podeMexer) => `<div class="docs-mini">${comps(id).map((x) => `<button class="link-botao" data-doc="${x.id}">${esc(x.nome_arquivo)}</button>${podeMexer ? ` <button class="link-botao perigo" data-rmdoc="${x.id}" aria-label="Remover ${esc(x.nome_arquivo)}">remover</button>` : ""}`).join("<br>") || '<span class="sub">nenhum documento</span>'}</div>`;
         el.innerHTML = `
           <div class="pag-cab"><div><p class="eyebrow">Enquadramento · art. 8º do Estatuto</p><h1>Minha experiência</h1></div></div>
-          ${sinal ? `<div class="notice ${sinal.cor}"><b>${sinal.cor === "err" ? "Pendente:" : "Em exigência:"}</b> ${sinal.cor === "err" ? "você ainda não enviou " + (d.habilitacoes.length ? "suas experiências" : "sua formação e suas experiências") + ". Sem isso a sua categoria não pode ser definida e o valor-hora fica zerado no fechamento do mês." : sinal.exigencias.map((x) => `<br>• <b>${esc(x.titulo || x.descricao)}</b>: ${esc(x.motivo || "veja o motivo e envie o documento que falta")}`).join("") + "<br>Corrija ou anexe o documento pedido no próprio registro (Anexar ou Editar); ele volta para análise."}</div>` : ""}
+          ${sinal ? `<div class="notice ${sinal.cor}"><b>${sinal.cor === "err" ? "Pendente:" : "Em exigência:"}</b> ${sinal.cor === "err" ? "você ainda não enviou " + (d.habilitacoes.length ? "suas experiências" : "sua formação e suas experiências") + ". Sem isso a sua categoria não pode ser definida e o valor-hora fica zerado e suas horas ainda não geram crédito." : sinal.exigencias.map((x) => `<br>• <b>${esc(x.titulo || x.descricao)}</b>: ${esc(x.motivo || "veja o motivo e envie o documento que falta")}`).join("") + "<br>Corrija ou anexe o documento pedido no próprio registro (Anexar ou Editar); ele volta para análise."}</div>` : ""}
           <section class="painel acerto">
             <h2>Seu enquadramento hoje</h2>
             <div class="kpis">
@@ -434,7 +527,7 @@
             const pct = (v) => Math.round(v * 100) + "%";
             return `<section class="painel">
               <div class="painel-cab"><h2>Experiência na BIMCORE</h2><span class="selo info">${it.meses.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mês(es) de experiência</span></div>
-              <p class="hint">Conta sozinha, a partir da sua entrada, pelas horas que você lança em Minhas horas (ou pelas do fechamento do mês). O mês de referência é o número de dias úteis do mês × ${Number(d.parametros.horas_dia || 6).toLocaleString("pt-BR")} h, já sem fins de semana e feriados nacionais, estaduais e de Araruama. Cada mês vale no máximo 1 mês de experiência, e ${d.parametros.meses_ano || 11} meses completos fecham 1 ano, por causa do recesso de férias. Se no mesmo período houver experiência externa validada, ele conta uma vez só.</p>
+              <p class="hint">Conta sozinha, a partir da sua entrada, pelas horas que você lança em Minhas horas. O mês de referência é o número de dias úteis do mês × ${Number(d.parametros.horas_dia || 6).toLocaleString("pt-BR")} h, já sem fins de semana e feriados nacionais, estaduais e de Araruama. Cada mês vale no máximo 1 mês de experiência, e ${d.parametros.meses_ano || 11} meses completos fecham 1 ano, por causa do recesso de férias. Se no mesmo período houver experiência externa validada, ele conta uma vez só.</p>
               ${it.linhas.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Mês</th><th class="num">Horas lançadas</th><th class="num">Referência do mês</th><th class="num">Conta como</th></tr></thead>
                 <tbody>${it.linhas.slice().reverse().map((l) => `<tr><td>${window.Fin.nomeMes(l.mes)}</td><td class="num">${horas(l.horas)}</td><td class="num">${horas(l.referencia)}<span class="sub">${l.dias_uteis} dias úteis</span></td><td class="num">${pct(l.credito_valido)} de 1 mês${l.coberto_externo > 0 ? '<span class="sub">já coberto por experiência externa</span>' : ""}</td></tr>`).join("")}</tbody></table></div>` : '<p class="vazio">Ainda não há horas lançadas desde a sua entrada.</p>'}
             </section>`;

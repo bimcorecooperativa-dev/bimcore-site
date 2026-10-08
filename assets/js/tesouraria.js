@@ -1,5 +1,5 @@
 /* BIMCORE — Financeiro como sistema (etapa 1): a tesouraria lança tudo no site.
-   Abas: Resumo, Despesas, Pagamentos e aportes, Cadastro, Configurações. */
+   Abas: Resumo, Retiradas, Cooperativa, Despesas, Pagamentos e aportes, Cadastro, Configurações. */
 (function () {
   "use strict";
   const UI = window.UI, API = window.API, Fin = window.Fin;
@@ -36,12 +36,12 @@
     const fech = Fin.mesFechamento(base.parametros);
     const recarregar = () => render(el, ctx);
 
-    const abas = [["resumo", "Resumo"], ["fechamento", "Fechamento do mês"], ["cooperativa", "Cooperativa"], ["despesas", "Despesas"], ["pagamentos", "Pagamentos e aportes"], ["cadastro", "Cadastro"], ["config", "Configurações"]];
+    const abas = [["resumo", "Resumo"], ["retiradas", "Retiradas"], ["cooperativa", "Cooperativa"], ["despesas", "Despesas"], ["pagamentos", "Pagamentos e aportes"], ["cadastro", "Cadastro"], ["config", "Configurações"]];
     el.innerHTML = `
       <div class="pag-cab"><div><p class="eyebrow">Tesouraria</p><h1>Financeiro</h1></div>
         <button class="btn btn-ghost" id="t-exportar">Exportar para Excel</button></div>
       <p class="muted">Contas calculadas pelo Estatuto até <b>${Fin.nomeMes(fech)}</b>${base.parametros.fechamento ? " (mês de fechamento fixado em Configurações)" : " (atualiza sozinho a cada mês)"}. Cada lançamento aparece na hora na "Minha conta" do cooperado.</p>
-      <nav class="subabas" role="tablist">${abas.map(([k, t]) => `<button role="tab" data-aba="${k}" aria-selected="${aba === k}">${t}${k === "resumo" && aguardando.length ? ` <span class="contador">${aguardando.length}</span>` : ""}${k === "cadastro" && pendExp ? ` <span class="contador">${pendExp}</span>` : ""}</button>`).join("")}</nav>
+      <nav class="subabas" role="tablist">${abas.map(([k, t]) => `<button role="tab" data-aba="${k}" aria-selected="${aba === k}">${t}${k === "retiradas" && (base.retiradas || []).some((r) => r.status === "solicitada") ? ` <span class="contador">${(base.retiradas || []).filter((r) => r.status === "solicitada").length}</span>` : ""}${k === "resumo" && aguardando.length ? ` <span class="contador">${aguardando.length}</span>` : ""}${k === "cadastro" && pendExp ? ` <span class="contador">${pendExp}</span>` : ""}</button>`).join("")}</nav>
       <div id="t-corpo"></div>`;
     el.querySelectorAll("[data-aba]").forEach((b) => { b.onclick = () => { aba = b.dataset.aba; recarregar(); }; });
     $("#t-exportar").onclick = (ev) => acao(ev.currentTarget, () => exportar(base, calc, perfilPorId), "Planilha exportada.");
@@ -84,81 +84,84 @@
         </section>`;
     }
 
-    /* ---------------- Fechamento do mês ---------------- */
-    if (aba === "fechamento") {
-      const mes = mesSel || fech;
-      const naFolha = new Set((base.folha || []).filter((f) => Fin.mesDe(f.mes) === mes).map((f) => f.fin_cooperado_id));
-      const linhas = coops.filter((c) => naFolha.has(c.id) || (c.data_admissao && Fin.mesDe(c.data_admissao) <= mes && (!c.data_desligamento || Fin.mesDe(c.data_desligamento) >= mes)));
-      const folhaDe = (id) => (base.folha || []).find((f) => f.fin_cooperado_id === id && Fin.mesDe(f.mes) === mes) || {};
-      const rec = (base.receitas || []).find((r) => Fin.mesDe(r.mes) === mes) || {};
-      const enqDe = {}; linhas.forEach((c) => { enqDe[c.id] = Fin.enquadramento(c, base, mes); });
-      const semCat = linhas.filter((c) => !enqDe[c.id].categoria);
+    /* ---------------- Retiradas ---------------- */
+    if (aba === "retiradas") {
+      const rets = (base.retiradas || []).slice();
+      const pend = rets.filter((r) => r.status === "solicitada").sort((x, y) => String(x.prazo).localeCompare(String(y.prazo)));
+      const hist = rets.filter((r) => r.status !== "solicitada").sort((x, y) => String(y.pago_em || y.solicitado_em).localeCompare(String(x.pago_em || x.solicitado_em)));
+      const hojeI = hojeISO();
+      const lista = coops.map((c) => calc[c.id]).filter((p) => p.credito && (p.credito.gerado || p.credito.solicitado || p.credito.retirado)).sort((x, y) => x.cooperado_nome.localeCompare(y.cooperado_nome));
+      const pr = Fin.params(base.parametros);
+      const desc = (r) => Fin.descontosRetirada(porId[r.fin_cooperado_id], base, Number(r.valor), Fin.mesDe(hojeI));
       corpo.innerHTML = `
+        <section class="painel ${pend.length ? "acerto" : ""}">
+          <div class="painel-cab"><h2>Retiradas solicitadas</h2>${pend.length ? `<span class="selo warn">${pend.length}</span>` : ""}</div>
+          <p class="muted">Cada cooperado pede a retirada do crédito que acumulou com as horas lançadas. Faça a transferência do <b>líquido</b> até o prazo (${pr.retirada_dia_util}º dia útil do mês seguinte ao pedido) e marque como paga. O INSS retido (11%) e o patronal (20%) você recolhe à parte.</p>
+          ${pend.length ? `<div class="tabela-wrap"><table class="tabela">
+            <thead><tr><th>Cooperado</th><th>Pedido em</th><th class="num">Bruto</th><th class="num">INSS 11%</th><th class="num">Capital 1,5%</th><th class="num">FIC vol.</th><th class="num">Líquido a transferir</th><th>Prazo</th><th></th></tr></thead>
+            <tbody>${pend.map((r) => { const d = desc(r); const atr = r.prazo && r.prazo < hojeI; return `<tr>
+              <td>${esc((porId[r.fin_cooperado_id] || {}).nome || "—")}<span class="sub">saldo restante ${moeda((calc[r.fin_cooperado_id] || {}).credito ? calc[r.fin_cooperado_id].credito.saldo : 0)}</span></td>
+              <td>${dataHora(r.solicitado_em)}</td><td class="num">${moeda(r.valor)}</td><td class="num">${moeda(d.inss)}</td><td class="num">${moeda(d.contribuicao)}</td><td class="num">${moeda(d.fic_vol)}</td>
+              <td class="num"><b>${moeda(d.liquido)}</b></td>
+              <td>${atr ? `<span class="selo err">${data(r.prazo)}</span>` : data(r.prazo)}</td>
+              <td class="acoes-celula"><button class="btn btn-primary btn-sm" data-pagar="${r.id}">Registrar pagamento</button> <button class="btn btn-danger btn-sm" data-recret="${r.id}">Recusar</button></td></tr>`; }).join("")}</tbody>
+          </table></div>` : '<p class="vazio">Nenhuma retirada aguardando transferência.</p>'}
+        </section>
         <section class="painel">
-          <div class="painel-cab"><h2>Retiradas de ${Fin.nomeMes(mes)}</h2>
-            <div class="sol-acoes"><div class="field"><label for="fm-mes">Mês</label><input class="input" id="fm-mes" type="month" value="${mes}"></div>
-            <button class="btn btn-ghost btn-sm" id="fm-puxar" type="button">Puxar horas lançadas no site</button></div></div>
-          <p class="hint">Preencha as horas de cada cooperado no mês (produtivas, de formação e de suporte administrativo), os dias trabalhados e, quando houver, o 13º e as férias pagas. O site calcula a retirada pelo valor-hora da categoria (art. 8º), o INSS (11% até o teto), a contribuição de capital (1,5% da retirada), o FIC, as provisões de 13º e férias e os auxílios. Ao salvar, tudo aparece na hora na Minha conta de cada um.</p>
-          ${semCat.length ? `<div class="notice warn">Sem enquadramento (valor-hora zerado): ${semCat.map((c) => esc(c.nome)).join(", ")}. O cooperado precisa enviar formação e experiências em <b>Minha experiência</b> e alguém validar em <b>Cadastro → Experiência</b>.</div>` : ""}
-          <div class="tabela-wrap"><table class="tabela folha">
-            <thead><tr><th>Cooperado</th><th class="num">Horas produtivas</th><th class="num">Horas de formação</th><th class="num">Suporte adm. (20%)</th><th class="num">Dias trabalhados</th><th class="num">13º pago</th><th class="num">Férias pagas</th><th class="num">Retirada bruta</th><th class="num">INSS</th><th class="num">Contribuição</th><th class="num">Auxílios</th><th class="num">Líquido a pagar</th></tr></thead>
-            <tbody>${linhas.map((c) => { const f = folhaDe(c.id); return `<tr data-coop="${c.id}">
-              <td>${esc(c.nome)}<span class="sub">${enqDe[c.id].categoria ? esc(enqDe[c.id].categoria) + " · " + esc(enqDe[c.id].conselho || "sem conselho") + " · " + moeda(Fin.valorHoraDe(enqDe[c.id].categoria, enqDe[c.id].conselho, base.parametros)) + "/h" + (enqDe[c.id].origem === "automatico" ? " · " + enqDe[c.id].anos + " ano(s) comprovados" : " · manual") : "sem enquadramento"}</span></td>
-              <td class="num"><input class="input mini-num" data-k="horas_produtivas" inputmode="decimal" value="${f.horas_produtivas ? brl(f.horas_produtivas) : ""}"></td>
-              <td class="num"><input class="input mini-num" data-k="horas_formacao" inputmode="decimal" value="${f.horas_formacao ? brl(f.horas_formacao) : ""}"></td>
-              <td class="num"><input class="input mini-num" data-k="horas_admin" inputmode="decimal" value="${f.horas_admin ? brl(f.horas_admin) : ""}"></td>
-              <td class="num"><input class="input mini-num" data-k="dias" inputmode="numeric" value="${f.dias || ""}"></td>
-              <td class="num"><input class="input mini-num" data-k="decimo_pago" inputmode="decimal" value="${f.decimo_pago ? brl(f.decimo_pago) : ""}"></td>
-              <td class="num"><input class="input mini-num" data-k="ferias_pago" inputmode="decimal" value="${f.ferias_pago ? brl(f.ferias_pago) : ""}"></td>
-              <td class="num" data-v="retirada">—</td><td class="num" data-v="inss">—</td><td class="num" data-v="devida">—</td><td class="num" data-v="aux">—</td><td class="num" data-v="liquido">—</td></tr>`; }).join("")}</tbody>
-            <tfoot><tr><td>Total</td><td class="num" data-t="hp"></td><td class="num" data-t="hf"></td><td class="num" data-t="ha"></td><td></td><td></td><td></td><td class="num" data-t="retirada"></td><td class="num" data-t="inss"></td><td class="num" data-t="devida"></td><td class="num" data-t="aux"></td><td class="num" data-t="liquido"></td></tr></tfoot>
-          </table></div>
-          <div class="form-grid">
-            <div class="field"><label for="fm-rec">Receita bruta de contratos no mês (R$)</label><input class="input" id="fm-rec" inputmode="decimal" value="${rec.receita_bruta ? brl(rec.receita_bruta) : ""}"><span class="hint">Base do Custo de Operação e Gestão (20%, art. 23, §7º).</span></div>
-            <div class="field"><label>Custos da cooperativa no mês</label><div id="fm-custos" class="hint"></div></div>
-          </div>
-          <div class="sol-acoes"><button class="btn btn-primary" id="fm-salvar">Salvar fechamento de ${Fin.nomeMes(mes)}</button></div>
-        </section>`;
-      const lerLinhas = () => [...corpo.querySelectorAll("tr[data-coop]")].map((tr) => {
-        const o = { fin_cooperado_id: tr.dataset.coop, mes: mes + "-01" };
-        tr.querySelectorAll("input[data-k]").forEach((i) => { o[i.dataset.k] = i.dataset.k === "dias" ? Math.round(num(i.value)) : num(i.value); });
-        return o;
-      });
-      const recalcular = () => {
-        const novas = lerLinhas();
-        const folha = (base.folha || []).filter((f) => Fin.mesDe(f.mes) !== mes).concat(novas);
-        const tmp = { ...base, folha };
-        const tot = { hp: 0, hf: 0, ha: 0, adm: 0, retirada: 0, inss: 0, devida: 0, aux: 0, liquido: 0 };
-        corpo.querySelectorAll("tr[data-coop]").forEach((tr) => {
-          const p = Fin.calcularCooperado(porId[tr.dataset.coop], tmp);
-          const x = p.detalhes.mensal.find((mm) => mm.mes === mes) || {};
-          const v = { retirada: x.retirada || 0, inss: x.inss || 0, devida: x.devida || 0, aux: (x.aux_tele || 0) + (x.aux_alim || 0), liquido: x.liquido || 0 };
-          Object.entries(v).forEach(([k, val]) => { tr.querySelector(`[data-v="${k}"]`).textContent = moeda(val); tot[k] += val; });
-          tot.hp += x.horas_produtivas || 0; tot.hf += x.horas_formacao || 0; tot.ha += x.horas_admin || 0; tot.adm += x.retirada_admin || 0;
-        });
-        Object.entries(tot).forEach(([k, val]) => { const td = corpo.querySelector(`[data-t="${k}"]`); if (td) td.textContent = k === "hp" || k === "hf" || k === "ha" ? brl(val) + " h" : moeda(val); });
-        const pr = Fin.params(base.parametros), receita = num($("#fm-rec").value);
-        const cog = receita * pr.custo_op_pct, admTotal = tot.adm * (1 + pr.patronal_pct), saldo = cog - admTotal;
-        $("#fm-custos").innerHTML = `INSS patronal (20%): <b>${moeda(tot.retirada * pr.patronal_pct)}</b> · Custo de Operação e Gestão: <b>${moeda(cog)}</b>`
-          + (tot.ha ? `<br>Suporte administrativo pago pelos 20%: <b>${moeda(tot.adm)}</b> + INSS patronal <b>${moeda(tot.adm * pr.patronal_pct)}</b> · ${saldo >= 0 ? `sobram <b>${moeda(saldo)}</b> dos 20%` : `<span style="color:var(--err)">faltam <b>${moeda(-saldo)}</b> nos 20% deste mês</span>`}` : "");
-      };
-      corpo.addEventListener("input", recalcular); recalcular();
-      $("#fm-mes").onchange = (e) => { if (e.target.value) { mesSel = e.target.value; recarregar(); } };
-      $("#fm-puxar").onclick = async (ev) => {
-        const hs = await acao(ev.currentTarget, () => API.fin.horasLancadas(mes + "-01")); if (!hs) return;
-        let n = 0;
-        hs.forEach((h) => { const tr = corpo.querySelector(`tr[data-coop="${h.fin_cooperado_id}"]`); if (!tr) return; n++;
-          tr.querySelector('[data-k="horas_produtivas"]').value = h.produtivas ? brl(h.produtivas) : "";
-          tr.querySelector('[data-k="horas_formacao"]').value = h.formacao ? brl(h.formacao) : "";
-          tr.querySelector('[data-k="horas_admin"]').value = h.administrativas ? brl(h.administrativas) : "";
-          if (!tr.querySelector('[data-k="dias"]').value) tr.querySelector('[data-k="dias"]').value = h.dias || ""; });
-        recalcular();
-        toast(n ? `Horas de ${n} cooperado(s) puxadas de "Minhas horas". Confira e salve.` : "Ninguém lançou horas neste mês no site.");
-      };
-      $("#fm-salvar").onclick = async (ev) => {
-        const linhasF = lerLinhas();
-        const ok = await acao(ev.currentTarget, () => API.fin.salvarFolha(linhasF, { mes: mes + "-01", receita_bruta: num($("#fm-rec").value) }), `Fechamento de ${Fin.nomeMes(mes)} salvo.`);
-        if (ok) recarregar();
+          <h2>Crédito de cada cooperado</h2>
+          ${lista.length ? `<div class="tabela-wrap"><table class="tabela">
+            <thead><tr><th>Cooperado</th><th class="num">Crédito gerado</th><th class="num">Retirado</th><th class="num">Solicitado</th><th class="num">Saldo</th></tr></thead>
+            <tbody>${lista.map((p) => `<tr><td>${esc(p.cooperado_nome)}<span class="sub">${p.enquadramento && p.enquadramento.categoria ? esc(p.enquadramento.categoria) + " · " + moeda(p.valor_hora) + "/h" : "sem enquadramento: valor-hora zerado"}</span></td>
+              <td class="num">${moeda(p.credito.gerado)}</td><td class="num">${moeda(p.credito.retirado)}</td><td class="num">${moeda(p.credito.solicitado)}</td><td class="num">${moeda(p.credito.saldo)}</td></tr>`).join("")}</tbody>
+          </table></div>` : '<p class="vazio">Ninguém tem crédito ainda. O crédito nasce das horas lançadas em Minhas horas (produção técnica, formação e suporte administrativo) × valor-hora da categoria.</p>'}
+        </section>
+        ${hist.length ? `<section class="painel"><h2>Histórico</h2><div class="tabela-wrap"><table class="tabela">
+          <thead><tr><th>Cooperado</th><th>Situação</th><th class="num">Bruto</th><th class="num">INSS</th><th class="num">Capital</th><th class="num">FIC vol.</th><th class="num">Líquido</th><th></th></tr></thead>
+          <tbody>${hist.map((r) => `<tr><td>${esc((porId[r.fin_cooperado_id] || {}).nome || "—")}<span class="sub">pedido em ${dataHora(r.solicitado_em)}</span></td>
+            <td>${r.status === "paga" ? `<span class="selo ok">paga em ${data(r.pago_em)}</span><span class="sub">${esc(r.pago_nome || "")}</span>` : `<span class="selo">cancelada</span>${r.motivo ? `<span class="sub">${esc(r.motivo)}</span>` : ""}`}</td>
+            <td class="num">${moeda(r.valor)}</td><td class="num">${r.status === "paga" ? moeda(r.inss) : "—"}</td><td class="num">${r.status === "paga" ? moeda(r.contribuicao) : "—"}</td><td class="num">${r.status === "paga" ? moeda(r.fic_vol) : "—"}</td><td class="num">${r.status === "paga" ? moeda(r.liquido) : "—"}</td>
+            <td class="acoes-celula">${r.status === "paga" ? `<button class="btn btn-ghost btn-sm" data-desfazer="${r.id}">Desfazer</button>` : ""}</td></tr>`).join("")}</tbody>
+        </table></div></section>` : ""}`;
+      corpo.onclick = async (ev) => {
+        const bp = ev.target.closest("[data-pagar]"), br = ev.target.closest("[data-recret]"), bd = ev.target.closest("[data-desfazer]");
+        if (bp) {
+          const r = rets.find((x) => x.id === bp.dataset.pagar); const c = porId[r.fin_cooperado_id];
+          const m = UI.modal(`
+            <h2>Retirada de ${esc(c.nome)}</h2>
+            <p class="muted">Bruto de <b>${moeda(r.valor)}</b>. Confira os descontos e informe a data da transferência.</p>
+            <div class="form-grid">
+              <div class="field"><label for="pg-data">Transferência feita em</label><input class="input" id="pg-data" type="date" value="${hojeI}" max="${hojeI}"></div>
+              <div class="field"><label for="pg-inss">INSS retido (R$)</label><input class="input" id="pg-inss" inputmode="decimal"></div>
+              <div class="field"><label for="pg-cap">Contribuição de capital (R$)</label><input class="input" id="pg-cap" inputmode="decimal"></div>
+              <div class="field"><label for="pg-fic">FIC voluntário (R$)</label><input class="input" id="pg-fic" inputmode="decimal"></div>
+            </div>
+            <p class="hint" id="pg-liq"></p>
+            <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="pg-ok">Confirmar pagamento</button></div>`);
+          const preencher = () => { const d = Fin.descontosRetirada(c, base, Number(r.valor), Fin.mesDe($("#pg-data", m.el).value || hojeI)); $("#pg-inss", m.el).value = brl(d.inss); $("#pg-cap", m.el).value = brl(d.contribuicao); $("#pg-fic", m.el).value = brl(d.fic_vol); liq(); };
+          const liq = () => { const l = Fin.centavos(Number(r.valor) - num($("#pg-inss", m.el).value) - num($("#pg-cap", m.el).value) - num($("#pg-fic", m.el).value)); $("#pg-liq", m.el).innerHTML = `Líquido transferido ao cooperado: <b>${moeda(l)}</b>`; return l; };
+          $("#pg-data", m.el).addEventListener("change", preencher); ["pg-inss", "pg-cap", "pg-fic"].forEach((k) => $("#" + k, m.el).addEventListener("input", liq)); preencher();
+          $("#pg-ok", m.el).onclick = async (e2) => {
+            const dt = $("#pg-data", m.el).value; if (!dt) return toast("Informe a data da transferência.", "err");
+            const l = liq(); if (l < 0) return toast("Os descontos passam do bruto.", "err");
+            const ok = await acao(e2.currentTarget, () => API.fin.pagarRetirada(r.id, { pago_em: dt, inss: num($("#pg-inss", m.el).value), contribuicao: num($("#pg-cap", m.el).value), fic_vol: num($("#pg-fic", m.el).value), liquido: l }), "Retirada registrada como paga.");
+            if (ok) { m.fechar(); recarregar(); }
+          };
+        }
+        if (br) {
+          const motivo = await new Promise((res) => {
+            const m = UI.modal(`<h2>Recusar retirada</h2><div class="field"><label for="rc-mot">Motivo (o cooperado vê)</label><input class="input" id="rc-mot" maxlength="200"></div>
+              <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Voltar</button><button class="btn btn-danger btn-sm" id="rc-ok">Recusar</button></div>`, () => res(null));
+            $("#rc-ok", m.el).onclick = () => { const v = $("#rc-mot", m.el).value.trim(); if (!v) return toast("Informe o motivo.", "err"); res(v); m.fechar(); };
+          });
+          if (!motivo) return;
+          const ok = await acao(br, () => API.fin.cancelarRetirada(br.dataset.recret, motivo), "Solicitação recusada. O valor volta ao saldo do cooperado.");
+          if (ok) recarregar();
+        }
+        if (bd) {
+          if (!(await confirmar("Desfazer o pagamento? A retirada volta para 'solicitada'. Faça isso só se marcou por engano.", "Desfazer"))) return;
+          const ok = await acao(bd, () => API.fin.desfazerPagamento(bd.dataset.desfazer), "Pagamento desfeito.");
+          if (ok) recarregar();
+        }
       };
     }
 
@@ -168,12 +171,20 @@
       const pr = Fin.params(base.parametros);
       const L = vc.linhas.filter((l) => l.receita || l.retiradas || l.admin_cog || l.contribuicoes || l.fic_coop);
       const tot = (k) => L.reduce((t, l) => t + l[k], 0);
-      const cols = [["receita", "Receita de contratos"], ["custo_op", "Custo de Operação (20%)"], ["admin_cog", "Suporte adm. pago pelos 20% (com INSS patronal)"], ["saldo_cog", "Saldo dos 20%"], ["retiradas", "Retiradas brutas"], ["inss_retido", "INSS retido"], ["inss_patronal", "INSS patronal (20%)"], ["fic_coop", "FIC da cooperativa"], ["provisoes", "Provisões 13º e férias"], ["auxilios", "Auxílios"], ["contribuicoes", "Contribuições de capital"]];
+      const cols = [["receita", "Receita de contratos"], ["custo_op", "Custo de Operação (20%)"], ["admin_cog", "Suporte adm. (crédito + INSS patronal)"], ["saldo_cog", "Saldo dos 20%"], ["retiradas", "Retiradas brutas"], ["inss_retido", "INSS retido"], ["inss_patronal", "INSS patronal (20%)"], ["fic_coop", "FIC da cooperativa"], ["provisoes", "Provisões 13º e férias"], ["auxilios", "Auxílios"], ["contribuicoes", "Contribuições de capital"]];
       corpo.innerHTML = `
         <section class="painel"><h2>Movimento da cooperativa por mês</h2>
           ${L.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Mês</th>${cols.map(([, t]) => `<th class="num">${t}</th>`).join("")}</tr></thead>
             <tbody>${L.map((l) => `<tr><td>${Fin.nomeMes(l.mes)}</td>${cols.map(([k]) => `<td class="num">${moeda(l[k])}</td>`).join("")}</tr>`).join("")}</tbody>
             <tfoot><tr><td>Total</td>${cols.map(([k]) => `<td class="num">${moeda(tot(k))}</td>`).join("")}</tr></tfoot></table></div>` : '<p class="vazio">Ainda não há retiradas nem receitas lançadas.</p>'}
+        </section>
+        <section class="painel"><h2>Receita de contratos</h2>
+          <p class="hint">Valor bruto recebido de contratos no mês. É a base do Custo de Operação e Gestão (20%, art. 23, §7º), que paga o suporte administrativo.</p>
+          <form id="t-rec" class="form-grid" novalidate>
+            <div class="field"><label for="rc-mes">Mês</label><input class="input" id="rc-mes" type="month" value="${Fin.mesDe(hojeISO())}"></div>
+            <div class="field"><label for="rc-val">Receita bruta (R$)</label><input class="input" id="rc-val" inputmode="decimal"></div>
+            <div class="full"><button class="btn btn-primary" id="rc-btn" type="submit">Salvar receita do mês</button></div>
+          </form>
         </section>
         <section class="painel"><h2>Apuração das sobras do exercício</h2>
           <p class="hint">Preencha depois do balanço de 31/12 e da decisão da Assembleia Geral (art. 71). As sobras de mercado, depois do Fundo de Reserva e do FATES, são rateadas pelas horas produzidas no ano; as de parcerias públicas vão para o FEI e não são rateadas (art. 72).</p>
@@ -190,6 +201,13 @@
             <div><dt>A ratear entre os cooperados</dt><dd>${moeda(vc.sobras.a_ratear)}</dd></div>
           </dl>
         </section>`;
+      const recDe = (m) => (base.receitas || []).find((x) => Fin.mesDe(x.mes) === m);
+      const mostrarRec = () => { const x = recDe($("#rc-mes").value); $("#rc-val").value = x && Number(x.receita_bruta) ? brl(x.receita_bruta) : ""; };
+      $("#rc-mes").addEventListener("change", mostrarRec); mostrarRec();
+      $("#t-rec").addEventListener("submit", async (e) => {
+        e.preventDefault(); const m = $("#rc-mes").value; if (!m) return toast("Escolha o mês.", "err");
+        if (await acao($("#rc-btn"), () => API.fin.salvarReceita({ mes: m + "-01", receita_bruta: num($("#rc-val").value) }), "Receita salva.")) recarregar();
+      });
       $("#t-sob").addEventListener("submit", async (e) => {
         e.preventDefault();
         const r = lerPct($("#sb-r").value);
@@ -285,6 +303,8 @@
           ${campoP("cp-tele", "Auxílio-teletrabalho (% do SM por mês)", pct(pr.tele_pct), "Art. 80, §1º.")}
           ${campoP("cp-alim", "Auxílio-alimentação (% do SM por dia)", pct(pr.alim_pct), "Art. 80, §2º.")}
           ${campoP("cp-cop", "Custo de Operação e Gestão (%)", pct(pr.custo_op_pct), "Art. 23, §7º.")}
+          ${campoP("cp-rmin", "Valor mínimo para pedir retirada (R$)", brl(pr.retirada_minima), "Abaixo disso o crédito fica acumulando. 0 = sem mínimo.")}
+          ${campoP("cp-rdia", "Prazo da transferência (dia útil do mês seguinte)", pr.retirada_dia_util, "Ex.: 5 = até o 5º dia útil.")}
           ${campoP("cp-res", "Fundo de Reserva (%)", pct(pr.reserva_pct), "Mínimo legal; a Assembleia define (art. 71, §3º).")}
           ${campoP("cp-fates", "FATES (%)", pct(pr.fates_pct), "Mínimo legal; a Assembleia define.")}
         </div></section>
@@ -330,7 +350,7 @@
         const d = { quota: v("cp-quota"), quotas_minimas: Number($("#cp-min").value), contrib_inicio: $("#cp-ini").value ? $("#cp-ini").value + "-01" : null,
           fechamento: $("#cp-fech").value ? $("#cp-fech").value + "-01" : null, contrib_pct: pc("cp-contrib"), sm: v("cp-sm"), horas_ref: Number($("#cp-horas").value),
           inss_pct: pc("cp-inss"), inss_teto: v("cp-teto"), patronal_pct: pc("cp-patr"), fic_coop_pct: pc("cp-fic"), fic_vol_max: pc("cp-ficv"), tele_pct: pc("cp-tele"),
-          alim_pct: pc("cp-alim"), custo_op_pct: pc("cp-cop"), reserva_pct: pc("cp-res"), fates_pct: pc("cp-fates"), base_demais_pleno: v("cp-base"),
+          alim_pct: pc("cp-alim"), custo_op_pct: pc("cp-cop"), retirada_minima: v("cp-rmin") || 0, retirada_dia_util: Math.round(Number($("#cp-rdia").value)) || 5, reserva_pct: pc("cp-res"), fates_pct: pc("cp-fates"), base_demais_pleno: v("cp-base"),
           mult_junior: v("cp-mj"), mult_pleno: v("cp-mp"), mult_senior: v("cp-ms"), mult_coord: v("cp-mc"),
           exp_tecnico_antes: $("#cp-exptec").checked, exp_superior_antes: $("#cp-expsup").checked,
           horas_dia: v("cp-hdia"), meses_ano: Number($("#cp-mano").value), feriados_extras: $("#cp-fer").value.trim(), facultativos_folga: $("#cp-facult").checked };
@@ -611,10 +631,12 @@
       lista.map((p) => [p.cooperado_nome, p.email, p.quotas_subscritas, p.capital_subscrito, p.capital_integralizado, p.contribuicoes_pagas, p.contribuicao_mensal, p.valor_em_aberto, p.meses_em_atraso, p.fic_saldo, p.fundo_13, p.fundo_ferias, p.sobras_a_receber, p.outros_creditos, p.detalhes.resumo.falta_inicial, p.detalhes.resumo.adiantado, p.detalhes.resumo.retiradas_ano, p.detalhes.resumo.horas]));
     const mm = []; lista.forEach((p) => p.detalhes.mensal.forEach((x) => mm.push([p.cooperado_nome, dt(x.mes + "-01"), x.devida, x.paga, Math.max(0, x.em_aberto)])));
     aba("Mês a mês", [["Cooperado", 32], ["Mês", 11, "mes"], ["Contribuição devida", 14, "m"], ["Contribuição paga", 14, "m"], ["Em aberto no mês", 14, "m"]], mm);
-    const rr = []; lista.forEach((p) => p.detalhes.mensal.filter((x) => x.retirada || x.horas_produtivas || x.horas_formacao || x.horas_admin || x.decimo_pago || x.ferias_pago).forEach((x) => rr.push([p.cooperado_nome, dt(x.mes + "-01"), x.horas_produtivas, x.horas_formacao, x.horas_admin || 0, x.dias, x.retirada, x.inss, x.descontada, x.fic_coop, x.fic_vol, x.prov_13, x.prov_ferias, x.decimo_pago, x.ferias_pago, x.aux_tele, x.aux_alim, x.liquido])));
-    aba("Retiradas", [["Cooperado", 30], ["Mês", 11, "mes"], ["Horas produtivas", 10], ["Horas de formação", 10], ["Suporte adm. (20%)", 10], ["Dias", 7], ["Retirada bruta", 13, "m"], ["INSS 11%", 12, "m"], ["Contribuição descontada", 13, "m"], ["FIC cooperativa", 12, "m"], ["FIC voluntário", 12, "m"], ["Provisão 13º", 12, "m"], ["Provisão férias", 12, "m"], ["13º pago", 12, "m"], ["Férias pagas", 12, "m"], ["Auxílio-teletrabalho", 12, "m"], ["Auxílio-alimentação", 12, "m"], ["Líquido a pagar", 13, "m"]], rr);
+    const rr = []; lista.forEach((p) => p.detalhes.mensal.filter((x) => x.retirada || x.credito || x.horas_produtivas || x.horas_formacao || x.horas_admin).forEach((x) => rr.push([p.cooperado_nome, dt(x.mes + "-01"), x.horas_produtivas, x.horas_formacao, x.horas_admin || 0, x.dias, x.credito || 0, x.retirada, x.inss, x.descontada, x.fic_coop, x.fic_vol, x.prov_13, x.prov_ferias, x.aux_tele, x.aux_alim, x.liquido])));
+    aba("Mês a mês - crédito", [["Cooperado", 30], ["Mês", 11, "mes"], ["Horas produtivas", 10], ["Horas de formação", 10], ["Suporte adm. (20%)", 10], ["Dias", 7], ["Crédito gerado", 13, "m"], ["Retirada paga", 13, "m"], ["INSS 11%", 12, "m"], ["Contribuição descontada", 13, "m"], ["FIC cooperativa", 12, "m"], ["FIC voluntário", 12, "m"], ["Provisão 13º", 12, "m"], ["Provisão férias", 12, "m"], ["Auxílio-teletrabalho", 12, "m"], ["Auxílio-alimentação", 12, "m"], ["Líquido pago", 13, "m"]], rr);
+    aba("Retiradas", [["Cooperado", 30], ["Pedido em", 12, "d"], ["Prazo", 12, "d"], ["Situação", 14], ["Bruto", 13, "m"], ["INSS 11%", 12, "m"], ["Contribuição de capital", 13, "m"], ["FIC voluntário", 12, "m"], ["Líquido", 13, "m"], ["Paga em", 12, "d"], ["Paga por", 22], ["Motivo", 30]],
+      (base.retiradas || []).map((r) => [nome[r.fin_cooperado_id], dt(String(r.solicitado_em).slice(0, 10)), r.prazo ? dt(r.prazo) : null, r.status, Number(r.valor), r.inss != null ? Number(r.inss) : null, r.contribuicao != null ? Number(r.contribuicao) : null, r.fic_vol != null ? Number(r.fic_vol) : null, r.liquido != null ? Number(r.liquido) : null, r.pago_em ? dt(r.pago_em) : null, r.pago_nome || null, r.motivo || null]));
     const vc = Fin.cooperativa(base, calc);
-    aba("Cooperativa", [["Mês", 11, "mes"], ["Receita de contratos", 14, "m"], ["Custo de Operação", 14, "m"], ["Suporte adm. pago pelos 20%", 14, "m"], ["Saldo dos 20%", 14, "m"], ["Retiradas brutas", 14, "m"], ["INSS retido", 13, "m"], ["INSS patronal", 13, "m"], ["FIC da cooperativa", 13, "m"], ["Provisões 13º e férias", 14, "m"], ["Auxílios", 12, "m"], ["Contribuições de capital", 14, "m"]],
+    aba("Cooperativa", [["Mês", 11, "mes"], ["Receita de contratos", 14, "m"], ["Custo de Operação", 14, "m"], ["Suporte adm. (crédito + INSS patronal)", 14, "m"], ["Saldo dos 20%", 14, "m"], ["Retiradas brutas", 14, "m"], ["INSS retido", 13, "m"], ["INSS patronal", 13, "m"], ["FIC da cooperativa", 13, "m"], ["Provisões 13º e férias", 14, "m"], ["Auxílios", 12, "m"], ["Contribuições de capital", 14, "m"]],
       vc.linhas.map((l) => [dt(l.mes + "-01"), l.receita, l.custo_op, l.admin_cog, l.saldo_cog, l.retiradas, l.inss_retido, l.inss_patronal, l.fic_coop, l.provisoes, l.auxilios, l.contribuicoes]));
     aba("Despesas", [["Data", 12, "d"], ["Descrição", 50], ["Categoria", 20], ["Valor", 13, "m"], ["Cobrada dos cooperados?", 12], ["Cooperados que dividem", 40], ["Valor por cooperado", 13, "m"], ["Observação", 50]],
       base.despesas.map((d) => [dt(d.data), d.descricao, d.categoria, Number(d.valor), d.cobrar ? "Sim" : "Não", d.participantes.map((i) => nome[i]).join(", "), d.cobrar ? Fin.centavos(d.valor / Math.max(1, d.participantes.length)) : null, d.observacao]));
