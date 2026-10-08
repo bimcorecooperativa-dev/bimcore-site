@@ -139,16 +139,21 @@
     return o;
   }
   /* IR do mês sobre o total de retiradas do mês (alíquotas 7,5/15/22,5/27,5%) */
-  function irMensal(bruto, inss, dependentes, par) {
+  function irDetalhe(bruto, inss, dependentes, par) {
     const p = params(par || {});
-    if (!(bruto > 0)) return 0;
-    const tab = (b) => b <= p.ir_f1 ? 0 : b <= p.ir_f2 ? b * 0.075 - p.ir_d1 : b <= p.ir_f3 ? b * 0.15 - p.ir_d2 : b <= p.ir_f4 ? b * 0.225 - p.ir_d3 : b * 0.275 - p.ir_d4;
-    const legal = Math.max(0, tab(bruto - inss - (Number(dependentes) || 0) * p.ir_dep));
-    const simpl = Math.max(0, tab(bruto - p.ir_simpl));
-    const imp = Math.min(legal, simpl);
-    const red = bruto <= p.ir_red_lim1 ? Math.min(imp, p.ir_red_max1) : bruto <= p.ir_red_lim2 ? Math.max(0, p.ir_red_a - p.ir_red_b * bruto) : 0;
-    return centavos(Math.max(0, imp - red));
+    const faixa = (b) => b <= p.ir_f1 ? [0, 0] : b <= p.ir_f2 ? [0.075, p.ir_d1] : b <= p.ir_f3 ? [0.15, p.ir_d2] : b <= p.ir_f4 ? [0.225, p.ir_d3] : [0.275, p.ir_d4];
+    const tab = (b) => { const [a, d] = faixa(b); return Math.max(0, b * a - d); };
+    const dep = (Number(dependentes) || 0) * p.ir_dep;
+    const baseLegal = Math.max(0, bruto - inss - dep), baseSimpl = Math.max(0, bruto - p.ir_simpl);
+    const simplificado = tab(baseSimpl) < tab(baseLegal);
+    const base = simplificado ? baseSimpl : baseLegal;
+    const [aliquota, parcela] = faixa(base);
+    const imposto = tab(base);
+    const reducao = !(bruto > 0) ? 0 : bruto <= p.ir_red_lim1 ? Math.min(imposto, p.ir_red_max1) : bruto <= p.ir_red_lim2 ? Math.min(imposto, Math.max(0, p.ir_red_a - p.ir_red_b * bruto)) : 0;
+    return { bruto, inss, dependentes: Number(dependentes) || 0, deducao_dependentes: dep, simplificado, desconto_simplificado: p.ir_simpl,
+      base: centavos(base), aliquota, parcela, imposto: centavos(imposto), reducao: centavos(reducao), ir: centavos(Math.max(0, imposto - reducao)) };
   }
+  function irMensal(bruto, inss, dependentes, par) { return bruto > 0 ? irDetalhe(bruto, inss, dependentes, par).ir : 0; }
   const CATEGORIAS_SAL = [["Júnior", "mult_junior", "Até 5 anos"], ["Pleno", "mult_pleno", "6 a 10 anos"], ["Sênior", "mult_senior", "Acima de 10 anos"], ["Coordenador", "mult_coord", "Acima de 10 anos, com designação do Conselho"]];
   const CONSELHOS = ["CREA", "CAU", "CFT", "CRA", "OAB", "CRC", "Outro", "Nenhum"];
   const params = (par) => { const o = { ...PADRAO }; Object.keys(PADRAO).forEach((k) => { if (par && par[k] != null && par[k] !== "") o[k] = typeof PADRAO[k] === "number" ? Number(par[k]) : par[k]; }); return o; };
@@ -575,5 +580,5 @@
     return Array.from(a, (b) => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[b % 32]).join("");
   }
 
-  window.Fin = { PISO_CONSELHO, irMensal, parametrosDoMes, VIG_KEYS, caixaLivre, retiradaMinima, prazoRetirada, descontosRetirada, experienciaInterna, diasUteis, feriadosDoAno, sinalExperiencia, enquadramento, diasDeExperiencia, habilitacaoUsada, valorHoraDe, NIVEIS, calcular, calcularCooperado, cooperativa, tabelaSalarial, valorHora, params, PADRAO, CATEGORIAS_SAL, CONSELHOS, TIPOS_PAG, mesFechamento, mesDe, somaMes, PIX, ABA_LANC, centavos, nomeMes, componentes, alocar, proxima, descreverItem, ajustada, pixCopiaECola, crc16, qrSvg, planilhaComLancamentos, lerLancamentos, novoCodigo, vale };
+  window.Fin = { PISO_CONSELHO, irMensal, irDetalhe, parametrosDoMes, VIG_KEYS, caixaLivre, retiradaMinima, prazoRetirada, descontosRetirada, experienciaInterna, diasUteis, feriadosDoAno, sinalExperiencia, enquadramento, diasDeExperiencia, habilitacaoUsada, valorHoraDe, NIVEIS, calcular, calcularCooperado, cooperativa, tabelaSalarial, valorHora, params, PADRAO, CATEGORIAS_SAL, CONSELHOS, TIPOS_PAG, mesFechamento, mesDe, somaMes, PIX, ABA_LANC, centavos, nomeMes, componentes, alocar, proxima, descreverItem, ajustada, pixCopiaECola, crc16, qrSvg, planilhaComLancamentos, lerLancamentos, novoCodigo, vale };
 })();

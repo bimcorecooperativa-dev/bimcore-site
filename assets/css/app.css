@@ -244,3 +244,34 @@ select.mini { padding: 0.4rem 0.5rem; font-size: 0.85rem; width: auto; }
 .info-i::before { content: ""; position: absolute; inset: -.6rem; } /* área de toque maior */
 .info-i:hover, .info-i:focus-visible { border-color: var(--cyan); color: var(--cyan); outline: none; }
 .info-pop { position: fixed; z-index: 9999; max-width: min(20rem, calc(100vw - 16px)); padding: .65rem .8rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--fg); font: 400 .82rem/1.45 var(--body); text-transform: none; letter-spacing: 0; white-space: pre-line; box-shadow: 0 8px 24px rgba(0,0,0,.45); pointer-events: none; }
+
+/* Demonstrativo de retirada (contracheque) */
+.dem { border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem; background: rgba(255,255,255,.015); }
+.dem-cab { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding-bottom: .7rem; }
+.dem-cab span { display: block; color: var(--faint); font-size: .78rem; }
+.dem-tit { text-align: right; } .dem-tit b { font-family: var(--display); font-size: 1.05rem; }
+.dem-id { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .5rem 1rem; margin: .9rem 0; }
+.dem-id dt { font-family: var(--mono); font-size: .66rem; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+.dem-id dd { margin: 0; font-weight: 600; }
+.dem-tab { width: 100%; border-collapse: collapse; margin: .5rem 0; font-size: .9rem; }
+.dem-tab th, .dem-tab td { border-bottom: 1px solid var(--line); padding: .45rem .5rem; text-align: left; vertical-align: top; }
+.dem-tab th { font-family: var(--mono); font-size: .66rem; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); font-weight: 500; }
+.dem-tab .n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dem-tab small { display: block; color: var(--faint); font-size: .76rem; }
+.dem-tab tfoot td { font-weight: 600; }
+.dem-liq td { color: var(--ok); font-size: 1.05rem; border-bottom: 0; }
+.dem-bases { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .6rem; margin: .6rem 0; }
+.dem-bases div { border: 1px solid var(--line); border-radius: var(--radius); padding: .55rem .65rem; }
+.dem-bases span, .dem-bases small { display: block; font-size: .74rem; color: var(--faint); }
+.dem-bases b { display: block; font-variant-numeric: tabular-nums; }
+.dem-sub { margin: 1rem 0 .3rem; font-size: .9rem; }
+.dem-obs, .dem-rodape { font-size: .76rem; color: var(--faint); margin-top: .6rem; }
+.dem { min-width: 0; }
+.dem-tab .ref-m { display: none; }
+.dem-rolar { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+@media (max-width: 560px) {
+  .dem { padding: .7rem; } .dem-tab { font-size: .82rem; } .dem-tit { text-align: left; }
+  .dem-tab td, .dem-tab th { padding: .4rem .3rem; } .dem-tab th { letter-spacing: 0; font-size: .6rem; }
+  .dem-tab .ref { display: none; } .dem-tab .ref-m { display: block; }
+  .dem-bases { grid-template-columns: 1fr; }
+}

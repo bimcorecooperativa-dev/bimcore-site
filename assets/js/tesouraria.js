@@ -147,7 +147,7 @@
           <tbody>${hist.map((r) => `<tr><td>${esc((porId[r.fin_cooperado_id] || {}).nome || "—")}<span class="sub">pedido em ${dataHora(r.solicitado_em)}</span></td>
             <td>${r.status === "paga" ? `<span class="selo ok">paga em ${data(r.pago_em)}</span><span class="sub">${esc(r.pago_nome || "")}</span>` : `<span class="selo">cancelada</span>${r.motivo ? `<span class="sub">${esc(r.motivo)}</span>` : ""}`}</td>
             <td class="num">${moeda(r.valor)}</td><td class="num">${r.status === "paga" ? moeda(r.inss) : "—"}</td><td class="num">${r.status === "paga" ? moeda(r.ir || 0) : "—"}</td><td class="num">${r.status === "paga" ? moeda(r.contribuicao) : "—"}</td><td class="num">${r.status === "paga" ? moeda(r.fic_vol) : "—"}</td><td class="num">${r.status === "paga" ? moeda(r.liquido) : "—"}</td>
-            <td class="acoes-celula">${r.status === "paga" ? `<button class="btn btn-ghost btn-sm" data-desfazer="${r.id}">Desfazer</button>` : ""}</td></tr>`).join("")}</tbody>
+            <td class="acoes-celula">${r.status === "paga" ? `<button class="btn btn-ghost btn-sm" data-dem="${r.id}">Demonstrativo</button> <button class="btn btn-ghost btn-sm" data-desfazer="${r.id}">Desfazer</button>` : ""}</td></tr>`).join("")}</tbody>
         </table></div></section>` : ""}`;
       $("#t-sal").addEventListener("submit", async (e) => {
         e.preventDefault(); const dt = $("#sl-data").value, v = lerValor($("#sl-val").value);
@@ -155,6 +155,14 @@
         if (await acao($("#sl-btn"), () => API.fin.salvarSaldo({ data: dt, saldo: v, observacao: $("#sl-obs").value.trim() || null }), "Saldo registrado.")) recarregar();
       });
       corpo.onclick = async (ev) => {
+        const bdm = ev.target.closest("[data-dem]");
+        if (bdm) {
+          const r = rets.find((x) => x.id === bdm.dataset.dem), c = porId[r.fin_cooperado_id];
+          const d = window.Demonstrativo.dados(c, base, Fin.mesDe(r.pago_em), calc[c.id]);
+          const m = UI.modal(`${window.Demonstrativo.html(d)}<div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Fechar</button><button class="btn btn-primary btn-sm" id="dm-imp">Imprimir ou salvar em PDF</button></div>`);
+          $("#dm-imp", m.el).onclick = () => window.Demonstrativo.imprimir(d);
+          return;
+        }
         const bs = ev.target.closest("[data-delsal]");
         if (bs) { if (!(await confirmar("Excluir este registro de saldo?", "Excluir"))) return; if (await acao(bs, () => API.fin.excluirSaldo(bs.dataset.delsal), "Registro excluído.")) recarregar(); return; }
         const bp = ev.target.closest("[data-pagar]"), br = ev.target.closest("[data-recret]"), bd = ev.target.closest("[data-desfazer]");

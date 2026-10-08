@@ -468,6 +468,50 @@
       }
     },
 
+    demonstrativos: {
+      titulo: "Demonstrativos",
+      async render(el) {
+        const { moeda } = window.UI;
+        const Fin = window.Fin, D = window.Demonstrativo;
+        const cab = `<div class="pag-cab"><div><p class="eyebrow">Financeiro</p><h1>Demonstrativos e fundos</h1></div></div>`;
+        const par = await API.fin.parametros().catch(() => ({ modo: "planilha" }));
+        if (par.modo !== "sistema") { el.innerHTML = cab + '<p class="vazio">Os demonstrativos aparecem quando o financeiro estiver funcionando pelo site.</p>'; return; }
+        const ext = await API.fin.extrato();
+        if (!ext || !ext.cooperado) { el.innerHTML = cab + '<p class="vazio">Sua conta do site ainda não está ligada ao seu cadastro financeiro. A tesouraria faz essa ligação.</p>'; return; }
+        const c = ext.cooperado, calc = Fin.calcularCooperado(c, ext);
+        const meses = D.mesesComRetirada(c, ext);
+        let sel = meses[0] || null;
+        const fu = D.fundos(c, ext, calc);
+        el.innerHTML = cab + `
+          <section class="painel">
+            <div class="painel-cab"><h2>Demonstrativo de retirada</h2>
+              ${meses.length ? `<div class="sol-acoes"><div class="field"><label for="dm-mes">Competência</label><select class="input" id="dm-mes">${meses.map((m) => `<option value="${m}">${Fin.nomeMes(m)}</option>`).join("")}</select></div>
+              <button class="btn btn-ghost btn-sm" id="dm-imp" type="button">Imprimir ou salvar em PDF</button></div>` : ""}</div>
+            <div id="dm-corpo">${meses.length ? "" : '<p class="vazio">Você ainda não teve retirada paga. Quando a tesouraria registrar o pagamento, o demonstrativo do mês aparece aqui, com bruto, descontos, líquido e bases de cálculo.</p>'}</div>
+          </section>
+          <section class="painel">
+            <h2>Seus fundos individuais, mês a mês</h2>
+            <div class="kpis">
+              <div class="kpi"><span class="rot">Capital integralizado</span><span class="val">${moeda(fu.atual.capital)}</span><span class="det">Volta no desligamento (art. 19)</span></div>
+              <div class="kpi"><span class="rot">FIC</span><span class="val">${moeda(fu.atual.fic)}</span><span class="det">${fu.ajustes_fic ? "Inclui rendimentos e resgates de " + moeda(fu.ajustes_fic) : "5,5% da cooperativa + seu voluntário"}</span></div>
+              <div class="kpi"><span class="rot">Fundo de 13º</span><span class="val">${moeda(fu.atual.f13)}</span><span class="det">Pago até 20 de dezembro</span></div>
+              <div class="kpi"><span class="rot">Fundo de férias</span><span class="val">${moeda(fu.atual.ferias)}</span><span class="det">Pago no recesso</span></div>
+            </div>
+            ${fu.linhas.length ? `<div class="tabela-wrap"><table class="tabela">
+              <thead><tr><th>Mês</th><th class="num">Retirada</th><th class="num">FIC no mês</th><th class="num">FIC acumulado</th><th class="num">13º no mês</th><th class="num">13º acumulado</th><th class="num">Férias no mês</th><th class="num">Férias acumulado</th><th class="num">Capital no mês</th><th class="num">Contribuições acumuladas</th></tr></thead>
+              <tbody>${fu.linhas.slice().reverse().map((l) => `<tr><td>${Fin.nomeMes(l.mes)}</td><td class="num">${moeda(l.retirada)}</td><td class="num">${moeda(l.fic_mes)}</td><td class="num">${moeda(l.fic)}</td><td class="num">${moeda(l.f13_mes)}</td><td class="num">${moeda(l.f13)}</td><td class="num">${moeda(l.fer_mes)}</td><td class="num">${moeda(l.fer)}</td><td class="num">${moeda(l.cap_mes)}</td><td class="num">${moeda(l.cap)}</td></tr>`).join("")}</tbody>
+            </table></div>
+            <p class="hint">O FIC recebe 5,5% da retirada do mês anterior (pago pela cooperativa) e o seu aporte voluntário. Os fundos de 13º e de férias guardam 1/12 de cada retirada e descontam quando são pagos. "Capital no mês" são as contribuições mensais (1,5% da retirada ou 1 quota); o capital integralizado acima inclui também a integralização inicial.</p>` : '<p class="vazio">Ainda não há movimento nos seus fundos.</p>'}
+          </section>`;
+        const mostrar = () => { if (!sel) return; $("#dm-corpo").innerHTML = D.html(D.dados(c, ext, sel, calc)); };
+        mostrar();
+        if (meses.length) {
+          $("#dm-mes").addEventListener("change", (e) => { sel = e.target.value; mostrar(); });
+          $("#dm-imp").onclick = () => D.imprimir(D.dados(c, ext, sel, calc));
+        }
+      }
+    },
+
     documentos: {
       titulo: "Documentos",
       async render(el) {
