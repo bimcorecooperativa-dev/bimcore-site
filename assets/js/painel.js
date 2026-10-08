@@ -31,6 +31,7 @@
         el.innerHTML = `
           <div class="pag-cab"><div><p class="eyebrow">${esc(nomeMes)}</p><h1>Olá, ${esc((ctx.sessao.perfil.nome || "").split(" ")[0] || "cooperado")}</h1></div>
             <a class="btn btn-primary" href="#horas">Lançar horas</a></div>
+          ${await window.Assembleias.anuncio()}
           <div class="kpis">
             <div class="kpi"><span class="rot">Produção técnica ${iTipo("produtiva")}</span><span class="val">${horas(t.produtiva)}</span><span class="det">Base do cálculo das sobras</span></div>
             <div class="kpi"><span class="rot">Formação integrada ${iTipo("formacao")}</span><span class="val">${horas(t.formacao)}</span><span class="det">${seloFti(t.fti)} · limite 10%</span></div>
@@ -42,6 +43,12 @@
               : '<p class="vazio">Nenhum comunicado publicado ainda.</p>'}
           </section>`;
       }
+    },
+
+    assembleias: {
+      titulo: "Assembleias",
+      async sinal() { return window.Assembleias.sinal(); },
+      async render(el, ctx) { return window.Assembleias.render(el, ctx); }
     },
 
     horas: {
