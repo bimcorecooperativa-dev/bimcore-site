@@ -24,6 +24,7 @@
   async function render(el, ctx) {
     const [base, movs, perfis, expAll] = await Promise.all([API.fin.tudo(), API.movimentos.todos().catch(() => []), API.cooperados.listar().catch(() => []), API.exp.todos().catch(() => ({ habilitacoes: [], experiencias: [], comprovantes: [] }))]);
     base.habilitacoes = expAll.habilitacoes; base.experiencias = expAll.experiencias;
+    base.internas = await API.exp.internas().catch(() => []);
     const pendExp = expAll.habilitacoes.filter((h) => h.status === "pendente").length + expAll.experiencias.filter((x) => x.status === "pendente").length;
     const calc = Fin.calcular(base);
     const coops = base.cooperados;
@@ -287,6 +288,15 @@
           <p class="hint">Júnior até 5 anos completos de experiência comprovada; Pleno de 6 a 10; Sênior a partir de 11 (teto). Coordenador só com designação do Conselho e mais de 10 anos. Conta apenas a experiência validada na função ligada à formação usada na cooperativa.</p>
           <label class="ciente"><input type="checkbox" id="cp-exptec" ${par.exp_tecnico_antes === false ? "" : "checked"}> <span>Nível técnico: contar a prática na área anterior ao diploma</span></label>
           <label class="ciente"><input type="checkbox" id="cp-expsup" ${par.exp_superior_antes ? "checked" : ""}> <span>Nível superior: contar experiência anterior ao diploma/registro</span></label>
+          <h3 class="mini-tit">Experiência na BIMCORE (automática, pelas horas)</h3>
+          <p class="hint">Mês de referência = dias úteis do mês × jornada. Saem sábados, domingos, feriados nacionais (fixos, Sexta-feira Santa) e os feriados abaixo. Cada mês vale no máximo 1 mês de experiência; os meses do ano necessários para fechar 1 ano descontam o recesso de férias.</p>
+          <div class="form-grid">
+            ${campoP("cp-hdia", "Jornada de referência (horas por dia útil)", brl(par.horas_dia || 6), "Art. 8º, I: 6 h diárias.")}
+            <div class="field"><label for="cp-mano">Meses trabalhados que valem 1 ano</label><input class="input" id="cp-mano" type="number" min="1" max="12" value="${par.meses_ano || 11}"><span class="hint">11 = um mês de recesso por ano.</span></div>
+            <div class="field full"><label for="cp-fer">Feriados estaduais e municipais (dd/mm, separados por vírgula)</label><input class="input" id="cp-fer" value="${esc(par.feriados_extras != null ? par.feriados_extras : "20/01, 06/02, 23/04")}"><span class="hint">Araruama: 20/01 São Sebastião e 06/02 aniversário da cidade; RJ: 23/04 São Jorge.</span></div>
+          </div>
+          <label class="ciente"><input type="checkbox" id="cp-facult" ${par.facultativos_folga === false ? "" : "checked"}> <span>Carnaval (segunda e terça) e Corpus Christi sem expediente</span></label>
+          <p class="hint" id="cp-prev"></p>
         </section>
         <section class="painel"><h2>Tabela salarial (art. 8º)</h2>
           <p class="hint">CREA/CAU: multiplicador × salário-mínimo. Demais conselhos: retirada de referência da categoria Pleno × (multiplicador ÷ multiplicador Pleno). A Assembleia aprova a tabela todo ano.</p>
@@ -303,6 +313,13 @@
         <div class="sol-acoes"><button class="btn btn-primary" id="cp-btn" type="submit">Salvar parâmetros</button></div>
         </form>
         ${par.atualizado_nome ? `<p class="hint">Última alteração: ${esc(par.atualizado_nome)}${par.atualizado_em ? " em " + dataHora(par.atualizado_em) : ""}.</p>` : ""}`;
+      const prev = () => {
+        const tmp = { feriados_extras: $("#cp-fer").value, facultativos_folga: $("#cp-facult").checked };
+        const ano = new Date().getFullYear(); let du = 0; for (let m = 1; m <= 12; m++) du += Fin.diasUteis(`${ano}-${String(m).padStart(2, "0")}`, tmp);
+        const hd = lerValor($("#cp-hdia").value) || 6, ma = Number($("#cp-mano").value) || 11;
+        $("#cp-prev").innerHTML = `Em ${ano}: <b>${du} dias úteis</b>, média de <b>${brl(du * hd / 12)} h</b> por mês de referência. Com ${ma} meses por ano, 1 ano de experiência na BIMCORE equivale a cerca de <b>${brl(du * hd / 12 * ma)} h</b> trabalhadas.`;
+      };
+      ["cp-fer", "cp-facult", "cp-hdia", "cp-mano"].forEach((id) => $("#" + id).addEventListener("input", prev)); $("#cp-facult").addEventListener("change", prev); prev();
       $("#t-par").addEventListener("submit", async (e) => {
         e.preventDefault();
         const v = (id) => lerValor($("#" + id).value), pc = (id) => lerPct($("#" + id).value);
@@ -311,8 +328,9 @@
           inss_pct: pc("cp-inss"), inss_teto: v("cp-teto"), patronal_pct: pc("cp-patr"), fic_coop_pct: pc("cp-fic"), fic_vol_max: pc("cp-ficv"), tele_pct: pc("cp-tele"),
           alim_pct: pc("cp-alim"), custo_op_pct: pc("cp-cop"), reserva_pct: pc("cp-res"), fates_pct: pc("cp-fates"), base_demais_pleno: v("cp-base"),
           mult_junior: v("cp-mj"), mult_pleno: v("cp-mp"), mult_senior: v("cp-ms"), mult_coord: v("cp-mc"),
-          exp_tecnico_antes: $("#cp-exptec").checked, exp_superior_antes: $("#cp-expsup").checked };
-        const ruim = Object.entries(d).filter(([k, x]) => k !== "fechamento" && !(x === 0 || (x && Number.isFinite(Number(x))) || typeof x === "string"));
+          exp_tecnico_antes: $("#cp-exptec").checked, exp_superior_antes: $("#cp-expsup").checked,
+          horas_dia: v("cp-hdia"), meses_ano: Number($("#cp-mano").value), feriados_extras: $("#cp-fer").value.trim(), facultativos_folga: $("#cp-facult").checked };
+        const ruim = Object.entries(d).filter(([k, x]) => k !== "fechamento" && typeof x !== "boolean" && typeof x !== "string" && !(x === 0 || (x && Number.isFinite(Number(x)))));
         if (!d.contrib_inicio || ruim.length || !(d.quota > 0) || !(d.sm > 0) || !(d.horas_ref > 0) || !(d.mult_pleno > 0)) return toast("Confira os campos: há valor vazio ou inválido.", "err");
         if (await acao($("#cp-btn"), () => API.fin.salvarParametros(d), "Parâmetros salvos.")) recarregar();
       });
@@ -461,7 +479,7 @@
       const aprov = habs.filter((h) => h.status === "aprovada");
       const md = UI.modal(`
         <h2>Experiência de ${esc(c.nome)}</h2>
-        <div class="notice ${enq.categoria ? "ok" : "warn"}">Enquadramento em ${Fin.nomeMes(fech)}: <b>${esc(enq.categoria || "pendente")}</b>${enq.habilitacao ? ` · ${esc(enq.habilitacao.titulo)} (${esc(enq.conselho || "")}) · ${enq.anos} ano(s) comprovados` : ""}${enq.proxima ? ` · vira ${esc(enq.proxima.categoria)} em ${data(enq.proxima.data)}` : ""}${enq.avisos.length ? "<br>" + enq.avisos.map(esc).join("<br>") : ""}</div>
+        <div class="notice ${enq.categoria ? "ok" : "warn"}">Enquadramento em ${Fin.nomeMes(fech)}: <b>${esc(enq.categoria || "pendente")}</b>${enq.habilitacao ? ` · ${esc(enq.habilitacao.titulo)} (${esc(enq.conselho || "")}) · ${enq.anos} ano(s) comprovados (${(enq.anos_externos || 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} fora + ${enq.interna ? enq.interna.meses.toLocaleString("pt-BR", { maximumFractionDigits: 1 }) : 0} mês(es) na BIMCORE)` : ""}${enq.proxima ? ` · vira ${esc(enq.proxima.categoria)} em ${data(enq.proxima.data)}` : ""}${enq.avisos.length ? "<br>" + enq.avisos.map(esc).join("<br>") : ""}</div>
         <p class="hint">Valide com base nos documentos (art. 8º, V). Conta só o que tiver relação com a formação indicada; períodos em outra atividade não contam. Se faltar algo, ponha em exigência dizendo o que falta. Ninguém valida o próprio registro.</p>
         <h3 class="mini-tit">Formações</h3>
         ${habs.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Formação</th><th>Diploma / registro</th><th>Documentos</th><th>Situação</th><th></th></tr></thead>

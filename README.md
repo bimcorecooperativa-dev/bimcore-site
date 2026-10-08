@@ -25,7 +25,7 @@ Com `config.js` vazio, tudo funciona com dados de exemplo guardados no navegador
 ## Ligar o banco real (uma vez)
 
 1. Em supabase.com, crie o projeto `bimcore` (região São Paulo).
-2. Em **SQL Editor**, rode `supabase/schema.sql` e depois as migrações `supabase/migracao-002-admissao.sql` `supabase/migracao-003-financeiro.sql` `supabase/migracao-004-planilha-financeira.sql` `supabase/migracao-005-vinculo-automatico.sql` `supabase/migracao-006-pix-e-abatimento.sql`, `supabase/migracao-007-sistema-financeiro.sql` `supabase/migracao-008-retiradas.sql` e `supabase/migracao-009-enquadramento.sql`, nessa ordem.
+2. Em **SQL Editor**, rode `supabase/schema.sql` e depois as migrações `supabase/migracao-002-admissao.sql` `supabase/migracao-003-financeiro.sql` `supabase/migracao-004-planilha-financeira.sql` `supabase/migracao-005-vinculo-automatico.sql` `supabase/migracao-006-pix-e-abatimento.sql`, `supabase/migracao-007-sistema-financeiro.sql` `supabase/migracao-008-retiradas.sql` `supabase/migracao-009-enquadramento.sql` e `supabase/migracao-010-experiencia-interna.sql`, nessa ordem.
 3. Em **Authentication > URL Configuration**, coloque `https://bimcore.com.br` em *Site URL* e adicione `https://bimcore.com.br/**` em *Redirect URLs*.
 4. Em **Project Settings > API**, copie *Project URL* e *anon public key* para `assets/js/config.js`.
 5. Publique os arquivos, cadastre-se em `bimcore.com.br/entrar.html` e rode no SQL Editor:
@@ -75,3 +75,5 @@ Migração 008. Aba **Fechamento do mês**: a tesouraria informa horas (ou puxa 
 ### Enquadramento automático (art. 8º, IV e V)
 
 Migração 009. Em **Minha experiência**, o cooperado envia formações (diploma/registro) e experiências com comprovantes. A coordenação ou a tesouraria valida em **Financeiro → Cadastro → Experiência** (o banco impede validar o próprio registro). O site soma só os períodos validados ligados à formação usada na cooperativa (técnico: conta a prática anterior ao diploma; superior: só depois do diploma — ambos configuráveis) e define a categoria mês a mês: até 5 anos Júnior, 6–10 Pleno, 11+ Sênior (teto). Coordenador só com designação formal e mais de 10 anos. A progressão é automática.
+
+Experiência na BIMCORE (migração 010): conta sozinha pelas horas lançadas (ou do fechamento) desde a admissão. Mês de referência = dias úteis × 6 h (sem fins de semana, feriados nacionais, Sexta-feira Santa, Carnaval, Corpus Christi e os feriados estaduais/municipais configurados: 20/01, 06/02 e 23/04 por padrão). Cada mês vale no máximo 1 mês de experiência; 11 meses fecham 1 ano (recesso). Períodos já cobertos por experiência externa validada não contam em dobro.

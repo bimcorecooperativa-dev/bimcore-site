@@ -162,7 +162,7 @@
     return { hab: null, definida: false, opcoes: aprov };
   }
   function diasDeExperiencia(c, hab, exps, ateISO, par) {
-    if (!hab) return { dias: 0, continua: false };
+    if (!hab) return { dias: 0, continua: false, intervalos: [] };
     const p = { exp_tecnico_antes: true, exp_superior_antes: false, ...(par || {}) };
     const antesConta = hab.nivel === "tecnico" ? p.exp_tecnico_antes !== false : p.exp_superior_antes === true;
     const piso = !antesConta && hab.data_habilitacao ? diaUTC(hab.data_habilitacao) : -Infinity;
@@ -171,10 +171,62 @@
       .map((e) => [Math.max(diaUTC(e.inicio), piso), Math.min(e.fim ? diaUTC(e.fim) + DIA : Infinity, teto), !e.fim])
       .filter(([a, b]) => b > a).sort((x, y) => x[0] - y[0]);
     let dias = 0, cur = null, continua = false;
-    ints.forEach(([a, b, aberto]) => { if (aberto) continua = true; if (!cur || a > cur[1]) { if (cur) dias += (cur[1] - cur[0]) / DIA; cur = [a, b]; } else cur[1] = Math.max(cur[1], b); });
-    if (cur) dias += (cur[1] - cur[0]) / DIA;
-    return { dias, continua };
+    const uniao = [];
+    ints.forEach(([a, b, aberto]) => { if (aberto) continua = true; if (!cur || a > cur[1]) { if (cur) { dias += (cur[1] - cur[0]) / DIA; uniao.push(cur); } cur = [a, b]; } else cur[1] = Math.max(cur[1], b); });
+    if (cur) { dias += (cur[1] - cur[0]) / DIA; uniao.push(cur); }
+    return { dias, continua, intervalos: uniao };
   }
+  /* ---------- Experiência interna (na BIMCORE), contada sozinha pelas horas ----------
+     Mês de referência = dias úteis do mês × jornada (6 h, art. 8º, I). Dias úteis tiram sábados,
+     domingos, feriados nacionais (fixos e móveis), os feriados estaduais/municipais configurados e,
+     se marcado, os pontos facultativos de Carnaval e Corpus Christi. Cada mês vale no máximo 1
+     "mês de experiência"; 11 meses completos = 1 ano (o 12º é o recesso de férias, art. 79). */
+  function pascoa(ano) {
+    const a = ano % 19, b = Math.floor(ano / 100), c = ano % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+    const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+    const mes = Math.floor((h + l - 7 * m + 114) / 31), dia = ((h + l - 7 * m + 114) % 31) + 1;
+    return Date.UTC(ano, mes - 1, dia);
+  }
+  const FIXOS = ["01-01", "04-21", "05-01", "09-07", "10-12", "11-02", "11-15", "11-20", "12-25"];
+  function feriadosDoAno(ano, par) {
+    const p = { feriados_extras: "20/01, 06/02, 23/04", facultativos_folga: true, ...(par || {}) };
+    const set = new Map();
+    const add = (ms, nome) => set.set(isoDe(ms), nome);
+    FIXOS.forEach((md) => add(Date.UTC(ano, Number(md.slice(0, 2)) - 1, Number(md.slice(3))), "Feriado nacional"));
+    const P = pascoa(ano);
+    add(P - 2 * DIA, "Sexta-feira Santa");
+    if (p.facultativos_folga !== false) { add(P - 48 * DIA, "Carnaval"); add(P - 47 * DIA, "Carnaval"); add(P + 60 * DIA, "Corpus Christi"); }
+    String(p.feriados_extras || "").split(/[,;\s]+/).filter(Boolean).forEach((t) => { const [d, m] = t.split("/").map(Number); if (d && m) add(Date.UTC(ano, m - 1, d), "Feriado estadual/municipal"); });
+    return set;
+  }
+  function diasUteis(mes, par) {
+    const [a, m] = mes.split("-").map(Number); const fer = feriadosDoAno(a, par);
+    let n = 0; for (let d = Date.UTC(a, m - 1, 1); new Date(d).getUTCMonth() === m - 1; d += DIA) { const w = new Date(d).getUTCDay(); if (w !== 0 && w !== 6 && !fer.has(isoDe(d))) n++; }
+    return n;
+  }
+  function experienciaInterna(c, hab, base, ateMes, cobertura) {
+    const par = base.parametros || {};
+    const horasDia = Number(par.horas_dia || 6), mesesAno = Number(par.meses_ano || 11);
+    const adm = mesDe(c.data_admissao);
+    const p = { exp_tecnico_antes: true, exp_superior_antes: false, ...par };
+    const antesConta = !hab || (hab.nivel === "tecnico" ? p.exp_tecnico_antes !== false : p.exp_superior_antes === true);
+    const piso = !antesConta && hab.data_habilitacao ? mesDe(hab.data_habilitacao) : null;
+    const meses = (base.internas || []).filter((x) => x.fin_cooperado_id === c.id && Number(x.horas) > 0)
+      .map((x) => ({ mes: mesDe(x.mes), horas: Number(x.horas) }))
+      .filter((x) => (!adm || x.mes >= adm) && (!ateMes || x.mes <= ateMes) && (!piso || x.mes >= piso)).sort((a, b) => a.mes.localeCompare(b.mes));
+    const porAno = {};
+    const linhas = meses.map((x) => {
+      const du = diasUteis(x.mes, par), ref = du * horasDia;
+      let credito = ref > 0 ? Math.min(1, x.horas / ref) : 0;
+      const cob = cobertura ? cobertura(x.mes) : 0;
+      const creditoValido = credito * (1 - cob);
+      const ano = x.mes.slice(0, 4); porAno[ano] = (porAno[ano] || 0) + creditoValido;
+      return { mes: x.mes, horas: x.horas, dias_uteis: du, referencia: ref, credito, coberto_externo: cob, credito_valido: creditoValido };
+    });
+    const mesesCreditados = Object.values(porAno).reduce((t, v) => t + Math.min(mesesAno, v), 0);
+    return { linhas, meses: mesesCreditados, dias: mesesCreditados * 365.25 / mesesAno, recente: meses.length && meses[meses.length - 1].mes >= somaMes(mesHoje(), -1) };
+  }
+
   const categoriaPorAnos = (anos) => (anos <= 5 ? "Júnior" : anos <= 10 ? "Pleno" : "Sênior");
   function enquadramento(c, base, mes) {
     const par = base.parametros || {};
@@ -187,7 +239,11 @@
       if (c.categoria) return { categoria: c.categoria, conselho: c.conselho, anos: null, origem: "manual", habilitacao: null, avisos: [motivo + " Até lá vale a categoria informada manualmente."] };
       return { categoria: null, conselho: c.conselho, anos: 0, origem: "nenhum", habilitacao: null, avisos: [motivo] };
     }
-    const { dias, continua } = diasDeExperiencia(c, hab, base.experiencias, ref, par);
+    const ext = diasDeExperiencia(c, hab, base.experiencias, ref, par);
+    const intervalos = ext.intervalos || [];
+    const cobertura = (m) => { const [a, mm] = m.split("-").map(Number); const ini = Date.UTC(a, mm - 1, 1), fim = Date.UTC(a, mm, 1); let cob = 0; intervalos.forEach(([x, y]) => { cob += Math.max(0, Math.min(y, fim) - Math.max(x, ini)); }); return Math.min(1, cob / (fim - ini)); };
+    const interna = experienciaInterna(c, hab, base, mes || mesHoje(), cobertura);
+    const dias = ext.dias + interna.dias, continua = ext.continua || interna.recente;
     const anosExatos = dias / 365.25, anos = Math.floor(anosExatos + 1e-9);
     let categoria = categoriaPorAnos(anos);
     if (c.coordenador_designado) {
@@ -203,7 +259,7 @@
       if (alvo) proxima = { categoria: categoriaPorAnos(alvo), data: isoDe(diaUTC(ref) + DIA + Math.ceil(alvo * 365.25 - dias) * DIA) };
     }
     if (!definida) avisos.push("Defina a formação usada na cooperativa.");
-    return { categoria, conselho: hab.conselho, anos, anos_exatos: anosExatos, origem: "automatico", habilitacao: hab, proxima, avisos };
+    return { categoria, conselho: hab.conselho, anos, anos_exatos: anosExatos, origem: "automatico", habilitacao: hab, proxima, avisos, anos_externos: ext.dias / 365.25, interna };
   }
   /* Sinal para o cooperado: vermelho = nada enviado; amarelo = algo em exigência; nada = em dia ou só aguardando análise */
   function sinalExperiencia(d) {
@@ -430,5 +486,5 @@
     return Array.from(a, (b) => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[b % 32]).join("");
   }
 
-  window.Fin = { sinalExperiencia, enquadramento, diasDeExperiencia, habilitacaoUsada, valorHoraDe, NIVEIS, calcular, calcularCooperado, cooperativa, tabelaSalarial, valorHora, params, PADRAO, CATEGORIAS_SAL, CONSELHOS, TIPOS_PAG, mesFechamento, mesDe, somaMes, PIX, ABA_LANC, centavos, nomeMes, componentes, alocar, proxima, descreverItem, ajustada, pixCopiaECola, crc16, qrSvg, planilhaComLancamentos, lerLancamentos, novoCodigo, vale };
+  window.Fin = { experienciaInterna, diasUteis, feriadosDoAno, sinalExperiencia, enquadramento, diasDeExperiencia, habilitacaoUsada, valorHoraDe, NIVEIS, calcular, calcularCooperado, cooperativa, tabelaSalarial, valorHora, params, PADRAO, CATEGORIAS_SAL, CONSELHOS, TIPOS_PAG, mesFechamento, mesDe, somaMes, PIX, ABA_LANC, centavos, nomeMes, componentes, alocar, proxima, descreverItem, ajustada, pixCopiaECola, crc16, qrSvg, planilhaComLancamentos, lerLancamentos, novoCodigo, vale };
 })();

@@ -347,9 +347,21 @@
         async meu() {
           const s = ler(); const u = exigir(s); const c = s.fin.cooperados.find((x) => x.perfil_id === u.id) || null;
           const f = (k) => (c ? (s.fin[k] || []).filter((x) => x.fin_cooperado_id === c.id) : []);
-          return espera({ parametros: { ...s.fin.parametros }, cooperado: c, habilitacoes: f("habilitacoes"), experiencias: f("experiencias"), comprovantes: f("comprovantes") });
+          const internas = c ? (await this.internas()).filter((x) => x.fin_cooperado_id === c.id) : [];
+          return espera({ parametros: { ...s.fin.parametros }, cooperado: c, habilitacoes: f("habilitacoes"), experiencias: f("experiencias"), comprovantes: f("comprovantes"), internas });
         },
         async todos() { const s = ler(); exigir(s, "tes"); return espera({ habilitacoes: s.fin.habilitacoes || [], experiencias: s.fin.experiencias || [], comprovantes: s.fin.comprovantes || [] }); },
+        async internas() {
+          const s = ler(); const u = exigir(s); const valida = u.papel === "coordenacao" || u.tesouraria;
+          const out = {};
+          s.fin.cooperados.filter((c) => valida || c.perfil_id === u.id).forEach((c) => {
+            (s.producao || []).filter((h) => c.perfil_id && h.cooperado_id === c.perfil_id && (h.tipo === "produtiva" || h.tipo === "formacao")).forEach((h) => {
+              const k = c.id + "|" + String(h.data).slice(0, 7); out[k] = out[k] || { fin_cooperado_id: c.id, mes: String(h.data).slice(0, 7) + "-01", horas: 0, origem: "lancado" }; out[k].horas += Number(h.horas);
+            });
+            (s.fin.folha || []).filter((f) => f.fin_cooperado_id === c.id).forEach((f) => { out[c.id + "|" + String(f.mes).slice(0, 7)] = { fin_cooperado_id: c.id, mes: f.mes, horas: Number(f.horas_produtivas || 0) + Number(f.horas_formacao || 0), origem: "fechamento" }; });
+          });
+          return espera(Object.values(out));
+        },
         async salvar(tabela, d) {
           const s = ler(); const u = exigir(s); const lista = (s.fin[tabela] = s.fin[tabela] || []);
           const meu = s.fin.cooperados.find((x) => x.perfil_id === u.id);
@@ -640,12 +652,14 @@
             sb.from("fin_habilitacoes").select("*").eq("fin_cooperado_id", c.id).order("data_habilitacao", { nullsFirst: false }),
             sb.from("fin_experiencias").select("*").eq("fin_cooperado_id", c.id).order("inicio"),
             sb.from("fin_comprovantes").select("*").eq("fin_cooperado_id", c.id).order("criado_em")]);
-          return { parametros: par.data || {}, cooperado: c, habilitacoes: ok(h), experiencias: ok(e), comprovantes: ok(d) };
+          const it = await sb.rpc("horas_internas");
+          return { parametros: par.data || {}, cooperado: c, habilitacoes: ok(h), experiencias: ok(e), comprovantes: ok(d), internas: it.error ? [] : (it.data || []).filter((x) => x.fin_cooperado_id === c.id) };
         },
         async todos() {
           const [h, e, d] = await Promise.all([sb.from("fin_habilitacoes").select("*").order("criado_em"), sb.from("fin_experiencias").select("*").order("inicio"), sb.from("fin_comprovantes").select("*").order("criado_em")]);
           return { habilitacoes: ok(h), experiencias: ok(e), comprovantes: ok(d) };
         },
+        async internas() { const r = await sb.rpc("horas_internas"); return r.error ? [] : r.data || []; },
         async salvar(tabela, d) {
           const t = { habilitacoes: "fin_habilitacoes", experiencias: "fin_experiencias" }[tabela];
           const dados = { ...d }; delete dados.id; delete dados.criado_em;

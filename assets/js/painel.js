@@ -397,7 +397,7 @@
         }
         const c = d.cooperado, recarregar = () => { ctx.atualizarContadores(); return paginas.experiencia.render(el, ctx); };
         const sinal = Fin.sinalExperiencia(d);
-        const base = { parametros: d.parametros, habilitacoes: d.habilitacoes, experiencias: d.experiencias };
+        const base = { parametros: d.parametros, habilitacoes: d.habilitacoes, experiencias: d.experiencias, internas: d.internas || [] };
         const enq = Fin.enquadramento(c, base, mesAtual());
         const comps = (id) => d.comprovantes.filter((x) => x.ref_id === id);
         const habPor = {}; d.habilitacoes.forEach((h) => { habPor[h.id] = h; });
@@ -412,7 +412,7 @@
             <h2>Seu enquadramento hoje</h2>
             <div class="kpis">
               <div class="kpi"><span class="rot">Categoria</span><span class="val">${esc(enq.categoria || "Pendente")}</span><span class="det">${enq.habilitacao ? esc(enq.habilitacao.titulo) + " · " + esc(enq.conselho || "") : "sem formação validada"}</span></div>
-              <div class="kpi"><span class="rot">Experiência comprovada</span><span class="val">${anosTxt(enq)}</span><span class="det">${enq.origem === "manual" ? "categoria informada pela tesouraria" : "só períodos validados nesta formação"}</span></div>
+              <div class="kpi"><span class="rot">Experiência comprovada</span><span class="val">${anosTxt(enq)}</span><span class="det">${enq.origem === "manual" ? "categoria informada pela tesouraria" : `${(enq.anos_externos || 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} ano(s) validados fora + ${(enq.interna ? enq.interna.meses : 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mês(es) na BIMCORE`}</span></div>
               <div class="kpi"><span class="rot">Valor-hora</span><span class="val">${moeda(Fin.valorHoraDe(enq.categoria, enq.conselho, d.parametros))}</span><span class="det">Tabela aprovada pela Assembleia</span></div>
               <div class="kpi"><span class="rot">Próxima progressão</span><span class="val">${enq.proxima ? esc(enq.proxima.categoria) : "—"}</span><span class="det">${enq.proxima ? "a partir de " + data(enq.proxima.data) + ", automática" : enq.categoria === "Sênior" ? "Sênior é o teto do Estatuto" : enq.categoria === "Coordenador" ? "função designada pelo Conselho" : "sem experiência em andamento"}</span></div>
             </div>
@@ -424,6 +424,17 @@
               <li>Cada registro é validado pela coordenação ou pela tesouraria, com base nos documentos (art. 8º, V). A progressão é automática quando o tempo é atingido.</li>
             </ul>
           </section>
+
+          ${(() => {
+            const it = enq.interna || Fin.experienciaInterna(c, null, base, mesAtual(), null);
+            const pct = (v) => Math.round(v * 100) + "%";
+            return `<section class="painel">
+              <div class="painel-cab"><h2>Experiência na BIMCORE</h2><span class="selo info">${it.meses.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mês(es) de experiência</span></div>
+              <p class="hint">Conta sozinha, a partir da sua entrada, pelas horas que você lança em Minhas horas (ou pelas do fechamento do mês). O mês de referência é o número de dias úteis do mês × ${Number(d.parametros.horas_dia || 6).toLocaleString("pt-BR")} h, já sem fins de semana e feriados nacionais, estaduais e de Araruama. Cada mês vale no máximo 1 mês de experiência, e ${d.parametros.meses_ano || 11} meses completos fecham 1 ano, por causa do recesso de férias. Se no mesmo período houver experiência externa validada, ele conta uma vez só.</p>
+              ${it.linhas.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Mês</th><th class="num">Horas lançadas</th><th class="num">Referência do mês</th><th class="num">Conta como</th></tr></thead>
+                <tbody>${it.linhas.slice().reverse().map((l) => `<tr><td>${window.Fin.nomeMes(l.mes)}</td><td class="num">${horas(l.horas)}</td><td class="num">${horas(l.referencia)}<span class="sub">${l.dias_uteis} dias úteis</span></td><td class="num">${pct(l.credito_valido)} de 1 mês${l.coberto_externo > 0 ? '<span class="sub">já coberto por experiência externa</span>' : ""}</td></tr>`).join("")}</tbody></table></div>` : '<p class="vazio">Ainda não há horas lançadas desde a sua entrada.</p>'}
+            </section>`;
+          })()}
 
           <section class="painel">
             <div class="painel-cab"><h2>Formações</h2><button class="btn btn-primary btn-sm" id="ex-nova-hab">Adicionar formação</button></div>
