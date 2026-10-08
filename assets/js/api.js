@@ -304,7 +304,7 @@
         _s(s) { s.asm = s.asm || { assembleias: [], pautas: [], presencas: [], votos: [], secretos: [], chat: [], assinaturas: [] }; return s.asm; },
         _gestor(u) { return u.status === "ativo" && (u.papel === "coordenacao" || u.conselho_fiscal); },
         _quorum(s, a) {
-          const A = this._s(s); const n = a.membros_na_data || s.perfis.filter((p) => p.status === "ativo").length;
+          const A = this._s(s); const n = a.membros_na_data || Math.max(s.perfis.filter((p) => p.status === "ativo").length, ((s.fin && s.fin.cooperados) || []).filter((c) => (c.situacao || "ativo") === "ativo").length);
           const pres = A.presencas.filter((x) => x.assembleia_id === a.id && x.apto).length;
           const min = (Date.now() - new Date(a.data_hora).getTime()) / 60000;
           const conv = min < 60 ? 1 : min < 120 ? 2 : 3;
@@ -342,7 +342,7 @@
           if (a.status !== "rascunho") falha("O edital já foi publicado.");
           if (a.tipo !== "pre" && new Date(a.data_hora) < new Date(Date.now() + 10 * 86400000)) falha("O edital precisa ser publicado com pelo menos 10 dias de antecedência (Estatuto, art. 30).");
           if (!A.pautas.some((p) => p.assembleia_id === id)) falha("Inclua ao menos uma pauta na ordem do dia (Estatuto, art. 33, IV).");
-          Object.assign(a, { status: "agendada", edital_publicado_em: new Date().toISOString(), membros_na_data: s.perfis.filter((p) => p.status === "ativo").length }); gravar(s); return espera(true);
+          Object.assign(a, { status: "agendada", edital_publicado_em: new Date().toISOString(), membros_na_data: Math.max(s.perfis.filter((p) => p.status === "ativo").length, ((s.fin && s.fin.cooperados) || []).filter((c) => (c.situacao || "ativo") === "ativo").length) }); gravar(s); return espera(true);
         },
         async cancelar(id, motivo) { const s = ler(); const u = exigir(s); if (!this._gestor(u)) falha("permission denied"); const a = this._s(s).assembleias.find((x) => x.id === id); if (!["rascunho", "agendada"].includes(a.status)) falha("Só assembleias ainda não abertas podem ser canceladas."); Object.assign(a, { status: "cancelada", motivo_cancelamento: motivo }); gravar(s); return espera(true); },
         async salvarPauta(p) {
