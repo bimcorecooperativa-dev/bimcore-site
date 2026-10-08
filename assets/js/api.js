@@ -418,6 +418,18 @@
           const s = ler(); exigir(s, "tes"); const r = (s.fin.retiradas || []).find((x) => x.id === id); if (!r) falha("Solicitação não encontrada.");
           Object.assign(r, { status: "solicitada", pago_em: null, pago_nome: null, inss: null, contribuicao: null, fic_vol: null, liquido: null }); gravar(s); return espera(true);
         },
+        _caixa(s) {
+          const sal = (s.fin.saldos || []).slice().sort((a, b) => String(b.data).localeCompare(String(a.data)) || String(b.criado_em).localeCompare(String(a.criado_em)))[0];
+          const rs = s.fin.retiradas || [];
+          return { data: sal ? sal.data : null, saldo: sal ? Number(sal.saldo) : null, reserva: Number(s.fin.parametros.reserva_caixa || 0), patronal_pct: s.fin.parametros.patronal_pct != null ? s.fin.parametros.patronal_pct : 0.2,
+            pedidos: rs.filter((r) => r.status === "solicitada").reduce((t, r) => t + Number(r.valor), 0),
+            pagas_depois: sal ? rs.filter((r) => r.status === "paga" && r.pago_em > sal.data).reduce((t, r) => t + Number(r.valor), 0) : 0 };
+        },
+        async salvarSaldo(d) {
+          const s = ler(); const u = exigir(s, "tes"); s.fin.saldos = s.fin.saldos || [];
+          s.fin.saldos.push({ ...d, id: novoId(), registrado_nome: u.nome, criado_em: new Date().toISOString() }); gravar(s); return espera(true);
+        },
+        async excluirSaldo(id) { const s = ler(); exigir(s, "tes"); s.fin.saldos = (s.fin.saldos || []).filter((x) => x.id !== id); gravar(s); return espera(true); },
         async salvarReceita(receita) {
           const s = ler(); exigir(s, "tes"); s.fin.receitas = s.fin.receitas || [];
           const r = s.fin.receitas.find((x) => x.mes === receita.mes); if (r) Object.assign(r, receita); else s.fin.receitas.push({ ...receita }); gravar(s); return espera(true);
@@ -433,12 +445,12 @@
           const horas_total = s.producao.filter((h) => h.tipo === "produtiva" || h.tipo === "formacao").reduce((t, h) => t + Number(h.horas), 0);
           const horas_mes = c ? this._horasMes(s, [c.id]) : [];
           const retiradas = c ? (s.fin.retiradas || []).filter((r) => r.fin_cooperado_id === c.id) : [];
-          return espera(JSON.parse(JSON.stringify({ parametros: { ...s.fin.parametros }, cooperado: c, pagamentos: pags, despesas, folha, horas_total, habilitacoes, experiencias, horas_mes, retiradas })));
+          return espera(JSON.parse(JSON.stringify({ parametros: { ...s.fin.parametros }, cooperado: c, pagamentos: pags, despesas, folha, horas_total, habilitacoes, experiencias, horas_mes, retiradas, vigencias: s.fin.vigencias || [], caixa: this._caixa(s) })));
         },
         async tudo() {
           const s = ler(); exigir(s, "tes"); s.fin.folha = s.fin.folha || []; s.fin.receitas = s.fin.receitas || []; s.fin.retiradas = s.fin.retiradas || [];
           const horas_total = s.producao.filter((h) => h.tipo === "produtiva" || h.tipo === "formacao").reduce((t, h) => t + Number(h.horas), 0);
-          return espera(JSON.parse(JSON.stringify({ ...s.fin, horas_mes: this._horasMes(s), horas_total })));
+          return espera(JSON.parse(JSON.stringify({ ...s.fin, saldos: s.fin.saldos || [], vigencias: s.fin.vigencias || [], horas_mes: this._horasMes(s), horas_total, caixa: this._caixa(s) })));
         },
         async horasLancadas(mes) {
           const s = ler(); exigir(s, "tes"); const m = String(mes).slice(0, 7);
@@ -456,7 +468,17 @@
           if (receita) { const r = s.fin.receitas.find((x) => x.mes === receita.mes); if (r) Object.assign(r, receita); else s.fin.receitas.push({ ...receita }); }
           gravar(s); return espera(true);
         },
-        async salvarParametros(d) { const s = ler(); const u = exigir(s, "tes"); Object.assign(s.fin.parametros, d, { atualizado_nome: u.nome }); gravar(s); return espera(true); },
+        async salvarParametros(d, vigencia, chaves) {
+          const s = ler(); const u = exigir(s, "tes");
+          if (vigencia && chaves) {
+            s.fin.vigencias = s.fin.vigencias || [];
+            if (!s.fin.vigencias.length) { const atual = window.Fin ? window.Fin.params(s.fin.parametros) : s.fin.parametros; const ini = {}; chaves.forEach((k) => { if (atual[k] != null) ini[k] = atual[k]; }); s.fin.vigencias.push({ vigencia: "2026-01-01", dados: ini }); }
+            const dados = {}; chaves.forEach((k) => { if (k in d) dados[k] = d[k]; });
+            const x = s.fin.vigencias.find((v) => v.vigencia === vigencia); if (x) Object.assign(x.dados, dados); else s.fin.vigencias.push({ vigencia, dados, salvo_nome: u.nome });
+          }
+          Object.assign(s.fin.parametros, d, { atualizado_nome: u.nome });
+          gravar(s); return espera(true);
+        },
         async salvar(tabela, d) {
           const s = ler(); const u = exigir(s, "tes"); const lista = s.fin[tabela];
           if (d.id) { const x = lista.find((r) => r.id === d.id); if (!x) falha("Registro não encontrado."); Object.assign(x, d); }
@@ -743,7 +765,10 @@
         async extrato() {
           const ext = ok(await sb.rpc("meu_extrato"));
           if (!ext || !ext.cooperado) return ext;
-          const [hm, rt, ht] = await Promise.all([sb.rpc("horas_mensais"), sb.from("fin_retiradas").select("*").eq("fin_cooperado_id", ext.cooperado.id).order("solicitado_em"), sb.rpc("horas_produtivas_total")]);
+          const [hm, rt, ht, vg, cx] = await Promise.all([sb.rpc("horas_mensais"), sb.from("fin_retiradas").select("*").eq("fin_cooperado_id", ext.cooperado.id).order("solicitado_em"), sb.rpc("horas_produtivas_total"),
+            sb.from("fin_vigencias").select("*").order("vigencia"), sb.rpc("caixa_retiradas")]);
+          ext.vigencias = vg.error ? [] : vg.data;
+          ext.caixa = cx.error ? null : cx.data;
           ext.horas_mes = hm.error ? [] : (hm.data || []).filter((h) => h.fin_cooperado_id === ext.cooperado.id);
           ext.retiradas = rt.error ? [] : rt.data;
           if (!ht.error && ht.data != null) ext.horas_total = Number(ht.data);
@@ -765,12 +790,17 @@
         async desfazerPagamento(id) {
           ok(await sb.from("fin_retiradas").update({ status: "solicitada", pago_em: null, pago_nome: null, inss: null, contribuicao: null, fic_vol: null, liquido: null, atualizado_em: new Date().toISOString() }).eq("id", id)); return true;
         },
+        async salvarSaldo(d) {
+          const uid = await meuId(); const eu = ok(await sb.from("perfis").select("nome").eq("id", uid).single());
+          ok(await sb.from("fin_saldos").insert({ ...d, registrado_nome: eu.nome })); return true;
+        },
+        async excluirSaldo(id) { ok(await sb.from("fin_saldos").delete().eq("id", id)); return true; },
         async salvarReceita(receita) {
           const uid = await meuId(); const eu = ok(await sb.from("perfis").select("nome").eq("id", uid).single());
           ok(await sb.from("fin_receitas").upsert({ ...receita, atualizado_nome: eu.nome, atualizado_em: new Date().toISOString() }, { onConflict: "mes" })); return true;
         },
         async tudo() {
-          const [par, coo, desp, pag, fol, rec, hab, exps, hm, rt, ht] = await Promise.all([
+          const [par, coo, desp, pag, fol, rec, hab, exps, hm, rt, ht, sal, vg, cx] = await Promise.all([
             sb.from("fin_parametros").select("*").eq("id", 1).single(),
             sb.from("fin_cooperados").select("*").order("nome"),
             sb.from("fin_despesas").select("*").order("data", { ascending: false, nullsFirst: false }),
@@ -781,10 +811,14 @@
             sb.from("fin_experiencias").select("*"),
             sb.rpc("horas_mensais"),
             sb.from("fin_retiradas").select("*").order("solicitado_em"),
-            sb.rpc("horas_produtivas_total")
+            sb.rpc("horas_produtivas_total"),
+            sb.from("fin_saldos").select("*").order("data", { ascending: false }),
+            sb.from("fin_vigencias").select("*").order("vigencia"),
+            sb.rpc("caixa_retiradas")
           ]);
           return { parametros: ok(par), cooperados: ok(coo), despesas: ok(desp), pagamentos: ok(pag), folha: fol.error ? [] : fol.data, receitas: rec.error ? [] : rec.data, habilitacoes: hab.error ? [] : hab.data, experiencias: exps.error ? [] : exps.data,
-            horas_mes: hm.error ? [] : hm.data, retiradas: rt.error ? [] : rt.data, horas_total: ht.error ? null : Number(ht.data) };
+            horas_mes: hm.error ? [] : hm.data, retiradas: rt.error ? [] : rt.data, horas_total: ht.error ? null : Number(ht.data),
+            saldos: sal.error ? [] : sal.data, vigencias: vg.error ? [] : vg.data, caixa: cx.error ? null : cx.data };
         },
         async horasLancadas(mes) { return ok(await sb.rpc("horas_lancadas", { p_mes: mes })); },
         async salvarFolha(linhas, receita) {
@@ -794,9 +828,15 @@
           if (receita) ok(await sb.from("fin_receitas").upsert({ ...receita, atualizado_nome: eu.nome, atualizado_em: agora }, { onConflict: "mes" }));
           return true;
         },
-        async salvarParametros(d) {
+        async salvarParametros(d, vigencia, chaves) {
           const uid = await meuId(); const eu = ok(await sb.from("perfis").select("nome").eq("id", uid).single());
-          ok(await sb.from("fin_parametros").update({ ...d, atualizado_em: new Date().toISOString(), atualizado_nome: eu.nome }).eq("id", 1)); return true;
+          ok(await sb.from("fin_parametros").update({ ...d, atualizado_em: new Date().toISOString(), atualizado_nome: eu.nome }).eq("id", 1));
+          if (vigencia && chaves) {
+            const ant = await sb.from("fin_vigencias").select("dados").eq("vigencia", vigencia).maybeSingle();
+            const dados = { ...((ant.data && ant.data.dados) || {}) }; chaves.forEach((k) => { if (k in d) dados[k] = d[k]; });
+            ok(await sb.from("fin_vigencias").upsert({ vigencia, dados, salvo_nome: eu.nome, salvo_em: new Date().toISOString() }, { onConflict: "vigencia" }));
+          }
+          return true;
         },
         async salvar(tabela, d) {
           const t = { cooperados: "fin_cooperados", despesas: "fin_despesas", pagamentos: "fin_pagamentos" }[tabela];

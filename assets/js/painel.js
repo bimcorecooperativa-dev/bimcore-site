@@ -172,11 +172,17 @@
         parR.retirada_minima = Fin.retiradaMinima(par).valor;
         const hojeIso = hoje();
         const prazoNovo = Fin.prazoRetirada(hojeIso, par);
-        const podePedir = cr && cr.saldo > 0.005 && cr.saldo + 0.005 >= parR.retirada_minima;
+        const cxl = sistema ? Fin.caixaLivre(ext && ext.caixa) : null;
+        const maxPed = cr ? Math.min(cr.saldo, cxl ? cxl.maxRetirada : 0) : 0;
+        const podePedir = cr && maxPed > 0.005 && maxPed + 0.005 >= parR.retirada_minima;
+        const motivoNao = !cr ? "" : cr.saldo + 0.005 < Math.max(parR.retirada_minima, 0.01) ? (cr.saldo > 0.005 ? `Seu saldo ainda não chegou ao mínimo de ${moeda(parR.retirada_minima)} para pedir retirada.` : "Sem crédito disponível no momento.")
+          : !cxl || !cxl.informado ? "Retiradas ainda não liberadas: a tesouraria não informou o saldo da conta da cooperativa."
+          : "No momento o caixa da cooperativa não comporta novas retiradas. Seu crédito continua guardado; assim que entrar recurso de contrato, o pedido é liberado.";
         const STR = { solicitada: '<span class="selo warn">aguardando transferência</span>', paga: '<span class="selo ok">paga</span>', cancelada: '<span class="selo">cancelada</span>' };
         const INFO = {
           credito: "Cada hora de produção técnica, de formação (até 10% das horas do mês) e de suporte administrativo lançada em Minhas horas vale o valor-hora da sua categoria naquele mês (Estatuto, art. 8º; Regimento, art. 87). O total fica guardado como crédito até você pedir a retirada. Ociosidade não gera crédito.",
           bruto: "O valor do crédito que você pediu para retirar. É sobre ele que saem os descontos abaixo.",
+          ir: "Imposto de renda retido na fonte pela cooperativa (Lei 8.541/1992, art. 45, §1º), pela tabela mensal da Receita, com a redução da Lei 15.270/2025 (isento até R$ 5.000 por mês). O site usa o que for melhor para você: INSS + dependentes ou o desconto simplificado. Você continua declarando no ajuste anual, e o valor retido aparece no informe de rendimentos.",
           inss: "Contribuição previdenciária individual de 11% sobre a retirada, até o teto do INSS. A cooperativa retém e recolhe para você (Estatuto, art. 24; Regimento, art. 94). Conta para a sua aposentadoria.",
           contrib: "1,5% da retirada vai para o seu capital social (quotas-parte). Continua sendo seu e volta no desligamento. Nos meses sem retirada, a contribuição é de 1 quota-parte, paga por Pix (Estatuto, art. 23, §4º).",
           ficvol: "Aporte voluntário que você escolheu para o seu Fundo Individual de Capitalização, até 2,5% da retirada. É seu e é resgatado no desligamento (Regimento, art. 123).",
@@ -197,13 +203,13 @@
               <div class="kpi"><span class="rot">Disponível para retirada</span><span class="val" style="color:var(--ok)">${moeda(cr.saldo)}</span><span class="det">${parR.retirada_minima > 0 ? "Mínimo para pedir: " + moeda(parR.retirada_minima) + " " + window.UI.info("Equivale a 1 quota-parte (" + moeda(parR.quota) + ") ÷ 1,5%. Assim a contribuição de capital descontada de cada retirada nunca fica menor que a quota mensal (Estatuto, art. 23, §4º). Abaixo disso, o crédito fica acumulando.") : "Você pede quando quiser"}</span></div>
             </div>
             ${!bruta.enquadramento || !bruta.enquadramento.categoria ? '<div class="notice warn">Você ainda não tem categoria validada, então o valor-hora está zerado. Suas horas ficam guardadas: quando a formação e as experiências forem validadas em <b>Minha experiência</b>, o crédito delas aparece aqui.</div>' : ""}
-            <div class="sol-acoes">${podePedir ? '<button class="btn btn-primary" id="bt-ret">Solicitar retirada</button>' : `<span class="hint">${cr.saldo > 0.005 ? `Seu saldo ainda não chegou ao mínimo de ${moeda(parR.retirada_minima)} para pedir retirada.` : "Sem crédito disponível no momento."}</span>`}</div>
+            <div class="sol-acoes">${podePedir ? `<button class="btn btn-primary" id="bt-ret">Solicitar retirada</button>${maxPed + 0.005 < cr.saldo ? `<span class="hint">Pelo caixa atual, você pode pedir até ${moeda(maxPed)}.</span>` : ""}` : `<span class="hint">${motivoNao}</span>`}</div>
             <p class="hint">Ao pedir, a tesouraria tem até o ${parR.retirada_dia_util}º dia útil do mês seguinte para fazer a transferência. Quando ela marcar como paga, o valor vira retirada e os descontos são registrados.</p>
             ${cr.retiradas.length ? `<div class="tabela-wrap"><table class="tabela">
               <thead><tr><th>Pedido em</th><th class="num">Bruto</th><th class="num">Líquido</th><th>Prazo</th><th>Situação</th><th></th></tr></thead>
               <tbody>${cr.retiradas.slice().reverse().map((r) => { const d = r.status === "paga" ? r : Fin.descontosRetirada(ext.cooperado, ext, Number(r.valor), Fin.mesDe(r.prazo || hojeIso)); return `<tr>
                 <td>${dataHora(r.solicitado_em)}</td><td class="num">${moeda(r.valor)}</td>
-                <td class="num">${moeda(d.liquido)}${r.status === "paga" ? `<span class="sub">INSS ${moeda(r.inss)} · capital ${moeda(r.contribuicao)}${Number(r.fic_vol) ? " · FIC " + moeda(r.fic_vol) : ""}</span>` : r.status === "solicitada" ? '<span class="sub">estimado</span>' : ""}</td>
+                <td class="num">${moeda(d.liquido)}${r.status === "paga" ? `<span class="sub">INSS ${moeda(r.inss)}${Number(r.ir) ? " · IR " + moeda(r.ir) : ""} · capital ${moeda(r.contribuicao)}${Number(r.fic_vol) ? " · FIC " + moeda(r.fic_vol) : ""}</span>` : r.status === "solicitada" ? '<span class="sub">estimado</span>' : ""}</td>
                 <td>${r.status === "paga" ? "paga em " + data(r.pago_em) : data(r.prazo)}</td>
                 <td>${STR[r.status] || esc(r.status)}${r.motivo ? `<span class="sub">${esc(r.motivo)}</span>` : ""}</td>
                 <td class="acoes-celula">${r.status === "solicitada" ? `<button class="btn btn-ghost btn-sm" data-cancret="${r.id}">Cancelar</button>` : ""}</td></tr>`; }).join("")}</tbody>
@@ -211,6 +217,7 @@
             <details class="explica"><summary>O que é cada valor da retirada</summary>
               <ul class="hint" style="margin:.5rem 0 0;padding-left:1.1rem;display:grid;gap:.35rem">
                 <li><b>INSS (11%)</b> ${i("inss")} — retido e recolhido pela cooperativa.</li>
+                <li><b>Imposto de renda</b> ${i("ir")} — retido na fonte; isento até R$ 5.000 no mês.</li>
                 <li><b>Contribuição de capital (1,5%)</b> ${i("contrib")} — vai para as suas quotas.</li>
                 <li><b>FIC voluntário</b> ${i("ficvol")} — só se você escolheu aportar.</li>
                 <li><b>FIC da cooperativa (5,5%)</b> ${i("ficcoop")} — pago pela cooperativa.</li>
@@ -303,7 +310,7 @@
 
           ${(det.mensal || []).length ? `<section class="painel">
             <h2>${comRet ? "Retiradas e contribuição de capital, mês a mês" : "Contribuição mensal de capital, mês a mês"}</h2>
-            ${comRet ? '<p class="hint">Retirada = crédito que você pediu e a tesouraria pagou no mês. Do bruto saem o INSS (11%), a contribuição de capital (1,5%) e o FIC voluntário, se houver.</p>' : ""}
+            ${comRet ? '<p class="hint">Retirada = crédito que você pediu e a tesouraria pagou no mês. Do bruto saem o INSS (11%), o IR retido, a contribuição de capital (1,5%) e o FIC voluntário, se houver.</p>' : ""}
             <div class="tabela-wrap"><table class="tabela">
               <thead><tr><th>Mês</th><th class="num">Retirada</th>${comRet ? '<th class="num">INSS</th><th class="num">Líquido</th>' : ""}<th class="num">Devida</th><th class="num">Paga</th><th class="num">Em aberto</th></tr></thead>
               <tbody>${det.mensal.map((m) => { const [a, mm] = m.mes.split("-"); return `<tr><td>${["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"][Number(mm) - 1]}/${a}</td><td class="num">${moeda(m.retirada)}</td>${comRet ? `<td class="num">${moeda(m.inss || 0)}</td><td class="num">${moeda(m.liquido || 0)}</td>` : ""}<td class="num">${moeda(m.devida)}</td><td class="num">${moeda(m.paga)}</td><td class="num">${m.em_aberto > 0.005 ? `<span class="selo err">${moeda(m.em_aberto)}</span>` : '<span class="selo ok">ok</span>'}</td></tr>`; }).join("")}</tbody>
@@ -418,20 +425,21 @@
         if (btRet) btRet.onclick = () => {
           const m = window.UI.modal(`
             <h2>Solicitar retirada</h2>
-            <p class="muted">Disponível: <b>${moeda(cr.saldo)}</b>. A tesouraria transfere até <b>${data(prazoNovo)}</b> (${parR.retirada_dia_util}º dia útil do mês seguinte).</p>
-            <div class="field"><label for="rt-valor">Valor bruto a retirar (R$)</label><input class="input" id="rt-valor" inputmode="decimal" autocomplete="off" value="${brl(cr.saldo)}"></div>
+            <p class="muted">Disponível: <b>${moeda(maxPed)}</b>${maxPed + 0.005 < cr.saldo ? ` (seu crédito é ${moeda(cr.saldo)}, mas o caixa atual comporta até ${moeda(maxPed)})` : ""}. A tesouraria transfere até <b>${data(prazoNovo)}</b> (${parR.retirada_dia_util}º dia útil do mês seguinte).</p>
+            <div class="field"><label for="rt-valor">Valor bruto a retirar (R$)</label><input class="input" id="rt-valor" inputmode="decimal" autocomplete="off" value="${brl(maxPed)}"></div>
             <div id="rt-conta" class="pix-aloc"></div>
             <p class="hint">Estimativa. Os valores definitivos são registrados pela tesouraria quando ela fizer a transferência.</p>
             <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="rt-ok">Solicitar</button></div>`);
           const conta = () => {
             const v = lerValor($("#rt-valor", m.el).value), box = $("#rt-conta", m.el);
             if (!(v > 0)) { box.innerHTML = '<p class="hint">Digite um valor.</p>'; return null; }
-            if (v > cr.saldo + 0.005) { box.innerHTML = `<p class="hint" style="color:var(--err)">Passa do seu saldo (${moeda(cr.saldo)}).</p>`; return null; }
+            if (v > maxPed + 0.005) { box.innerHTML = `<p class="hint" style="color:var(--err)">Passa do máximo disponível (${moeda(maxPed)}).</p>`; return null; }
             if (v + 0.005 < parR.retirada_minima) { box.innerHTML = `<p class="hint" style="color:var(--err)">O mínimo é ${moeda(parR.retirada_minima)}.</p>`; return null; }
             const d = Fin.descontosRetirada(ext.cooperado, ext, v, Fin.mesDe(prazoNovo));
             box.innerHTML = `<ul>
               <li><span>Bruto ${i("bruto")}</span><b>${moeda(d.valor)}</b></li>
               <li><span>− INSS 11% ${i("inss")}</span><b>${moeda(d.inss)}</b></li>
+              <li><span>− Imposto de renda ${i("ir")}</span><b>${moeda(d.ir)}</b></li>
               <li><span>− Contribuição de capital 1,5% ${i("contrib")}</span><b>${moeda(d.contribuicao)}</b></li>
               ${d.fic_vol ? `<li><span>− FIC voluntário ${i("ficvol")}</span><b>${moeda(d.fic_vol)}</b></li>` : ""}
               <li><span><b>Líquido na sua conta</b> ${i("liquido")}</span><b>${moeda(d.liquido)}</b></li></ul>`;
