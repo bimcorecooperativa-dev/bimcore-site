@@ -9,7 +9,7 @@
   const ST = { rascunho: ["rascunho", ""], agendada: ["edital publicado", "info"], aberta: ["sala aberta", "warn"], instalada: ["em andamento", "ok"], encerrada: ["encerrada", ""], sem_quorum: ["não instalada: sem quórum", "err"], cancelada: ["cancelada", "err"] };
   const RES = { aprovada: ["aprovada", "ok"], rejeitada: ["rejeitada", "err"], adiada: ["adiada: abstenções acima de 50%", "warn"], consulta: ["consulta registrada", "info"] };
   const VOTO = { favor: "A favor", contra: "Contra", abstencao: "Abstenção" };
-  let salaId = null, timer = null;
+  let salaId = null, timer = null, chamada = null, gravador = null;
 
   const gestor = (ctx) => { const p = ctx.sessao.perfil || {}; return p.status === "ativo" && (p.papel === "coordenacao" || !!p.conselho_fiscal); };
   const quando = (iso) => { const d = new Date(iso); return d.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" }) + " às " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }); };
@@ -21,7 +21,61 @@
   };
   const selo = (s) => { const [t, c] = ST[s] || [s, ""]; return `<span class="selo ${c}">${t}</span>`; };
   const localDT = (iso) => { const d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
-  const parar = () => { if (timer) { clearInterval(timer); timer = null; } };
+  const sairVideo = () => { if (chamada) { const c = chamada; chamada = null; try { c.destroy(); } catch (e) {} } };
+  const parar = () => { if (timer) { clearInterval(timer); timer = null; } sairVideo(); };
+
+  /* ---------- Vídeo dentro do site ---------- */
+  const provedor = (url) => { try { const h = new URL(url).hostname; if (/\.daily\.co$/.test(h)) return "daily"; if (/jit\.si$|8x8\.vc$|jitsi/.test(h)) return "jitsi"; return "externo"; } catch (e) { return "externo"; } };
+  let dailyCarregando = null;
+  const carregarDaily = () => dailyCarregando || (dailyCarregando = new Promise((ok, erro) => {
+    if (window.Daily) return ok(window.Daily);
+    const sc = document.createElement("script"); sc.src = "assets/vendor/daily-js-0.92.2.js"; sc.onload = () => ok(window.Daily); sc.onerror = () => { dailyCarregando = null; erro(new Error("Não foi possível carregar o vídeo.")); }; document.head.appendChild(sc);
+  }));
+  let montagem = 0;
+  async function montarVideo(box, url, nome) {
+    const minha = ++montagem;
+    sairVideo(); box.innerHTML = "";
+    const tipo = provedor(url);
+    if (tipo === "daily") {
+      const Daily = await carregarDaily();
+      const velha = Daily.getCallInstance && Daily.getCallInstance(); if (velha) { try { await velha.destroy(); } catch (e) {} }
+      if (minha !== montagem) return;
+      chamada = Daily.createFrame(box, { url, userName: nome, showLeaveButton: false, showFullscreenButton: true, iframeStyle: { width: "100%", height: "100%", border: "0", borderRadius: "8px" } });
+      await chamada.join({ url, userName: nome }).catch(() => {});
+    } else if (tipo === "jitsi") {
+      const f = document.createElement("iframe");
+      f.src = url + (url.includes("#") ? "&" : "#") + `userInfo.displayName=${encodeURIComponent(JSON.stringify(nome))}&config.prejoinConfig.enabled=false`;
+      f.allow = "camera; microphone; fullscreen; display-capture; autoplay; clipboard-write"; f.style.cssText = "width:100%;height:100%;border:0;border-radius:8px";
+      box.appendChild(f);
+    } else {
+      box.innerHTML = `<div class="asm-video-fora"><p>Esta plataforma (${esc(new URL(url).hostname)}) não permite aparecer dentro do site. O vídeo abre numa janela ao lado; mantenha esta página aberta para votar e acompanhar.</p>
+        <button class="btn btn-primary" type="button" data-janela="${esc(url)}">Abrir o vídeo em janela</button></div>`;
+    }
+  }
+  /* Gravação gratuita no navegador de quem dirige: grava esta aba (vídeo e áudio de todos) + o seu microfone */
+  async function gravar(botao, nomeArquivo) {
+    if (gravador) { gravador.stop(); return; }
+    try {
+      const tela = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 15 }, audio: true, preferCurrentTab: true, selfBrowserSurface: "include" });
+      let mic = null; try { mic = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch (e) {}
+      const ac = new AudioContext(), dest = ac.createMediaStreamDestination();
+      if (tela.getAudioTracks().length) ac.createMediaStreamSource(new MediaStream(tela.getAudioTracks())).connect(dest);
+      if (mic) ac.createMediaStreamSource(mic).connect(dest);
+      const fluxo = new MediaStream([...tela.getVideoTracks(), ...dest.stream.getAudioTracks()]);
+      const tipo = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"].find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
+      const partes = []; gravador = new MediaRecorder(fluxo, tipo ? { mimeType: tipo } : {});
+      gravador.ondataavailable = (e) => { if (e.data && e.data.size) partes.push(e.data); };
+      gravador.onstop = () => {
+        [tela, mic].forEach((m) => m && m.getTracks().forEach((t) => t.stop())); ac.close();
+        const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(partes, { type: "video/webm" })); a.download = nomeArquivo; document.body.appendChild(a); a.click(); a.remove();
+        gravador = null; botao.textContent = "Gravar a assembleia"; botao.classList.remove("btn-danger");
+        toast("Gravação salva no seu computador. Envie ao Google Drive da cooperativa e cole o link na ata (guarda por 5 anos).");
+      };
+      tela.getVideoTracks()[0].onended = () => { if (gravador && gravador.state !== "inactive") gravador.stop(); };
+      gravador.start(10000); botao.textContent = "● Gravando: clique para parar e salvar"; botao.classList.add("btn-danger");
+      toast("Gravando. Na janela do navegador, escolha ESTA aba e marque compartilhar o áudio da aba.");
+    } catch (e) { gravador = null; toast("Gravação não iniciada: " + (e.message || "permissão negada."), "err"); }
+  }
   window.addEventListener("hashchange", () => { if (location.hash !== "#assembleias") parar(); });
 
   /* ---------- Edital (Estatuto, art. 33) ---------- */
@@ -247,17 +301,19 @@ ${a.convocante || ""}`;
     el.innerHTML = `<div class="pag-cab"><div><p class="eyebrow"><a href="#assembleias" id="asm-voltar">← Assembleias</a></p><h1 id="sa-tit"></h1></div><div id="sa-st"></div></div>
       <div class="asm-sala">
         <div class="asm-col">
+          <section class="painel asm-video" id="sa-video"><div class="asm-video-cab"><h2>Videoconferência</h2><div id="sa-vctl" class="sol-acoes"></div></div><div id="sa-frame" class="asm-frame"></div><div id="sa-vinfo"></div></section>
           <section class="painel" id="sa-topo"></section>
           <section class="painel" id="sa-pautas"></section>
           <section class="painel" id="sa-ata"></section>
         </div>
-        <aside class="asm-col">
-          <section class="painel" id="sa-video"></section>
-          <section class="painel" id="sa-pres"></section>
+        <aside class="asm-col asm-lado">
+          <div id="sa-votacao" class="asm-votacao" hidden></div>
           <section class="painel asm-chat" id="sa-chat"><h2>Chat</h2><div class="asm-msgs" id="sa-msgs"></div>
             <form id="sa-cf" class="asm-chat-f" novalidate><input class="input" id="sa-ct" maxlength="1000" placeholder="Escreva e tecle Enter" autocomplete="off"><button class="btn btn-primary btn-sm" type="submit">Enviar</button></form></section>
+          <section class="painel" id="sa-pres"></section>
         </aside>
       </div>`;
+    let videoEstado = null;
     $("#asm-voltar").onclick = (e) => { e.preventDefault(); salaId = null; parar(); render(el, ctx); };
 
     const desenhar = () => {
@@ -280,18 +336,39 @@ ${a.convocante || ""}`;
           ${a.status === "aberta" ? '<button class="btn btn-primary btn-sm" id="sa-instalar">Instalar a assembleia</button><button class="btn btn-danger btn-sm" id="sa-semq">Encerrar sem quórum</button>' : ""}
           ${a.status === "instalada" ? '<button class="btn btn-danger btn-sm" id="sa-encerrar">Encerrar a assembleia</button>' : ""}
         </div>` : ""}`;
-      // vídeo
-      $("#sa-video").innerHTML = `<h2>Videoconferência</h2>
-        ${a.link_video ? `<a class="btn btn-primary" href="${esc(a.link_video)}" target="_blank" rel="noopener">Abrir a sala de vídeo${a.plataforma ? " (" + esc(a.plataforma) + ")" : ""}</a>` : '<p class="vazio">O link da sala de vídeo ainda não foi informado.</p>'}
-        <p class="hint">O vídeo abre em outra aba; mantenha esta página aberta para presença, votação e chat. A sessão é gravada integralmente (art. 31, §1º, III).</p>
-        ${g && !["encerrada", "sem_quorum", "cancelada"].includes(a.status) ? `<form id="sa-lf" class="asm-chat-f" novalidate><input class="input" id="sa-link" type="url" placeholder="Link da sala de vídeo" value="${esc(a.link_video || "")}"><button class="btn btn-ghost btn-sm" type="submit">Salvar link</button></form>` : ""}
-        ${a.gravacao_url ? `<p><a href="${esc(a.gravacao_url)}" target="_blank" rel="noopener">Gravação da assembleia</a></p>` : ""}`;
+      // vídeo: só remonta quando muda o link ou a situação (para não derrubar a chamada a cada atualização)
+      const podeVer = ativa() && presente && !!a.link_video;
+      const estado = (podeVer ? "on:" : "off:") + (a.link_video || "") + ":" + a.status + ":" + presente;
+      if (estado !== videoEstado) {
+        videoEstado = estado;
+        const fr = $("#sa-frame");
+        if (podeVer) { fr.classList.remove("vazia"); montarVideo(fr, a.link_video, (ctx.sessao.perfil.nome || "Cooperado")).catch((e) => { fr.innerHTML = `<p class="vazio">${esc(e.message)}</p>`; }); }
+        else {
+          sairVideo(); fr.classList.add("vazia");
+          fr.innerHTML = `<p class="vazio">${!a.link_video ? "A sala de vídeo ainda não foi configurada." : ["encerrada", "sem_quorum", "cancelada"].includes(a.status) ? "A assembleia terminou." : !ativa() ? "O vídeo aparece aqui quando a sala abrir (30 minutos antes do horário)." : "Registre sua presença abaixo para entrar no vídeo."}</p>`;
+        }
+        $("#sa-vctl").innerHTML = g && ativa() ? `<button class="btn btn-ghost btn-sm permitido" id="sa-gravar" type="button">${gravador ? "● Gravando: clique para parar e salvar" : "Gravar a assembleia"}</button>` : "";
+        $("#sa-vinfo").innerHTML = `<p class="hint">Câmera e microfone pedem permissão do navegador na primeira vez. A sessão é gravada integralmente (art. 31, §1º, III).${a.gravacao_url ? ` <a href="${esc(a.gravacao_url)}" target="_blank" rel="noopener">Ver gravação</a>` : ""}</p>
+          ${g && !["encerrada", "sem_quorum", "cancelada"].includes(a.status) ? `<details class="explica"><summary>Configurar a sala de vídeo</summary><form id="sa-lf" class="asm-chat-f" novalidate style="margin-top:.5rem"><input class="input" id="sa-link" type="url" placeholder="https://bimcore.daily.co/assembleia" value="${esc(a.link_video || "")}"><button class="btn btn-ghost btn-sm" type="submit">Salvar link</button></form><p class="hint">Use uma sala do Daily (aparece dentro do site, gratuito até 10.000 minutos por mês). Links do Google Meet ou Zoom abrem em janela ao lado.</p></details>` : ""}`;
+      }
       // presença
       $("#sa-pres").innerHTML = `<h2>Presentes <span class="contador">${d.presencas.length}</span></h2>
         ${d.presencas.length ? `<ul class="asm-presentes">${d.presencas.map((x) => `<li>${esc(x.nome)}<span class="sub">${hora(x.entrou_em)}${x.apto ? "" : " · sem voto"}${x.orgao ? " · órgão" : ""}</span></li>`).join("")}</ul>` : '<p class="vazio">Ninguém entrou ainda.</p>'}`;
       // pautas
       const votoMeu = (p) => d.votantes.some((v) => v.pauta_id === p.id && v.perfil_id === eu);
       const podeVotar = (p) => minha && minha.apto && !(p.impedir_orgaos && minha.orgao);
+      const atual = d.pautas.find((p) => p.status === "em_votacao"), bar = $("#sa-votacao");
+      if (atual) {
+        const nv = d.votantes.filter((v) => v.pauta_id === atual.id).length, aptos = d.presencas.filter((x) => x.apto && !(atual.impedir_orgaos && x.orgao)).length;
+        const meu = d.votos.filter((v) => v.pauta_id === atual.id && v.perfil_id === eu)[0];
+        bar.hidden = false;
+        bar.innerHTML = `<div><span class="eyebrow">Votação aberta · pauta ${d.pautas.indexOf(atual) + 1}</span><b>${esc(atual.titulo)}</b>
+            <span class="hint">${nv} de ${aptos} aptos já votaram · ${atual.voto_secreto ? "voto secreto" : "voto aberto"} · ${atual.quorum === "dois_tercos" ? "exige 2/3" : "maioria absoluta"}</span></div>
+          <div class="asm-votar">${votoMeu(atual) ? `<span class="selo ok">Seu voto foi registrado${meu && meu.voto ? ": " + VOTO[meu.voto] : ""}</span>`
+            : podeVotar(atual) ? Object.entries(VOTO).map(([k, t]) => `<button class="btn ${k === "favor" ? "btn-primary" : k === "contra" ? "btn-danger" : "btn-ghost"}" data-votar="${atual.id}" data-voto="${k}">${t}</button>`).join("")
+            : `<span class="hint">${!minha ? "Registre sua presença para votar." : !minha.apto ? "Você não vota nesta assembleia." : "Você não vota nesta pauta."}</span>`}
+            ${g ? `<button class="btn btn-ghost btn-sm" data-encp="${atual.id}">Encerrar e apurar</button>` : ""}</div>`;
+      } else { bar.hidden = true; bar.innerHTML = ""; }
       $("#sa-pautas").innerHTML = `<h2>Ordem do dia</h2>${d.pautas.map((p, i) => {
         const r = p.resultado, nv = d.votantes.filter((v) => v.pauta_id === p.id).length;
         const aptos = d.presencas.filter((x) => x.apto && !(p.impedir_orgaos && x.orgao)).length;
@@ -300,11 +377,7 @@ ${a.convocante || ""}`;
           <div class="asm-card-cab"><div><b>${i + 1}. ${esc(p.titulo)}</b>${p.descricao ? `<span class="sub">${esc(p.descricao)}</span>` : ""}
             <span class="sub">${p.quorum === "dois_tercos" ? "Exige 2/3 dos presentes aptos" : "Maioria absoluta dos presentes aptos"}${p.impedir_orgaos ? " · administração e Conselho Fiscal não votam" : ""}${p.status !== "aguardando" ? (p.voto_secreto ? " · voto secreto" : " · voto aberto") : ""}</span></div>
             ${p.status === "em_votacao" ? '<span class="selo warn">votação aberta</span>' : r ? `<span class="selo ${RES[r.resultado][1]}">${RES[r.resultado][0]}</span>` : '<span class="selo">aguardando</span>'}</div>
-          ${p.status === "em_votacao" ? `<p class="hint">${nv} de ${aptos} aptos já votaram.</p>
-            ${votoMeu(p) ? `<p><span class="selo ok">Seu voto foi registrado${meus && meus.voto ? ": " + VOTO[meus.voto] : ""}</span></p>`
-              : podeVotar(p) ? `<div class="asm-votar">${Object.entries(VOTO).map(([k, t]) => `<button class="btn ${k === "favor" ? "btn-primary" : k === "contra" ? "btn-danger" : "btn-ghost"}" data-votar="${p.id}" data-voto="${k}">${t}</button>`).join("")}</div>`
-              : `<p class="hint">${!minha ? "Registre sua presença para votar." : !minha.apto ? "Você não vota nesta assembleia." : "Você não vota nesta pauta."}</p>`}
-            ${g ? `<button class="btn btn-ghost btn-sm" data-encp="${p.id}">Encerrar votação e apurar</button>` : ""}` : ""}
+          ${p.status === "em_votacao" ? `<p class="hint">${nv} de ${aptos} aptos já votaram${votoMeu(p) ? " · seu voto foi registrado" + (meus && meus.voto ? ": " + VOTO[meus.voto] : "") : ""}. Vote no quadro de votação (ao lado do vídeo; no celular, fixo embaixo da tela).</p>` : ""}
           ${p.status === "aguardando" && g && a.status === "instalada" ? `<div class="sol-acoes"><label class="ciente" style="margin:0"><input type="checkbox" data-sec="${p.id}"> <span>Voto secreto (se a assembleia decidiu assim, art. 40, §2º)</span></label><button class="btn btn-primary btn-sm" data-abrirp="${p.id}">Abrir votação</button></div>` : ""}
           ${r ? `<div class="asm-res"><span>A favor <b>${r.favor}</b></span><span>Contra <b>${r.contra}</b></span><span>Abstenções <b>${r.abstencao}</b></span><span>Sem voto <b>${r.nao_votaram}</b></span><span>Aptos <b>${r.aptos}</b></span><span>Necessário <b>${r.necessario}</b></span></div>
             ${!r.secreto ? `<p class="hint">${d.votos.filter((v) => v.pauta_id === p.id).map((v) => `${esc(v.nome)}: ${VOTO[v.voto] || "—"}`).join(" · ")}</p>` : ""}` : ""}
@@ -341,6 +414,8 @@ ${a.convocante || ""}`;
     el.onclick = async (e) => {
       const b = e.target.closest("button"); if (!b) return;
       const fazer = async (fn, msg) => { if (await acao(b, fn, msg)) { d = await API.assembleias.obter(id); desenhar(); if (!timer && ativa()) timer = setInterval(atualizar, 4000); } };
+      if (b.id === "sa-gravar") return gravar(b, `assembleia-${String(d.assembleia.data_hora).slice(0, 10)}.webm`);
+      if (b.dataset.janela) { window.open(b.dataset.janela, "bimcore-video", "width=1100,height=720"); return; }
       if (b.id === "sa-edital") return mostrarEdital({ ...d.assembleia, pautas: d.pautas });
       if (b.id === "sa-entrar") return fazer(() => API.assembleias.entrar(id), "Presença registrada.");
       if (b.id === "sa-instalar") return fazer(() => API.assembleias.instalar(id), "Assembleia instalada. Abra a votação de cada pauta.");

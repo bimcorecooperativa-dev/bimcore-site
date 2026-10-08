@@ -316,3 +316,22 @@ select.mini { padding: 0.4rem 0.5rem; font-size: 0.85rem; width: auto; }
 .asm-chat-f { display: flex; gap: .5rem; } .asm-chat-f .input { flex: 1; min-width: 0; }
 .asm-ata-txt { width: 100%; font: .85rem/1.5 var(--mono); }
 @media (max-width: 900px) { .asm-sala { grid-template-columns: 1fr; } }
+
+/* Sala: vídeo dentro do site e votação sempre visível */
+.asm-votacao { z-index: 30; display: grid; gap: .7rem;
+  padding: .9rem 1.1rem; border: 1px solid var(--warn); border-radius: var(--radius); background: rgba(15, 27, 43, .97); box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+.asm-votacao b { display: block; font-size: 1.05rem; margin: .1rem 0; }
+.asm-votacao .eyebrow { color: var(--warn); }
+.asm-votacao .asm-votar { margin: 0; }
+.asm-video-cab { display: flex; justify-content: space-between; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.asm-video-cab h2 { margin: 0; }
+.asm-frame { width: 100%; aspect-ratio: 16 / 9; min-height: 320px; margin: .7rem 0 .4rem; border-radius: 8px; background: #050a12; overflow: hidden; }
+.asm-frame.vazia { display: grid; place-items: center; aspect-ratio: auto; min-height: 140px; text-align: center; padding: 1rem; }
+.asm-video-fora { display: grid; place-items: center; align-content: center; gap: .8rem; height: 100%; padding: 1.5rem; text-align: center; color: var(--muted); }
+.asm-lado { position: sticky; top: calc(var(--topo-h, 64px) + 12px); }
+.asm-lado .asm-msgs { max-height: 45vh; }
+@media (max-width: 900px) {
+  .asm-lado { position: static; } .asm-frame { min-height: 220px; }
+  .asm-votacao { position: fixed; left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); max-height: 45vh; overflow: auto; }
+  .asm-sala:has(.asm-votacao:not([hidden])) { padding-bottom: 12rem; }
+}
