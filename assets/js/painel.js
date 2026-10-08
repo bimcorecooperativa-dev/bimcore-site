@@ -51,6 +51,12 @@
       async render(el, ctx) { return window.Assembleias.render(el, ctx); }
     },
 
+    propostas: {
+      titulo: "Propostas e sugestões",
+      async contador(ctx) { return window.Propostas.contador(ctx); },
+      async render(el, ctx) { return window.Propostas.render(el, ctx); }
+    },
+
     horas: {
       titulo: "Minhas horas",
       async render(el) {

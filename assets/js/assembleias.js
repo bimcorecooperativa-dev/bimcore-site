@@ -214,17 +214,74 @@ ${a.convocante || ""}`;
   }
 
   /* ---------- Convocar / editar rascunho e pautas ---------- */
-  function formAssembleia(a, aoSalvar) {
+  const PASSO_A_PASSO = `<details class="explica asm-passo" open><summary><b>Passo a passo para convocar e realizar a assembleia</b> (clique para recolher)</summary>
+    <h4>Parte 1 — Montar a convocação (agora)</h4>
+    <ol>
+      <li><b>Tipo.</b> Escolha conforme o assunto:
+        <ul>
+          <li><b>Ordinária (AGO):</b> uma vez por ano, em dezembro: prestação de contas com parecer do Conselho Fiscal, destinação das sobras, eleição do Presidente e do Vice (Estatuto, art. 42).</li>
+          <li><b>Extraordinária (AGE):</b> sempre que necessário, sobre qualquer assunto do edital. É a que se usa para um assunto <b>urgente ou imprevisto</b>. É obrigatória para reforma do Estatuto, fusão, incorporação, desmembramento, mudança de objeto e dissolução, que exigem 2/3 (arts. 43 e 44).</li>
+          <li><b>Especial:</b> pelo menos uma vez por ano: plano de trabalho e orçamento, planejamento, nomeação e destituição do Conselho de Administração e do Conselho Fiscal, organização do trabalho (art. 45).</li>
+          <li><b>Pré-assembleia:</b> conversa consultiva para amadurecer um tema antes da assembleia. Não tem quórum e não decide (RI, art. 60).</li>
+        </ul></li>
+      <li><b>Título.</b> Curto e claro, por exemplo "AGE: reajuste da tabela de valor-hora".</li>
+      <li><b>Data e hora.</b> No mínimo 10 dias depois do dia em que você publicar o edital; o ideal são uns 20 (art. 30; RI, art. 61). Se a pauta veio de uma <b>proposta de cooperado</b>, a proposta precisa ter sido apresentada pelo menos 30 dias antes da data da assembleia (art. 7º, §1º). Se for urgente e ainda não tiver 30 dias, você pode levá-la como pauta da própria administração.</li>
+      <li><b>Duração mínima.</b> Deixe 120 minutos ou mais: numa assembleia digital, o quórum é verificado durante todo esse período (art. 30, §2º).</li>
+      <li><b>Sala de vídeo.</b> Cole o link da sala do Daily (por exemplo https://seunome.daily.co/assembleia). Pode ser a mesma sala para todas as assembleias.</li>
+      <li><b>Quem convoca.</b> Seu nome e o cargo, por exemplo "Felipe Oliveira Gamboni, Presidente". Vai no edital.</li>
+      <li>Clique em <b>Salvar</b>. A assembleia vira <b>rascunho</b> (só a gestão vê) e esta janela reabre para as pautas.</li>
+      <li><b>Pautas da ordem do dia.</b> Inclua uma por vez, cada uma com um assunto só. Para cada uma:
+        <ul>
+          <li>marque <b>2/3</b> se for reforma do Estatuto, fusão, incorporação, desmembramento, mudança de objeto ou dissolução;</li>
+          <li>marque <b>"administração e Conselho Fiscal não votam"</b> se for prestação de contas ou assunto que diga respeito a eles (arts. 37 e 42, §1º).</li>
+        </ul>
+        Só pode ser votado o que estiver no edital. Assunto novo no dia só é discutido e exige outra assembleia para decidir (art. 38).</li>
+      <li>Feche e confira o rascunho. Quando estiver tudo certo, clique em <b>Publicar edital</b>. A partir daí, data, tipo e pautas <b>não mudam mais</b>; se algo estiver errado, cancele e convoque outra.</li>
+      <li>Clique em <b>Enviar convocação</b>:
+        <ol type="a">
+          <li><b>Copiar edital</b>, depois <b>Abrir e-mail</b> (todos em cópia oculta). Cole o edital no corpo e envie (art. 34);</li>
+          <li><b>Compartilhar no WhatsApp</b> no grupo da cooperativa (RI, art. 61);</li>
+          <li><b>Marcar convocação como enviada</b>. A data vai para a ata.</li>
+        </ol></li>
+      <li>Lembre quem ainda não tem conta no site de criar a conta antes do dia. Sem conta, a pessoa não registra presença nem vota, e o quórum conta o quadro social inteiro.</li>
+    </ol>
+    <h4>Parte 2 — No dia</h4>
+    <ol>
+      <li>Até 30 minutos antes, entre em <b>Assembleias</b>, abra a assembleia e clique em <b>Abrir a sala</b>.</li>
+      <li>Clique em <b>Registrar minha presença e entrar</b>. O vídeo aparece; permita câmera e microfone.</li>
+      <li>Clique em <b>Gravar a assembleia</b> (Chrome ou Edge, no computador). Escolha <b>esta aba</b> e marque <b>compartilhar áudio da aba</b>. A gravação é obrigatória (art. 31, §1º, III).</li>
+      <li>Acompanhe o quórum na tela: 2/3 na 1ª hora, metade + 1 na 2ª, mínimo de 4 a partir da 3ª. Quando atingir, clique em <b>Instalar a assembleia</b>. Antes do horário do edital não instala.</li>
+      <li>Escolha no vídeo quem secretaria (art. 36). Em prestação de contas, passe a condução a um cooperado indicado pelo plenário; você e os conselheiros saem da mesa, mas continuam presentes para esclarecer (art. 37).</li>
+      <li>Para cada pauta, na ordem:
+        <ol type="a">
+          <li>apresente e abra a discussão no vídeo;</li>
+          <li>se alguém pedir voto secreto, decida com a assembleia; se for o caso, marque <b>Voto secreto</b> (art. 40, §2º);</li>
+          <li>clique em <b>Abrir votação</b>. Todos veem o quadro de votação e votam A favor, Contra ou Abstenção;</li>
+          <li>quando todos tiverem votado, ou o tempo combinado acabar, clique em <b>Encerrar e apurar</b>. O site aplica a regra: maioria absoluta dos presentes aptos (ou 2/3); se as abstenções passarem de 50%, a pauta é adiada (art. 38).</li>
+        </ol></li>
+      <li>Ao final, clique em <b>Encerrar a assembleia</b> e pare a gravação. O arquivo é salvo no seu computador: envie ao Google Drive da cooperativa, onde fica guardado por 5 anos.</li>
+      <li><b>Se não der quórum:</b> espere todo o período mínimo da sessão e clique em <b>Encerrar sem quórum</b>. Faça nova convocação com pelo menos 10 dias úteis (art. 32).</li>
+    </ol>
+    <h4>Parte 3 — Ata (em até 10 dias)</h4>
+    <ol>
+      <li>Na mesma página, clique em <b>Gerar rascunho a partir dos registros</b>. Complete o nome de quem presidiu e de quem secretariou, cole o link da gravação e clique em <b>Salvar ata</b>.</li>
+      <li>Peça para assinarem pelo site: a mesa, os administradores e conselheiros fiscais presentes e a comissão de até 5 cooperados escolhida na assembleia (art. 39).</li>
+      <li>Clique em <b>Publicar ata</b>. Ela fica disponível para todos os cooperados (RI, art. 63).</li>
+    </ol>
+  </details>`;
+  function formAssembleia(a, aoSalvar, pre) {
+    pre = pre || {};
     const min = new Date(Date.now() + 10 * 86400000 + 3600000);
     const m = UI.modal(`<h2>${a ? "Editar assembleia" : "Convocar assembleia"}</h2>
-      <p class="muted">Fica como rascunho até você publicar o edital. O edital precisa sair com pelo menos 10 dias de antecedência; o Regimento recomenda cerca de 20 (Estatuto, art. 30; RI, art. 61).</p>
+      ${a ? PASSO_A_PASSO.replace('class="explica asm-passo" open>', 'class="explica asm-passo">') : PASSO_A_PASSO}
+      ${pre.proposta ? `<div class="notice">Convocando a partir da proposta <b>${esc(pre.proposta.titulo)}</b>, de ${esc(pre.proposta.autor_nome || "")}. Ela entra sozinha como pauta.</div>` : ""}
       <div class="form-grid">
-        <div class="field"><label for="as-tipo">Tipo</label><select class="input" id="as-tipo">${Object.entries(TIPOS).map(([k, t]) => `<option value="${k}" ${a && a.tipo === k ? "selected" : ""}>${t}</option>`).join("")}</select></div>
-        <div class="field"><label for="as-tit">Título</label><input class="input" id="as-tit" maxlength="120" value="${esc(a ? a.titulo : "")}" placeholder="Ex.: Aprovação do Plano Anual 2027"></div>
+        <div class="field"><label for="as-tipo">Tipo</label><select class="input" id="as-tipo">${Object.entries(TIPOS).map(([k, t]) => `<option value="${k}" ${(a ? a.tipo : pre.tipo) === k ? "selected" : ""}>${t}</option>`).join("")}</select></div>
+        <div class="field"><label for="as-tit">Título</label><input class="input" id="as-tit" maxlength="120" value="${esc(a ? a.titulo : pre.titulo || "")}" placeholder="Ex.: Aprovação do Plano Anual 2027"></div>
         <div class="field"><label for="as-dh">Data e hora</label><input class="input" id="as-dh" type="datetime-local" value="${a ? localDT(a.data_hora) : localDT(min.toISOString())}"></div>
         <div class="field"><label for="as-dur">Duração mínima (minutos)</label><input class="input" id="as-dur" type="number" min="120" step="30" value="${a ? a.duracao_min : 120}"><span class="hint">Digital: no mínimo 2 horas (art. 30, §2º).</span></div>
-        <div class="field"><label for="as-plat">Plataforma de vídeo</label><input class="input" id="as-plat" maxlength="60" value="${esc(a ? a.plataforma || "" : "Google Meet")}"></div>
-        <div class="field"><label for="as-link">Link da sala de vídeo</label><input class="input" id="as-link" type="url" value="${esc(a ? a.link_video || "" : "")}" placeholder="https://meet.google.com/..."></div>
+        <div class="field"><label for="as-plat">Plataforma de vídeo</label><input class="input" id="as-plat" maxlength="60" value="${esc(a ? a.plataforma || "" : "Daily")}"></div>
+        <div class="field"><label for="as-link">Link da sala de vídeo</label><input class="input" id="as-link" type="url" value="${esc(a ? a.link_video || "" : "")}" placeholder="https://seunome.daily.co/assembleia"></div>
         <div class="field full"><label for="as-conv">Quem convoca (nome e qualidade, vai no edital)</label><input class="input" id="as-conv" maxlength="120" value="${esc(a ? a.convocante || "" : "")}" placeholder="Ex.: Felipe Oliveira Gamboni, Presidente"></div>
       </div>
       ${a ? `<h3 class="mini-tit">Ordem do dia</h3><div id="as-pautas"></div>
@@ -262,7 +319,15 @@ ${a.convocante || ""}`;
       const ok = await acao(e.currentTarget, () => API.assembleias.salvar(d), a ? "Assembleia atualizada." : "Rascunho criado. Agora inclua as pautas.");
       if (ok) {
         m.fechar();
-        if (!a) { const lista = await API.assembleias.listar(); const novo = lista.filter((x) => x.status === "rascunho" && x.titulo === d.titulo).sort((x, y) => String(y.criado_em).localeCompare(String(x.criado_em)))[0]; if (novo) formAssembleia(novo, aoSalvar); }
+        if (!a) {
+          const lista = await API.assembleias.listar(); let novo = lista.filter((x) => x.status === "rascunho" && x.titulo === d.titulo).sort((x, y) => String(y.criado_em).localeCompare(String(x.criado_em)))[0];
+          if (novo && pre.proposta) {
+            await API.assembleias.salvarPauta({ assembleia_id: novo.id, ordem: 1, titulo: pre.proposta.titulo, descricao: `Proposta de ${pre.proposta.autor_nome || "cooperado"}: ${pre.proposta.descricao}`.slice(0, 400) }).catch(() => {});
+            await API.propostas.editar(pre.proposta.id, { status: "incluida", assembleia_id: novo.id, resposta: pre.resposta || "Incluída como pauta de assembleia." }).catch(() => {});
+            novo = (await API.assembleias.listar()).find((x) => x.id === novo.id) || novo;
+          }
+          if (novo) formAssembleia(novo, aoSalvar);
+        }
       }
     };
   }
@@ -443,5 +508,5 @@ ${a.convocante || ""}`;
     };
   }
 
-  window.Assembleias = { render, anuncio, sinal, textoEdital, rascunhoAta };
+  window.Assembleias = { render, anuncio, sinal, textoEdital, rascunhoAta, convocar: (pre, aoSalvar) => formAssembleia(null, aoSalvar || (() => {}), pre), formAssembleia };
 })();

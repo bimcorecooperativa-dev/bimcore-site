@@ -300,6 +300,28 @@
           return espera((s.producao_historico || []).filter((x) => ve || x.cooperado_id === u.id).map((x) => ({ ...x, cooperado_nome: nomePessoa(s, x.cooperado_id) })).sort((a, b) => b.em.localeCompare(a.em)));
         }
       },
+      propostas: {
+        _s(s) { s.prop = s.prop || { propostas: [], apoios: [], comentarios: [] }; return s.prop; },
+        _g(u) { return u.status === "ativo" && (u.papel === "coordenacao" || u.conselho_fiscal); },
+        async quadro() { const s = ler(); exigir(s); return espera(Math.max(s.perfis.filter((p) => p.status === "ativo").length, ((s.fin && s.fin.cooperados) || []).filter((c) => (c.situacao || "ativo") === "ativo").length)); },
+        async listar() {
+          const s = ler(); exigir(s); const P = this._s(s);
+          return espera(JSON.parse(JSON.stringify(P.propostas.map((p) => ({ ...p, apoios: P.apoios.filter((a) => a.proposta_id === p.id), n_comentarios: P.comentarios.filter((c) => c.proposta_id === p.id).length })).sort((a, b) => b.criado_em.localeCompare(a.criado_em)))));
+        },
+        async comentarios(id) { const s = ler(); exigir(s); return espera(JSON.parse(JSON.stringify(this._s(s).comentarios.filter((c) => c.proposta_id === id)))); },
+        async enviar(d) { const s = ler(); const u = exigir(s); if (u.status !== "ativo") falha("permission denied"); this._s(s).propostas.push({ ...d, id: novoId(), autor_id: u.id, autor_nome: u.nome, status: "enviada", resposta: null, assembleia_id: null, criado_em: new Date().toISOString() }); gravar(s); return espera(true); },
+        async editar(id, d) {
+          const s = ler(); const u = exigir(s); const p = this._s(s).propostas.find((x) => x.id === id); if (!p) falha("Proposta não encontrada.");
+          if (this._g(u)) { if ("status" in d || "resposta" in d) Object.assign(d, { respondido_nome: u.nome, respondido_em: new Date().toISOString() }); Object.assign(p, d); }
+          else if (p.autor_id === u.id && p.status === "enviada") { ["titulo", "descricao", "justificativa", "tipo"].forEach((k) => { if (k in d) p[k] = d[k]; }); }
+          else falha("Depois que a avaliação começa, a proposta não pode mais ser editada.");
+          gravar(s); return espera(true);
+        },
+        async excluir(id) { const s = ler(); const u = exigir(s); const P = this._s(s); const p = P.propostas.find((x) => x.id === id); if (!p || p.autor_id !== u.id || p.status !== "enviada") falha("Só o autor exclui, e só antes da avaliação."); P.propostas = P.propostas.filter((x) => x.id !== id); gravar(s); return espera(true); },
+        async apoiar(id) { const s = ler(); const u = exigir(s); const P = this._s(s); if (!P.apoios.some((a) => a.proposta_id === id && a.perfil_id === u.id)) P.apoios.push({ proposta_id: id, perfil_id: u.id, nome: u.nome, em: new Date().toISOString() }); gravar(s); return espera(true); },
+        async desapoiar(id) { const s = ler(); const u = exigir(s); const P = this._s(s); P.apoios = P.apoios.filter((a) => !(a.proposta_id === id && a.perfil_id === u.id)); gravar(s); return espera(true); },
+        async comentar(id, texto) { const s = ler(); const u = exigir(s); this._s(s).comentarios.push({ id: novoId(), proposta_id: id, perfil_id: u.id, nome: u.nome, texto: String(texto).slice(0, 2000), em: new Date().toISOString() }); gravar(s); return espera(true); }
+      },
       assembleias: {
         _s(s) { s.asm = s.asm || { assembleias: [], pautas: [], presencas: [], votos: [], secretos: [], chat: [], assinaturas: [] }; return s.asm; },
         _gestor(u) { return u.status === "ativo" && (u.papel === "coordenacao" || u.conselho_fiscal); },
@@ -818,6 +840,21 @@
           const nome = {}; ps.forEach((p) => { nome[p.id] = p.nome; });
           return rows.map((r) => ({ ...r, cooperado_nome: nome[r.cooperado_id] || "—" }));
         }
+      },
+      propostas: {
+        async quadro() { const r = await sb.rpc("quadro_social"); return r.error ? 0 : Number(r.data); },
+        async listar() {
+          const [ps, ap, co] = await Promise.all([sb.from("propostas").select("*").order("criado_em", { ascending: false }), sb.from("proposta_apoios").select("*"), sb.from("proposta_comentarios").select("proposta_id")]);
+          const lista = ok(ps), apoios = ap.error ? [] : ap.data, coms = co.error ? [] : co.data;
+          return lista.map((p) => ({ ...p, apoios: apoios.filter((a) => a.proposta_id === p.id), n_comentarios: coms.filter((c) => c.proposta_id === p.id).length }));
+        },
+        async comentarios(id) { return ok(await sb.from("proposta_comentarios").select("*").eq("proposta_id", id).order("em")); },
+        async enviar(d) { ok(await sb.from("propostas").insert({ tipo: d.tipo, titulo: d.titulo, descricao: d.descricao, justificativa: d.justificativa || null })); return true; },
+        async editar(id, d) { ok(await sb.from("propostas").update(d).eq("id", id)); return true; },
+        async excluir(id) { ok(await sb.from("propostas").delete().eq("id", id)); return true; },
+        async apoiar(id) { const uid = await meuId(); const r = await sb.from("proposta_apoios").insert({ proposta_id: id, perfil_id: uid }); if (r.error && !/duplicate/i.test(r.error.message)) ok(r); return true; },
+        async desapoiar(id) { const uid = await meuId(); ok(await sb.from("proposta_apoios").delete().eq("proposta_id", id).eq("perfil_id", uid)); return true; },
+        async comentar(id, texto) { const uid = await meuId(); ok(await sb.from("proposta_comentarios").insert({ proposta_id: id, perfil_id: uid, texto: String(texto).slice(0, 2000) })); return true; }
       },
       assembleias: {
         async listar() {
