@@ -117,10 +117,26 @@
 
     conta: {
       titulo: "Minha conta",
-      async render(el) {
+      async render(el, ctx) {
         const { moeda } = window.UI;
         const Fin = window.Fin;
-        const [pos, movs] = await Promise.all([API.financeiro.minhas(), API.movimentos.meus().catch(() => [])]);
+        const par = await API.fin.parametros().catch(() => ({ modo: "planilha" }));
+        const sistema = par.modo === "sistema";
+        let pos, movs;
+        if (sistema) {
+          const [ext, mv] = await Promise.all([API.fin.extrato(), API.movimentos.meus().catch(() => [])]);
+          movs = mv;
+          if (!ext || !ext.cooperado) {
+            el.innerHTML = `<div class="pag-cab"><div><p class="eyebrow">Financeiro</p><h1>Minha conta na cooperativa</h1></div></div>
+              <p class="vazio">Sua conta do site ainda não está ligada ao seu cadastro financeiro na cooperativa. A tesouraria faz essa ligação em poucos minutos; se demorar, fale com ela.</p>`;
+            return;
+          }
+          const calc = Fin.calcularCooperado(ext.cooperado, ext);
+          calc.cooperado_id = ctx.sessao.perfil.id;
+          pos = [calc];
+        } else {
+          [pos, movs] = await Promise.all([API.financeiro.minhas(), API.movimentos.meus().catch(() => [])]);
+        }
         if (!pos.length) {
           el.innerHTML = `<div class="pag-cab"><div><p class="eyebrow">Financeiro</p><h1>Minha conta na cooperativa</h1></div></div>
             <p class="vazio">A tesouraria ainda não registrou a sua posição financeira. Quando registrar, aqui aparecem seu capital, contribuições, fundos e eventuais pendências.</p>`;
@@ -253,7 +269,7 @@
 
           <p class="hint">Valores registrados pela tesouraria da BIMCORE, conforme o art. 7º, IV do Estatuto. Dúvidas ou divergências: fale com a tesouraria.</p>`;
 
-        const recarregar = () => paginas.conta.render(el);
+        const recarregar = () => paginas.conta.render(el, ctx);
         const lerValor = (t) => { t = String(t || "").replace(/[R$\s]/g, ""); if (t.includes(",")) t = t.replace(/\./g, "").replace(",", "."); return Fin.centavos(Number(t)); };
         const brl = (v) => Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 

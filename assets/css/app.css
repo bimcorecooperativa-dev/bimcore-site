@@ -217,3 +217,14 @@ select.mini { padding: 0.4rem 0.5rem; font-size: 0.85rem; width: auto; }
 .pagar-abater { display: grid; gap: 0.5rem; border-top: 1px solid var(--line); padding-top: 1rem; }
 .pagar-abater .btn { justify-self: start; }
 @media (max-width: 640px) { .pagar-item .btn, .pagar-abater .btn { justify-self: stretch; justify-content: center; } }
+
+/* Tesouraria — sistema */
+.subabas { display: flex; gap: 0.3rem; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+.subabas button { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted); font: 600 0.92rem var(--body); padding: 0.7rem 0.9rem; cursor: pointer; display: inline-flex; gap: 0.4rem; align-items: center; }
+.subabas button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--cyan); }
+.subabas button:hover { color: var(--fg); }
+.part-lista { display: grid; gap: 0.35rem; max-height: 14rem; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius); padding: 0.7rem; background: var(--bg-2); }
+.mini-tit { font-size: 0.95rem; font-family: var(--body); font-weight: 600; margin-top: 0.4rem; }
+.modal .form-grid { gap: 0.8rem; }
+@media (max-width: 640px) { .subabas { flex-wrap: nowrap; overflow-x: auto; } .subabas button { white-space: nowrap; } }
+#t-corpo { display: grid; gap: 1.6rem; }

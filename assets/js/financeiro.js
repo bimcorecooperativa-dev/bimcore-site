@@ -11,7 +11,7 @@
   const nomeMes = (m) => { if (!m) return "mês atual"; const [a, mm] = m.split("-"); return `${MESES[Number(mm) - 1]}/${a}`; };
 
   /* Movimento ainda não lançado na planilha enviada */
-  const pendenteDePlanilha = (m) => !m.incorporado_em;
+  const pendenteDePlanilha = (m) => !m.incorporado_em && !m.lancado;
   const vale = (m) => pendenteDePlanilha(m) && m.status === "confirmado";
   const reserva = (m) => pendenteDePlanilha(m) && (m.status === "confirmado" || (m.status === "aguardando" && m.tipo === "pix"));
 
@@ -101,6 +101,87 @@
       (x.alocacao || []).forEach((al) => { if (al.destino === "contribuicao" && al.mes === mes) { if (x.status === "confirmado") confirmado += Number(al.valor); else aguardando += Number(al.valor); } }));
     const pago = centavos(naPlanilha + confirmado);
     return { mes, valor, pago, aguardando: centavos(aguardando), resta: centavos(Math.max(0, valor - pago - aguardando)) };
+  }
+
+
+  /* ================================================================
+     Sistema financeiro (etapa 1): cálculo pelo Estatuto a partir dos
+     lançamentos da tesouraria. Reproduz as abas Resumo e Posição da
+     planilha: capital, contribuições mensais, chamadas de despesa e aportes.
+     ================================================================ */
+  const mesDe = (d) => (d ? String(d).slice(0, 7) : null);
+  const somaMes = (mes, n) => { const [a, m] = mes.split("-").map(Number); const d = new Date(Date.UTC(a, m - 1 + n, 1)); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`; };
+  const fimDoMes = (mes) => { const [a, m] = mes.split("-").map(Number); const d = new Date(Date.UTC(a, m, 0)); return d.toISOString().slice(0, 10); };
+  const mesHoje = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
+  const TIPOS_PAG = {
+    despesa: "Pagamento de despesa", aporte: "Aporte à cooperativa", contribuicao: "Contribuição mensal",
+    integralizacao: "Integralização de quotas", abatimento: "Abatimento com aportes", chamada: "Chamada de despesa (sem despesa definida)"
+  };
+  const mesFechamento = (par) => (par && par.fechamento ? mesDe(par.fechamento) : mesHoje());
+
+  function calcularCooperado(c, base) {
+    const par = base.parametros || {};
+    const quota = Number(par.quota || 50);
+    const inicio = mesDe(par.contrib_inicio || "2026-04-01");
+    const fech = mesFechamento(par);
+    const desp = {}; (base.despesas || []).forEach((d) => { desp[d.id] = d; });
+    const pags = (base.pagamentos || []).filter((p) => p.fin_cooperado_id === c.id);
+    const adm = mesDe(c.data_admissao), sai = mesDe(c.data_desligamento);
+    const ativo = (m) => !!adm && adm <= m && (!sai || sai >= m);
+    const partes = (base.despesas || []).filter((d) => d.cobrar && (d.participantes || []).includes(c.id))
+      .map((d) => ({ mes: mesDe(d.data), valor: d.n_participantes ? centavos(Number(d.valor) / d.n_participantes) : centavos(Number(d.valor) / (d.participantes || []).length) }));
+    const cobrada = (p) => (p.tipo === "despesa" && p.despesa_id && desp[p.despesa_id] && desp[p.despesa_id].cobrar) || p.tipo === "chamada";
+    const ehAporte = (p) => p.tipo === "aporte" || (p.tipo === "despesa" && !(p.despesa_id && desp[p.despesa_id] && desp[p.despesa_id].cobrar));
+    const soma = (arr, f) => centavos(arr.reduce((t, x) => t + Number(f ? f(x) : x.valor), 0));
+
+    // meses relevantes
+    const mesesSet = new Set();
+    for (let m = inicio; m <= fech; m = somaMes(m, 1)) mesesSet.add(m);
+    pags.forEach((p) => { if (p.tipo === "contribuicao" && p.mes_ref) mesesSet.add(mesDe(p.mes_ref)); if (cobrada(p) && p.data) mesesSet.add(mesDe(p.data)); });
+    partes.forEach((x) => { if (x.mes) mesesSet.add(x.mes); });
+    const meses = [...mesesSet].sort();
+    const mensal = meses.map((m) => {
+      const devida = ativo(m) && m >= inicio && m <= fech ? quota : 0;
+      const paga = soma(pags.filter((p) => p.tipo === "contribuicao" && mesDe(p.mes_ref) === m));
+      const v = soma(partes.filter((x) => x.mes === m));
+      const w = soma(pags.filter((p) => cobrada(p) && mesDe(p.data) === m));
+      return { mes: m, retirada: 0, devida, paga, em_aberto: centavos(devida - paga + Math.max(0, v - w)) };
+    });
+    const H = soma(mensal, (x) => x.devida);
+    const I = soma(pags.filter((p) => p.tipo === "contribuicao"));
+    const J = soma(partes);
+    const K = soma(pags.filter(cobrada));
+    const AB = centavos(soma(pags.filter(ehAporte)) + Math.max(0, K - J));
+    const pixInteg = soma(pags.filter((p) => p.tipo === "integralizacao"));
+    const comp = soma(pags.filter((p) => p.tipo === "abatimento"));
+    const qi = Number(c.quotas_iniciais || 0), L0 = Number(c.integralizado_admissao || 0);
+    const AC = centavos(Math.min(AB, Math.max(0, qi * quota - L0 - pixInteg), (c.compensar_aportes ? AB : 0) + comp));
+    const E = centavos(qi * quota + H);
+    const F = centavos(L0 + I + AC + pixInteg);
+    const G = centavos(E - F);
+    const AE = soma(mensal.filter((x) => x.mes > fech), (x) => x.paga);
+    const L = centavos(Math.max(0, G + AE) + Math.max(0, J - K));
+    const T = centavos(AB - AC);
+    const U = centavos(F + K + T - Math.max(0, K - J));
+    const AD = centavos(Math.max(0, qi * quota - L0 - pixInteg - AC));
+    const aportes = pags.filter((p) => ehAporte(p) || cobrada(p)).map((p) => ({
+      data: p.data, valor: Number(p.valor), tipo: cobrada(p) ? "Pagamento da sua parte" : "Aporte à cooperativa",
+      descricao: (p.despesa_id && desp[p.despesa_id] ? desp[p.despesa_id].descricao : "") || p.observacao || TIPOS_PAG[p.tipo]
+    })).sort((a, b) => String(a.data || "9").localeCompare(String(b.data || "9")));
+    return {
+      id: c.id, fin_cooperado_id: c.id, cooperado_id: c.perfil_id || null, cooperado_nome: c.nome, email: c.email || "",
+      data_base: fimDoMes(fech), criado_em: new Date().toISOString(),
+      quotas_subscritas: centavos(E / quota), capital_subscrito: E, capital_integralizado: F, contribuicoes_pagas: U,
+      contribuicao_mensal: quota, valor_em_aberto: L, meses_em_atraso: mensal.filter((x) => x.em_aberto > 0.005).length,
+      fic_saldo: 0, fundo_13: 0, fundo_ferias: 0, sobras_a_receber: 0, outros_creditos: T,
+      observacao: T > 0 ? "Outros créditos = aportes que você adiantou à cooperativa. Não são sacáveis a qualquer momento: só são devolvidos no desligamento, após aprovação do balanço (art. 19)." : null,
+      detalhes: { mensal, aportes, resumo: { contribuicoes_devidas: H, contribuicoes_pagas_mensais: I, falta_integralizar: G, aportes_brutos: AB, aportes_no_capital: AC, falta_inicial: AD, adiantado: AE, retiradas_ano: 0, chamadas: J, chamadas_pagas: K } }
+    };
+  }
+  function calcular(base) {
+    const out = {};
+    (base.cooperados || []).forEach((c) => { out[c.id] = calcularCooperado(c, base); });
+    return out;
   }
 
   /* ---------- Pix: BR Code estático ---------- */
@@ -197,5 +278,5 @@
     return Array.from(a, (b) => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[b % 32]).join("");
   }
 
-  window.Fin = { PIX, ABA_LANC, centavos, nomeMes, componentes, alocar, proxima, descreverItem, ajustada, pixCopiaECola, crc16, qrSvg, planilhaComLancamentos, lerLancamentos, novoCodigo, vale };
+  window.Fin = { calcular, calcularCooperado, TIPOS_PAG, mesFechamento, mesDe, somaMes, PIX, ABA_LANC, centavos, nomeMes, componentes, alocar, proxima, descreverItem, ajustada, pixCopiaECola, crc16, qrSvg, planilhaComLancamentos, lerLancamentos, novoCodigo, vale };
 })();

@@ -275,6 +275,8 @@
       separador: true,
       async contador() { const m = await API.movimentos.todos(); return m.filter((x) => x.status === "aguardando").length; },
       async render(el, ctx) {
+        const parFin = await API.fin.parametros().catch(() => ({ modo: "planilha" }));
+        if (parFin.modo === "sistema") return window.Tesouraria.render(el, ctx);
         const C = API.CAMPOS_FIN;
         const Fin = window.Fin;
         const [coops, posicoes, imps, ultimaArq, movs] = await Promise.all([API.cooperados.listar(), API.financeiro.todas(), API.financeiro.importacoes(), API.financeiro.ultimaPlanilha().catch(() => null), API.movimentos.todos().catch(() => [])]);

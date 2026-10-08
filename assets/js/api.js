@@ -73,7 +73,7 @@
   /* Motor de demonstração                                               */
   /* ------------------------------------------------------------------ */
   function demoApi() {
-    const KEY = "bimcore-demo-v4";
+    const KEY = "bimcore-demo-v5";
     const SKEY = "bimcore-demo-sessao";
     const novoId = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
     const hoje = new Date();
@@ -112,6 +112,24 @@
           { id: novoId(), importacao_id: "imp-2", cooperado_id: "u-coop", data_base: dia(-5), quotas_subscritas: 10, capital_subscrito: 500, capital_integralizado: 350, contribuicoes_pagas: 350, contribuicao_mensal: 50, valor_em_aberto: 50, meses_em_atraso: 1, fic_saldo: 245.8, fundo_13: 420, fundo_ferias: 420, sobras_a_receber: 0, outros_creditos: 0, observacao: "Contribuição de setembro pendente (exemplo)." },
           { id: novoId(), importacao_id: "imp-2", cooperado_id: "u-coord", data_base: dia(-5), quotas_subscritas: 10, capital_subscrito: 500, capital_integralizado: 500, contribuicoes_pagas: 500, contribuicao_mensal: 50, valor_em_aberto: 0, meses_em_atraso: 0, fic_saldo: 310, fundo_13: 500, fundo_ferias: 500, sobras_a_receber: 0, outros_creditos: 0, observacao: "" }
         ],
+        fin: {
+          parametros: { id: 1, quota: 50, quotas_minimas: 10, contrib_inicio: "2026-04-01", fechamento: null, modo: "sistema" },
+          cooperados: [
+            { id: "fc-coop", nome: "Cooperada Exemplo", email: "cooperado@bimcore.demo", perfil_id: "u-coop", cargo: "", quotas_iniciais: 10, integralizado_admissao: 200, data_admissao: "2026-01-28", situacao: "ativo", data_desligamento: null, compensar_aportes: false, observacao: "" },
+            { id: "fc-coord", nome: "Coordenação (exemplo)", email: "coordenacao@bimcore.demo", perfil_id: "u-coord", cargo: "Presidente", quotas_iniciais: 10, integralizado_admissao: 500, data_admissao: "2026-01-28", situacao: "ativo", data_desligamento: null, compensar_aportes: false, observacao: "" },
+            { id: "fc-sem", nome: "Cooperado Sem Conta (exemplo)", email: "", perfil_id: null, cargo: "", quotas_iniciais: 10, integralizado_admissao: 500, data_admissao: "2026-01-28", situacao: "ativo", data_desligamento: null, compensar_aportes: false, observacao: "" }
+          ],
+          despesas: [
+            { id: "fd-1", data: "2026-02-10", descricao: "Registro na junta comercial (exemplo)", categoria: "Abertura e registro", valor: 300, cobrar: false, participantes: [], observacao: "", criado_nome: "Exemplo" },
+            { id: "fd-2", data: "2026-09-15", descricao: "Taxa aprovada em assembleia (exemplo)", categoria: "Outras", valor: 90, cobrar: true, participantes: ["fc-coop", "fc-coord", "fc-sem"], observacao: "", criado_nome: "Exemplo" }
+          ],
+          pagamentos: [
+            { id: novoId(), data: "2026-02-10", fin_cooperado_id: "fc-coop", tipo: "despesa", despesa_id: "fd-1", mes_ref: null, valor: 120, observacao: "", origem: "tesouraria", criado_nome: "Exemplo" },
+            { id: novoId(), data: "2026-02-10", fin_cooperado_id: "fc-coord", tipo: "despesa", despesa_id: "fd-1", mes_ref: null, valor: 180, observacao: "", origem: "tesouraria", criado_nome: "Exemplo" },
+            { id: novoId(), data: "2026-09-20", fin_cooperado_id: "fc-coord", tipo: "despesa", despesa_id: "fd-2", mes_ref: null, valor: 30, observacao: "", origem: "tesouraria", criado_nome: "Exemplo" },
+            { id: novoId(), data: "2026-05-05", fin_cooperado_id: "fc-coord", tipo: "contribuicao", despesa_id: null, mes_ref: "2026-04-01", valor: 50, observacao: "", origem: "tesouraria", criado_nome: "Exemplo" }
+          ]
+        },
         contatos: [
           { id: novoId(), nome: "Servidor Exemplo", email: "obras@prefeitura.exemplo", orgao: "Secretaria Municipal de Obras", telefone: "", mensagem: "Gostaríamos de entender como funciona o acordo de cooperação técnica para um projeto-piloto.", lido: false, criado_em: dia(-1) + "T14:12:00" }
         ]
@@ -133,6 +151,16 @@
       return u;
     };
     const semSenha = (p) => { const c = { ...p }; delete c.senha; return c; };
+    const lancarDemo = (s, m) => {
+      if (!s.fin || s.fin.parametros.modo !== "sistema" || m.status !== "confirmado" || m.lancado) return;
+      const c = s.fin.cooperados.find((x) => x.perfil_id === m.cooperado_id); if (!c) return;
+      const quando = (m.decidido_em || new Date().toISOString()).slice(0, 10);
+      (m.alocacao || []).forEach((a) => s.fin.pagamentos.push({ id: novoId(), data: quando, fin_cooperado_id: c.id,
+        tipo: a.destino === "integralizacao" ? (m.tipo === "pix" ? "integralizacao" : "abatimento") : a.destino === "contribuicao" ? "contribuicao" : "chamada",
+        despesa_id: null, mes_ref: a.destino === "contribuicao" ? (a.mes || quando.slice(0, 7)) + "-01" : null, valor: a.valor,
+        observacao: m.tipo === "pix" ? "Pix BIMC" + m.codigo : "Abatimento com aportes feito no site", origem: m.tipo === "pix" ? "pix" : "abatimento", movimento_id: m.id, criado_nome: m.decidido_nome }));
+      m.lancado = true;
+    };
     const nomeProjeto = (s, id) => (s.projetos.find((p) => p.id === id) || {}).nome || "—";
     const nomePessoa = (s, id) => (s.perfis.find((p) => p.id === id) || {}).nome || "—";
 
@@ -288,21 +316,49 @@
         },
         async abater(valor) {
           const s = ler(); const u = exigir(s); if (u.status !== "ativo") falha("permission denied");
-          const pos = (s.fin_posicoes || []).filter((p) => p.cooperado_id === u.id).sort((a, b) => b.data_base.localeCompare(a.data_base) || String(b.criado_em || "").localeCompare(String(a.criado_em || "")))[0];
+          let pos = (s.fin_posicoes || []).filter((p) => p.cooperado_id === u.id).sort((a, b) => b.data_base.localeCompare(a.data_base) || String(b.criado_em || "").localeCompare(String(a.criado_em || "")))[0];
+          if (s.fin && s.fin.parametros.modo === "sistema") { const c = s.fin.cooperados.find((x) => x.perfil_id === u.id); pos = c ? window.Fin.calcularCooperado(c, s.fin) : null; if (pos) pos.cooperado_id = u.id; }
           if (!pos) falha("Ainda não há posição financeira sua no site.");
           const c = window.Fin.componentes(pos, (s.fin_movimentos || []).filter((m) => m.cooperado_id === u.id));
           valor = window.Fin.centavos(valor);
           if (!(valor > 0)) falha("Informe um valor maior que zero.");
           if (valor > c.maxAbater + 0.005) falha("O valor máximo para abater agora é " + c.maxAbater.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) + ".");
           s.fin_movimentos = s.fin_movimentos || [];
-          s.fin_movimentos.push({ id: novoId(), codigo: window.Fin.novoCodigo(), cooperado_id: u.id, tipo: "compensacao", valor, alocacao: [{ destino: "integralizacao", valor }], status: "confirmado", decidido_em: new Date().toISOString(), decidido_nome: "Feito pelo cooperado no site", criado_em: new Date().toISOString() });
+          const mv = { id: novoId(), codigo: window.Fin.novoCodigo(), cooperado_id: u.id, tipo: "compensacao", valor, alocacao: [{ destino: "integralizacao", valor }], status: "confirmado", decidido_em: new Date().toISOString(), decidido_nome: "Feito pelo cooperado no site", criado_em: new Date().toISOString() };
+          s.fin_movimentos.push(mv); lancarDemo(s, mv);
           gravar(s); return espera(true);
         },
         async decidir(id, status, motivo) {
           const s = ler(); const u = exigir(s, "tes"); const m = (s.fin_movimentos || []).find((x) => x.id === id && x.status === "aguardando");
-          if (!m) falha("Este Pix já foi decidido."); m.status = status; m.motivo = motivo || null; m.decidido_em = new Date().toISOString(); m.decidido_nome = u.nome; gravar(s); return espera(true);
+          if (!m) falha("Este Pix já foi decidido."); m.status = status; m.motivo = motivo || null; m.decidido_em = new Date().toISOString(); m.decidido_nome = u.nome; lancarDemo(s, m); gravar(s); return espera(true);
         },
         async comprovante() { falha("No modo demonstração os comprovantes não são guardados."); }
+      },
+      fin: {
+        async parametros() { const s = ler(); exigir(s); return espera({ ...s.fin.parametros }); },
+        async extrato() {
+          const s = ler(); const u = exigir(s); const c = s.fin.cooperados.find((x) => x.perfil_id === u.id) || null;
+          const pags = c ? s.fin.pagamentos.filter((p) => p.fin_cooperado_id === c.id) : [];
+          const despesas = c ? s.fin.despesas.filter((d) => (d.cobrar && d.participantes.includes(c.id)) || pags.some((p) => p.despesa_id === d.id))
+            .map((d) => ({ id: d.id, data: d.data, descricao: d.descricao, valor: d.valor, cobrar: d.cobrar, n_participantes: d.participantes.length, participantes: d.participantes.includes(c.id) ? [c.id] : [] })) : [];
+          return espera({ parametros: { ...s.fin.parametros }, cooperado: c, pagamentos: pags, despesas });
+        },
+        async tudo() { const s = ler(); exigir(s, "tes"); return espera(JSON.parse(JSON.stringify(s.fin))); },
+        async salvarParametros(d) { const s = ler(); const u = exigir(s, "tes"); Object.assign(s.fin.parametros, d, { atualizado_nome: u.nome }); gravar(s); return espera(true); },
+        async salvar(tabela, d) {
+          const s = ler(); const u = exigir(s, "tes"); const lista = s.fin[tabela];
+          if (d.id) { const x = lista.find((r) => r.id === d.id); if (!x) falha("Registro não encontrado."); Object.assign(x, d); }
+          else lista.push({ ...d, id: novoId(), criado_nome: u.nome, criado_em: new Date().toISOString() });
+          if (tabela === "cooperados") s.fin.cooperados.forEach((c) => { if (!c.perfil_id) { const p = s.perfis.find((pp) => (c.email && pp.email.toLowerCase() === c.email.toLowerCase()) && !s.fin.cooperados.some((o) => o.perfil_id === pp.id)); if (p) c.perfil_id = p.id; } });
+          gravar(s); return espera(true);
+        },
+        async excluir(tabela, id) {
+          const s = ler(); exigir(s, "tes");
+          if (tabela === "despesas" && s.fin.pagamentos.some((p) => p.despesa_id === id)) falha("Esta despesa tem pagamentos lançados. Apague os pagamentos dela antes.");
+          s.fin[tabela] = s.fin[tabela].filter((r) => r.id !== id);
+          if (tabela === "cooperados") s.fin.pagamentos = s.fin.pagamentos.filter((p) => p.fin_cooperado_id !== id);
+          gravar(s); return espera(true);
+        }
       },
       contatos: {
         async enviar(c) { const s = ler(); s.contatos.push({ tipo: "contato", ...c, nome: c.nome || "Anônimo", id: novoId(), lido: false, criado_em: new Date().toISOString() }); gravar(s); return espera(true); },
@@ -516,6 +572,36 @@
         async comprovante(m) {
           const d = ok(await sb.storage.from("comprovantes").createSignedUrl(m.comprovante, 120));
           return d.signedUrl;
+        }
+      },
+      fin: {
+        async parametros() { const r = await sb.from("fin_parametros").select("*").eq("id", 1).maybeSingle(); return r.error || !r.data ? { modo: "planilha" } : r.data; },
+        async extrato() { return ok(await sb.rpc("meu_extrato")); },
+        async tudo() {
+          const [par, coo, desp, pag] = await Promise.all([
+            sb.from("fin_parametros").select("*").eq("id", 1).single(),
+            sb.from("fin_cooperados").select("*").order("nome"),
+            sb.from("fin_despesas").select("*").order("data", { ascending: false, nullsFirst: false }),
+            sb.from("fin_pagamentos").select("*").order("data", { ascending: false, nullsFirst: false })
+          ]);
+          return { parametros: ok(par), cooperados: ok(coo), despesas: ok(desp), pagamentos: ok(pag) };
+        },
+        async salvarParametros(d) {
+          const uid = await meuId(); const eu = ok(await sb.from("perfis").select("nome").eq("id", uid).single());
+          ok(await sb.from("fin_parametros").update({ ...d, atualizado_em: new Date().toISOString(), atualizado_nome: eu.nome }).eq("id", 1)); return true;
+        },
+        async salvar(tabela, d) {
+          const t = { cooperados: "fin_cooperados", despesas: "fin_despesas", pagamentos: "fin_pagamentos" }[tabela];
+          const dados = { ...d }; delete dados.id; delete dados.criado_em;
+          if (d.id) { ok(await sb.from(t).update(dados).eq("id", d.id)); return true; }
+          if (tabela !== "cooperados") { const uid = await meuId(); const eu = ok(await sb.from("perfis").select("nome").eq("id", uid).single()); dados.criado_nome = eu.nome; }
+          ok(await sb.from(t).insert(dados)); return true;
+        },
+        async excluir(tabela, id) {
+          const t = { cooperados: "fin_cooperados", despesas: "fin_despesas", pagamentos: "fin_pagamentos" }[tabela];
+          const r = await sb.from(t).delete().eq("id", id);
+          if (r.error && /foreign key|violates/i.test(r.error.message || "")) falha("Esta despesa tem pagamentos lançados. Apague os pagamentos dela antes.");
+          ok(r); return true;
         }
       },
       contatos: {

@@ -63,3 +63,7 @@ As planilhas financeiras ficam no bucket privado `financeiro` do Supabase — nu
 - Quem tem aportes pode usá-los, sozinho, só para integralizar as quotas iniciais. O limite é validado no banco (`abater_com_aportes`).
 - Ao clicar em **Baixar planilha atual**, os lançamentos confirmados entram na aba **Lançamentos do site**. A tesoureira abre no Excel, salva e envia de volta; o site recusa o arquivo se ele não foi recalculado e marca os lançamentos como incorporados.
 - Bibliotecas locais em `assets/vendor/`: qrcode-generator 1.4.4 e ExcelJS 4.4.0 (MIT).
+
+### Sistema financeiro (etapa 1)
+
+Com `fin_parametros.modo = 'sistema'` (migração 007), a tesouraria lança tudo em **Financeiro**: despesas (cobradas ou não), pagamentos e aportes, contribuições mensais, integralizações e o cadastro financeiro de cada cooperado (mesmo sem conta no site). O site calcula a posição pelo Estatuto com a mesma lógica da planilha (`Fin.calcular` em `assets/js/financeiro.js`) e exporta tudo para Excel. Pix confirmados e abatimentos entram sozinhos como lançamentos. Os dados financeiros ficam só no Supabase, nunca neste repositório.
