@@ -25,7 +25,7 @@ Com `config.js` vazio, tudo funciona com dados de exemplo guardados no navegador
 ## Ligar o banco real (uma vez)
 
 1. Em supabase.com, crie o projeto `bimcore` (região São Paulo).
-2. Em **SQL Editor**, rode `supabase/schema.sql` e depois as migrações `supabase/migracao-002-admissao.sql` `supabase/migracao-003-financeiro.sql` `supabase/migracao-004-planilha-financeira.sql` `supabase/migracao-005-vinculo-automatico.sql` e `supabase/migracao-006-pix-e-abatimento.sql`, nessa ordem.
+2. Em **SQL Editor**, rode `supabase/schema.sql` e depois as migrações `supabase/migracao-002-admissao.sql` `supabase/migracao-003-financeiro.sql` `supabase/migracao-004-planilha-financeira.sql` `supabase/migracao-005-vinculo-automatico.sql` `supabase/migracao-006-pix-e-abatimento.sql`, `supabase/migracao-007-sistema-financeiro.sql` e `supabase/migracao-008-retiradas.sql`, nessa ordem.
 3. Em **Authentication > URL Configuration**, coloque `https://bimcore.com.br` em *Site URL* e adicione `https://bimcore.com.br/**` em *Redirect URLs*.
 4. Em **Project Settings > API**, copie *Project URL* e *anon public key* para `assets/js/config.js`.
 5. Publique os arquivos, cadastre-se em `bimcore.com.br/entrar.html` e rode no SQL Editor:
@@ -67,3 +67,7 @@ As planilhas financeiras ficam no bucket privado `financeiro` do Supabase — nu
 ### Sistema financeiro (etapa 1)
 
 Com `fin_parametros.modo = 'sistema'` (migração 007), a tesouraria lança tudo em **Financeiro**: despesas (cobradas ou não), pagamentos e aportes, contribuições mensais, integralizações e o cadastro financeiro de cada cooperado (mesmo sem conta no site). O site calcula a posição pelo Estatuto com a mesma lógica da planilha (`Fin.calcular` em `assets/js/financeiro.js`) e exporta tudo para Excel. Pix confirmados e abatimentos entram sozinhos como lançamentos. Os dados financeiros ficam só no Supabase, nunca neste repositório.
+
+### Sistema financeiro (etapa 2)
+
+Migração 008. Aba **Fechamento do mês**: a tesouraria informa horas (ou puxa de "Minhas horas"), dias, 13º e férias pagos; o site calcula retirada pelo valor-hora da categoria (art. 8º), INSS até o teto, contribuição de 1,5%, FIC (5,5% sobre o mês anterior + voluntário), provisões de 13º e férias, auxílios e líquido. Aba **Cooperativa**: movimento mensal, custo de operação, INSS patronal e apuração das sobras (reserva, FATES, FEI, rateio por horas). Todos os percentuais e a tabela salarial ficam em **Configurações**. Cálculo conferido célula a célula com a planilha.

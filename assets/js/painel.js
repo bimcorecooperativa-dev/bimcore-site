@@ -158,6 +158,7 @@
         const aportes = n("outros_creditos");
         const det = p.detalhes || {};
         const res = det.resumo || {};
+        const comRet = (det.mensal || []).some((m) => Number(m.retirada) > 0);
         const restituivel = Math.max(0, n("capital_integralizado") + fundosInd + aportes - n("valor_em_aberto"));
         const linhaFundo = (rot, k, art) => `<tr><td>${rot}<span class="sub">${art}</span></td><td class="num">${moeda(n(k))}</td></tr>`;
 
@@ -240,10 +241,11 @@
           </section>
 
           ${(det.mensal || []).length ? `<section class="painel">
-            <h2>Contribuição mensal de capital, mês a mês</h2>
+            <h2>${comRet ? "Retiradas e contribuição de capital, mês a mês" : "Contribuição mensal de capital, mês a mês"}</h2>
+            ${comRet ? '<p class="hint">Retirada = horas × valor-hora da sua categoria (art. 8º). Do bruto saem o INSS (11%), a contribuição de capital (1,5%) e o FIC voluntário, se houver; entram os auxílios e o 13º e férias quando pagos.</p>' : ""}
             <div class="tabela-wrap"><table class="tabela">
-              <thead><tr><th>Mês</th><th class="num">Retirada</th><th class="num">Devida</th><th class="num">Paga</th><th class="num">Em aberto</th></tr></thead>
-              <tbody>${det.mensal.map((m) => { const [a, mm] = m.mes.split("-"); return `<tr><td>${["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"][Number(mm) - 1]}/${a}</td><td class="num">${moeda(m.retirada)}</td><td class="num">${moeda(m.devida)}</td><td class="num">${moeda(m.paga)}</td><td class="num">${m.em_aberto > 0.005 ? `<span class="selo err">${moeda(m.em_aberto)}</span>` : '<span class="selo ok">ok</span>'}</td></tr>`; }).join("")}</tbody>
+              <thead><tr><th>Mês</th><th class="num">Retirada</th>${comRet ? '<th class="num">INSS</th><th class="num">Auxílios</th><th class="num">Líquido a receber</th>' : ""}<th class="num">Devida</th><th class="num">Paga</th><th class="num">Em aberto</th></tr></thead>
+              <tbody>${det.mensal.map((m) => { const [a, mm] = m.mes.split("-"); return `<tr><td>${["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"][Number(mm) - 1]}/${a}</td><td class="num">${moeda(m.retirada)}</td>${comRet ? `<td class="num">${moeda(m.inss || 0)}</td><td class="num">${moeda((m.aux_tele || 0) + (m.aux_alim || 0))}</td><td class="num">${moeda(m.liquido || 0)}</td>` : ""}<td class="num">${moeda(m.devida)}</td><td class="num">${moeda(m.paga)}</td><td class="num">${m.em_aberto > 0.005 ? `<span class="selo err">${moeda(m.em_aberto)}</span>` : '<span class="selo ok">ok</span>'}</td></tr>`; }).join("")}</tbody>
             </table></div>
           </section>` : ""}
 
@@ -270,7 +272,7 @@
           <p class="hint">Valores registrados pela tesouraria da BIMCORE, conforme o art. 7º, IV do Estatuto. Dúvidas ou divergências: fale com a tesouraria.</p>`;
 
         const recarregar = () => paginas.conta.render(el, ctx);
-        const lerValor = (t) => { t = String(t || "").replace(/[R$\s]/g, ""); if (t.includes(",")) t = t.replace(/\./g, "").replace(",", "."); return Fin.centavos(Number(t)); };
+        const lerValor = (t) => { t = String(t || "").replace(/[R$\s]/g, ""); if (t.includes(",")) t = t.replace(/\./g, "").replace(",", "."); else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, ""); return Fin.centavos(Number(t)); };
         const brl = (v) => Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
         const abrirPix = ({ titulo, texto, valorInicial, max, fixo, alocar }) => {

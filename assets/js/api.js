@@ -73,7 +73,7 @@
   /* Motor de demonstração                                               */
   /* ------------------------------------------------------------------ */
   function demoApi() {
-    const KEY = "bimcore-demo-v5";
+    const KEY = "bimcore-demo-v6";
     const SKEY = "bimcore-demo-sessao";
     const novoId = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
     const hoje = new Date();
@@ -115,10 +115,11 @@
         fin: {
           parametros: { id: 1, quota: 50, quotas_minimas: 10, contrib_inicio: "2026-04-01", fechamento: null, modo: "sistema" },
           cooperados: [
-            { id: "fc-coop", nome: "Cooperada Exemplo", email: "cooperado@bimcore.demo", perfil_id: "u-coop", cargo: "", quotas_iniciais: 10, integralizado_admissao: 200, data_admissao: "2026-01-28", situacao: "ativo", data_desligamento: null, compensar_aportes: false, observacao: "" },
-            { id: "fc-coord", nome: "Coordenação (exemplo)", email: "coordenacao@bimcore.demo", perfil_id: "u-coord", cargo: "Presidente", quotas_iniciais: 10, integralizado_admissao: 500, data_admissao: "2026-01-28", situacao: "ativo", data_desligamento: null, compensar_aportes: false, observacao: "" },
+            { id: "fc-coop", nome: "Cooperada Exemplo", email: "cooperado@bimcore.demo", perfil_id: "u-coop", cargo: "", conselho: "CAU", categoria: "Júnior", teletrabalho: true, fic_voluntario: 0.01, quotas_iniciais: 10, integralizado_admissao: 200, data_admissao: "2026-01-28", situacao: "ativo", data_desligamento: null, compensar_aportes: false, observacao: "" },
+            { id: "fc-coord", nome: "Coordenação (exemplo)", email: "coordenacao@bimcore.demo", perfil_id: "u-coord", cargo: "Presidente", conselho: "CRA", categoria: "Pleno", teletrabalho: false, fic_voluntario: 0, quotas_iniciais: 10, integralizado_admissao: 500, data_admissao: "2026-01-28", situacao: "ativo", data_desligamento: null, compensar_aportes: false, observacao: "" },
             { id: "fc-sem", nome: "Cooperado Sem Conta (exemplo)", email: "", perfil_id: null, cargo: "", quotas_iniciais: 10, integralizado_admissao: 500, data_admissao: "2026-01-28", situacao: "ativo", data_desligamento: null, compensar_aportes: false, observacao: "" }
           ],
+          folha: [], receitas: [],
           despesas: [
             { id: "fd-1", data: "2026-02-10", descricao: "Registro na junta comercial (exemplo)", categoria: "Abertura e registro", valor: 300, cobrar: false, participantes: [], observacao: "", criado_nome: "Exemplo" },
             { id: "fd-2", data: "2026-09-15", descricao: "Taxa aprovada em assembleia (exemplo)", categoria: "Outras", valor: 90, cobrar: true, participantes: ["fc-coop", "fc-coord", "fc-sem"], observacao: "", criado_nome: "Exemplo" }
@@ -341,9 +342,25 @@
           const pags = c ? s.fin.pagamentos.filter((p) => p.fin_cooperado_id === c.id) : [];
           const despesas = c ? s.fin.despesas.filter((d) => (d.cobrar && d.participantes.includes(c.id)) || pags.some((p) => p.despesa_id === d.id))
             .map((d) => ({ id: d.id, data: d.data, descricao: d.descricao, valor: d.valor, cobrar: d.cobrar, n_participantes: d.participantes.length, participantes: d.participantes.includes(c.id) ? [c.id] : [] })) : [];
-          return espera({ parametros: { ...s.fin.parametros }, cooperado: c, pagamentos: pags, despesas });
+          const folha = c ? (s.fin.folha || []).filter((f) => f.fin_cooperado_id === c.id) : [];
+          const horas_total = (s.fin.folha || []).reduce((t, f) => t + Number(f.horas_produtivas || 0) + Number(f.horas_formacao || 0), 0);
+          return espera({ parametros: { ...s.fin.parametros }, cooperado: c, pagamentos: pags, despesas, folha, horas_total });
         },
-        async tudo() { const s = ler(); exigir(s, "tes"); return espera(JSON.parse(JSON.stringify(s.fin))); },
+        async tudo() { const s = ler(); exigir(s, "tes"); s.fin.folha = s.fin.folha || []; s.fin.receitas = s.fin.receitas || []; return espera(JSON.parse(JSON.stringify(s.fin))); },
+        async horasLancadas(mes) {
+          const s = ler(); exigir(s, "tes"); const m = String(mes).slice(0, 7);
+          return espera(s.fin.cooperados.filter((c) => c.perfil_id).map((c) => {
+            const hs = s.producao.filter((h) => h.cooperado_id === c.perfil_id && String(h.data).slice(0, 7) === m);
+            return { fin_cooperado_id: c.id, produtivas: hs.filter((h) => h.tipo === "produtiva").reduce((t, h) => t + Number(h.horas), 0),
+              formacao: hs.filter((h) => h.tipo === "formacao").reduce((t, h) => t + Number(h.horas), 0), dias: new Set(hs.filter((h) => h.tipo === "produtiva" || h.tipo === "formacao").map((h) => h.data)).size };
+          }).filter((x) => x.produtivas || x.formacao));
+        },
+        async salvarFolha(linhas, receita) {
+          const s = ler(); const u = exigir(s, "tes"); s.fin.folha = s.fin.folha || []; s.fin.receitas = s.fin.receitas || [];
+          linhas.forEach((l) => { const x = s.fin.folha.find((f) => f.fin_cooperado_id === l.fin_cooperado_id && f.mes === l.mes); if (x) Object.assign(x, l, { atualizado_nome: u.nome }); else s.fin.folha.push({ ...l, id: novoId(), atualizado_nome: u.nome }); });
+          if (receita) { const r = s.fin.receitas.find((x) => x.mes === receita.mes); if (r) Object.assign(r, receita); else s.fin.receitas.push({ ...receita }); }
+          gravar(s); return espera(true);
+        },
         async salvarParametros(d) { const s = ler(); const u = exigir(s, "tes"); Object.assign(s.fin.parametros, d, { atualizado_nome: u.nome }); gravar(s); return espera(true); },
         async salvar(tabela, d) {
           const s = ler(); const u = exigir(s, "tes"); const lista = s.fin[tabela];
@@ -578,13 +595,23 @@
         async parametros() { const r = await sb.from("fin_parametros").select("*").eq("id", 1).maybeSingle(); return r.error || !r.data ? { modo: "planilha" } : r.data; },
         async extrato() { return ok(await sb.rpc("meu_extrato")); },
         async tudo() {
-          const [par, coo, desp, pag] = await Promise.all([
+          const [par, coo, desp, pag, fol, rec] = await Promise.all([
             sb.from("fin_parametros").select("*").eq("id", 1).single(),
             sb.from("fin_cooperados").select("*").order("nome"),
             sb.from("fin_despesas").select("*").order("data", { ascending: false, nullsFirst: false }),
-            sb.from("fin_pagamentos").select("*").order("data", { ascending: false, nullsFirst: false })
+            sb.from("fin_pagamentos").select("*").order("data", { ascending: false, nullsFirst: false }),
+            sb.from("fin_folha").select("*").order("mes"),
+            sb.from("fin_receitas").select("*").order("mes")
           ]);
-          return { parametros: ok(par), cooperados: ok(coo), despesas: ok(desp), pagamentos: ok(pag) };
+          return { parametros: ok(par), cooperados: ok(coo), despesas: ok(desp), pagamentos: ok(pag), folha: fol.error ? [] : fol.data, receitas: rec.error ? [] : rec.data };
+        },
+        async horasLancadas(mes) { return ok(await sb.rpc("horas_lancadas", { p_mes: mes })); },
+        async salvarFolha(linhas, receita) {
+          const uid = await meuId(); const eu = ok(await sb.from("perfis").select("nome").eq("id", uid).single());
+          const agora = new Date().toISOString();
+          if (linhas.length) ok(await sb.from("fin_folha").upsert(linhas.map((l) => ({ ...l, atualizado_nome: eu.nome, atualizado_em: agora })), { onConflict: "fin_cooperado_id,mes" }));
+          if (receita) ok(await sb.from("fin_receitas").upsert({ ...receita, atualizado_nome: eu.nome, atualizado_em: agora }, { onConflict: "mes" }));
+          return true;
         },
         async salvarParametros(d) {
           const uid = await meuId(); const eu = ok(await sb.from("perfis").select("nome").eq("id", uid).single());

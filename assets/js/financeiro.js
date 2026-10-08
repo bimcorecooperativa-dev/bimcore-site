@@ -119,13 +119,37 @@
   };
   const mesFechamento = (par) => (par && par.fechamento ? mesDe(par.fechamento) : mesHoje());
 
+  /* Parâmetros do Estatuto com os valores padrão da planilha */
+  const PADRAO = { quota: 50, quotas_minimas: 10, contrib_inicio: "2026-04-01", sm: 1621, horas_ref: 120, contrib_pct: 0.015, inss_pct: 0.11, inss_teto: 8475.55,
+    patronal_pct: 0.2, fic_coop_pct: 0.055, fic_vol_max: 0.025, tele_pct: 0.0925, alim_pct: 0.0278, custo_op_pct: 0.2, reserva_pct: 0.1, fates_pct: 0.05,
+    base_demais_pleno: 6600, mult_junior: 8.5, mult_pleno: 11, mult_senior: 14, mult_coord: 17.5, sobras_mercado: 0, sobras_publicas: 0, rateio_pct: 1 };
+  const CATEGORIAS_SAL = [["Júnior", "mult_junior", "Até 5 anos"], ["Pleno", "mult_pleno", "6 a 10 anos"], ["Sênior", "mult_senior", "Acima de 10 anos"], ["Coordenador", "mult_coord", "Acima de 10 anos, com designação do Conselho"]];
+  const CONSELHOS = ["CREA", "CAU", "CFT", "CRA", "OAB", "CRC", "Outro", "Nenhum"];
+  const params = (par) => { const o = { ...PADRAO }; Object.keys(PADRAO).forEach((k) => { if (par && par[k] != null && par[k] !== "") o[k] = typeof PADRAO[k] === "number" ? Number(par[k]) : par[k]; }); return o; };
+  /* Tabela salarial (art. 8º): CREA/CAU = multiplicador × SM; demais conselhos = base Pleno × multiplicador ÷ multiplicador Pleno */
+  function tabelaSalarial(par) {
+    const p = params(par);
+    return CATEGORIAS_SAL.map(([cat, k, exp]) => {
+      const crea = p[k] * p.sm, demais = p.base_demais_pleno * p[k] / p.mult_pleno;
+      return { categoria: cat, experiencia: exp, multiplicador: p[k], crea_mensal: crea, crea_hora: crea / p.horas_ref, demais_mensal: demais, demais_hora: demais / p.horas_ref };
+    });
+  }
+  function valorHora(c, par) {
+    if (!c.categoria) return 0;
+    const t = tabelaSalarial(par).find((x) => x.categoria === c.categoria); if (!t) return 0;
+    return c.conselho === "CREA" || c.conselho === "CAU" ? t.crea_hora : t.demais_hora;
+  }
+  const horasTotais = (base) => base.horas_total != null ? Number(base.horas_total) :
+    (base.folha || []).reduce((t, f) => t + Number(f.horas_produtivas || 0) + Number(f.horas_formacao || 0), 0);
+
   function calcularCooperado(c, base) {
-    const par = base.parametros || {};
-    const quota = Number(par.quota || 50);
-    const inicio = mesDe(par.contrib_inicio || "2026-04-01");
-    const fech = mesFechamento(par);
+    const par = params(base.parametros || {});
+    const quota = par.quota;
+    const inicio = mesDe(par.contrib_inicio);
+    const fech = mesFechamento(base.parametros || {});
     const desp = {}; (base.despesas || []).forEach((d) => { desp[d.id] = d; });
     const pags = (base.pagamentos || []).filter((p) => p.fin_cooperado_id === c.id);
+    const folha = {}; (base.folha || []).filter((f) => f.fin_cooperado_id === c.id).forEach((f) => { folha[mesDe(f.mes)] = f; });
     const adm = mesDe(c.data_admissao), sai = mesDe(c.data_desligamento);
     const ativo = (m) => !!adm && adm <= m && (!sai || sai >= m);
     const partes = (base.despesas || []).filter((d) => d.cobrar && (d.participantes || []).includes(c.id))
@@ -133,22 +157,42 @@
     const cobrada = (p) => (p.tipo === "despesa" && p.despesa_id && desp[p.despesa_id] && desp[p.despesa_id].cobrar) || p.tipo === "chamada";
     const ehAporte = (p) => p.tipo === "aporte" || (p.tipo === "despesa" && !(p.despesa_id && desp[p.despesa_id] && desp[p.despesa_id].cobrar));
     const soma = (arr, f) => centavos(arr.reduce((t, x) => t + Number(f ? f(x) : x.valor), 0));
+    const somaBruta = (arr, f) => arr.reduce((t, x) => t + Number(f(x)), 0);
+    const vh = valorHora(c, base.parametros || {});
+    const ficVol = Math.min(Number(c.fic_voluntario || 0), par.fic_vol_max);
+    const retiradaDe = (m) => { const f = folha[m]; return f ? (Number(f.horas_produtivas || 0) + Number(f.horas_formacao || 0)) * vh : 0; };
 
-    // meses relevantes
     const mesesSet = new Set();
     for (let m = inicio; m <= fech; m = somaMes(m, 1)) mesesSet.add(m);
+    Object.keys(folha).forEach((m) => { mesesSet.add(m); if (retiradaDe(m) > 0) mesesSet.add(somaMes(m, 1)); });
     pags.forEach((p) => { if (p.tipo === "contribuicao" && p.mes_ref) mesesSet.add(mesDe(p.mes_ref)); if (cobrada(p) && p.data) mesesSet.add(mesDe(p.data)); });
     partes.forEach((x) => { if (x.mes) mesesSet.add(x.mes); });
     const meses = [...mesesSet].sort();
     const mensal = meses.map((m) => {
-      const devida = ativo(m) && m >= inicio && m <= fech ? quota : 0;
-      const paga = soma(pags.filter((p) => p.tipo === "contribuicao" && mesDe(p.mes_ref) === m));
-      const v = soma(partes.filter((x) => x.mes === m));
-      const w = soma(pags.filter((p) => cobrada(p) && mesDe(p.data) === m));
-      return { mes: m, retirada: 0, devida, paga, em_aberto: centavos(devida - paga + Math.max(0, v - w)) };
+      const f = folha[m] || {};
+      const hp = Number(f.horas_produtivas || 0), hf = Number(f.horas_formacao || 0), dias = Number(f.dias || 0);
+      const ret = (hp + hf) * vh;
+      const inss = Math.min(ret, par.inss_teto) * par.inss_pct;
+      const devida = ativo(m) && m >= inicio && m <= fech ? (ret > 0 ? ret * par.contrib_pct : quota) : 0;
+      const descontada = ret > 0 ? devida : 0;
+      const pagaDireto = somaBruta(pags.filter((p) => p.tipo === "contribuicao" && mesDe(p.mes_ref) === m), (p) => p.valor);
+      const paga = descontada + pagaDireto;
+      const ficCoop = retiradaDe(somaMes(m, -1)) * par.fic_coop_pct;
+      const ficV = ret * ficVol;
+      const p13 = ret / 12, pfer = ret / 12;
+      const d13 = Number(f.decimo_pago || 0), dfer = Number(f.ferias_pago || 0);
+      const tele = ativo(m) && c.teletrabalho && hp + hf > 0 ? par.tele_pct * par.sm : 0;
+      const alim = ativo(m) ? dias * par.alim_pct * par.sm : 0;
+      const v = somaBruta(partes.filter((x) => x.mes === m), (x) => x.valor);
+      const w = somaBruta(pags.filter((p) => cobrada(p) && mesDe(p.data) === m), (p) => p.valor);
+      const liquido = ret - inss - descontada - ficV + tele + alim + d13 + dfer;
+      return { mes: m, horas_produtivas: hp, horas_formacao: hf, dias, retirada: centavos(ret), inss: centavos(inss), devida: centavos(devida), descontada: centavos(descontada),
+        paga: centavos(paga), fic_coop: centavos(ficCoop), fic_vol: centavos(ficV), prov_13: centavos(p13), prov_ferias: centavos(pfer), decimo_pago: d13, ferias_pago: dfer,
+        aux_tele: centavos(tele), aux_alim: centavos(alim), liquido: centavos(liquido), em_aberto: centavos(devida - paga + Math.max(0, v - w)),
+        _ret: ret, _inss: inss, _dev: devida, _paga: paga, _fic: ficCoop + ficV, _p13: p13, _pf: pfer };
     });
-    const H = soma(mensal, (x) => x.devida);
-    const I = soma(pags.filter((p) => p.tipo === "contribuicao"));
+    const H = centavos(somaBruta(mensal, (x) => x._dev));
+    const I = centavos(somaBruta(mensal, (x) => x._paga));
     const J = soma(partes);
     const K = soma(pags.filter(cobrada));
     const AB = centavos(soma(pags.filter(ehAporte)) + Math.max(0, K - J));
@@ -159,29 +203,57 @@
     const E = centavos(qi * quota + H);
     const F = centavos(L0 + I + AC + pixInteg);
     const G = centavos(E - F);
-    const AE = soma(mensal.filter((x) => x.mes > fech), (x) => x.paga);
+    const AE = centavos(somaBruta(mensal.filter((x) => x.mes > fech), (x) => x._paga));
     const L = centavos(Math.max(0, G + AE) + Math.max(0, J - K));
     const T = centavos(AB - AC);
     const U = centavos(F + K + T - Math.max(0, K - J));
     const AD = centavos(Math.max(0, qi * quota - L0 - pixInteg - AC));
+    const fic = centavos(somaBruta(mensal, (x) => x._fic) + Number(c.fic_rendimentos || 0) - Number(c.fic_resgates || 0));
+    const f13 = centavos(somaBruta(mensal, (x) => x._p13 - x.decimo_pago));
+    const ffer = centavos(somaBruta(mensal, (x) => x._pf - x.ferias_pago));
+    const horas = somaBruta(mensal, (x) => x.horas_produtivas + x.horas_formacao);
+    const totalH = horasTotais(base);
+    const ratear = Math.max(0, par.sobras_mercado * (1 - par.reserva_pct - par.fates_pct)) * par.rateio_pct;
+    const sobras = totalH > 0 ? centavos(ratear * horas / totalH) : 0;
+    const retFech = retiradaDe(fech);
     const aportes = pags.filter((p) => ehAporte(p) || cobrada(p)).map((p) => ({
       data: p.data, valor: Number(p.valor), tipo: cobrada(p) ? "Pagamento da sua parte" : "Aporte à cooperativa",
       descricao: (p.despesa_id && desp[p.despesa_id] ? desp[p.despesa_id].descricao : "") || p.observacao || TIPOS_PAG[p.tipo]
     })).sort((a, b) => String(a.data || "9").localeCompare(String(b.data || "9")));
+    mensal.forEach((x) => ['_ret', '_inss', '_dev', '_paga', '_fic', '_p13', '_pf'].forEach((k) => { const v = x[k]; delete x[k]; Object.defineProperty(x, k, { value: v, enumerable: false }); }));
     return {
       id: c.id, fin_cooperado_id: c.id, cooperado_id: c.perfil_id || null, cooperado_nome: c.nome, email: c.email || "",
-      data_base: fimDoMes(fech), criado_em: new Date().toISOString(),
+      data_base: fimDoMes(fech), criado_em: new Date().toISOString(), valor_hora: vh,
       quotas_subscritas: centavos(E / quota), capital_subscrito: E, capital_integralizado: F, contribuicoes_pagas: U,
-      contribuicao_mensal: quota, valor_em_aberto: L, meses_em_atraso: mensal.filter((x) => x.em_aberto > 0.005).length,
-      fic_saldo: 0, fundo_13: 0, fundo_ferias: 0, sobras_a_receber: 0, outros_creditos: T,
+      contribuicao_mensal: centavos(retFech > 0 ? retFech * par.contrib_pct : quota), valor_em_aberto: L, meses_em_atraso: mensal.filter((x) => x.em_aberto > 0.005).length,
+      fic_saldo: fic, fundo_13: f13, fundo_ferias: ffer, sobras_a_receber: sobras, outros_creditos: T,
       observacao: T > 0 ? "Outros créditos = aportes que você adiantou à cooperativa. Não são sacáveis a qualquer momento: só são devolvidos no desligamento, após aprovação do balanço (art. 19)." : null,
-      detalhes: { mensal, aportes, resumo: { contribuicoes_devidas: H, contribuicoes_pagas_mensais: I, falta_integralizar: G, aportes_brutos: AB, aportes_no_capital: AC, falta_inicial: AD, adiantado: AE, retiradas_ano: 0, chamadas: J, chamadas_pagas: K } }
+      detalhes: { mensal, aportes, resumo: { contribuicoes_devidas: H, contribuicoes_pagas_mensais: I, falta_integralizar: G, aportes_brutos: AB, aportes_no_capital: AC, falta_inicial: AD, adiantado: AE,
+        retiradas_ano: centavos(somaBruta(mensal, (x) => x.retirada)), horas: horas, chamadas: J, chamadas_pagas: K } }
     };
   }
   function calcular(base) {
     const out = {};
     (base.cooperados || []).forEach((c) => { out[c.id] = calcularCooperado(c, base); });
     return out;
+  }
+  /* Visão da cooperativa por mês (aba Cooperativa da planilha) */
+  function cooperativa(base, calc) {
+    const par = params(base.parametros || {});
+    const rec = {}; (base.receitas || []).forEach((r) => { rec[mesDe(r.mes)] = Number(r.receita_bruta || 0); });
+    const meses = new Set(Object.keys(rec));
+    Object.values(calc).forEach((p) => p.detalhes.mensal.forEach((x) => meses.add(x.mes)));
+    const linhas = [...meses].sort().map((m) => {
+      const xs = Object.values(calc).map((p) => p.detalhes.mensal.find((x) => x.mes === m)).filter(Boolean);
+      const s = (k) => centavos(xs.reduce((t, x) => t + Number(x[k] || 0), 0));
+      const sb = (k) => xs.reduce((t, x) => t + Number(x[k] || 0), 0);
+      const receita = rec[m] || 0, ret = xs.some((x) => x._ret !== undefined) ? centavos(sb("_ret")) : s("retirada");
+      return { mes: m, receita, custo_op: centavos(receita * par.custo_op_pct), retiradas: ret, inss_retido: s("inss"), inss_patronal: centavos((xs.some((x) => x._ret !== undefined) ? sb("_ret") : ret) * par.patronal_pct),
+        fic_coop: s("fic_coop"), provisoes: centavos(xs.some((x) => x._p13 !== undefined) ? sb("_p13") + sb("_pf") : s("prov_13") + s("prov_ferias")), auxilios: centavos(s("aux_tele") + s("aux_alim")), contribuicoes: s("paga"), liquido: s("liquido") };
+    });
+    const sm = par.sobras_mercado, sp = par.sobras_publicas, r = par.reserva_pct, f = par.fates_pct;
+    return { linhas, sobras: { mercado: sm, publicas: sp, reserva: centavos((sm + sp) * r), fates: centavos((sm + sp) * f), fei: centavos(Math.max(0, sp * (1 - r - f))),
+      mercado_liquido: centavos(Math.max(0, sm * (1 - r - f))), rateio_pct: par.rateio_pct, a_ratear: centavos(Math.max(0, sm * (1 - r - f)) * par.rateio_pct) } };
   }
 
   /* ---------- Pix: BR Code estático ---------- */
@@ -278,5 +350,5 @@
     return Array.from(a, (b) => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[b % 32]).join("");
   }
 
-  window.Fin = { calcular, calcularCooperado, TIPOS_PAG, mesFechamento, mesDe, somaMes, PIX, ABA_LANC, centavos, nomeMes, componentes, alocar, proxima, descreverItem, ajustada, pixCopiaECola, crc16, qrSvg, planilhaComLancamentos, lerLancamentos, novoCodigo, vale };
+  window.Fin = { calcular, calcularCooperado, cooperativa, tabelaSalarial, valorHora, params, PADRAO, CATEGORIAS_SAL, CONSELHOS, TIPOS_PAG, mesFechamento, mesDe, somaMes, PIX, ABA_LANC, centavos, nomeMes, componentes, alocar, proxima, descreverItem, ajustada, pixCopiaECola, crc16, qrSvg, planilhaComLancamentos, lerLancamentos, novoCodigo, vale };
 })();

@@ -12,8 +12,12 @@
   const ORIGEM = { tesouraria: "Tesouraria", pix: "Pix pelo site", abatimento: "Abatimento pelo site", planilha: "Planilha antiga" };
   let aba = "resumo";
   let filtroCoop = "";
+  let mesSel = null;
+  const pct = (v) => (v == null ? "" : (Number(v) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 3 }));
+  const lerPct = (t) => { const v = lerValor(t); return Number.isFinite(v) ? v / 100 : NaN; };
+  const num = (t) => { const v = lerValor(t); return Number.isFinite(v) && v > 0 ? v : 0; };
 
-  const lerValor = (t) => { t = String(t || "").replace(/[R$\s]/g, ""); if (t.includes(",")) t = t.replace(/\./g, "").replace(",", "."); return Fin.centavos(Number(t)); };
+  const lerValor = (t) => { t = String(t || "").replace(/[R$\s]/g, ""); if (t.includes(",")) t = t.replace(/\./g, "").replace(",", "."); else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, ""); return Fin.centavos(Number(t)); };
   const brl = (v) => (v == null || v === "" ? "" : Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
   const hojeISO = () => UI.hoje();
 
@@ -29,7 +33,7 @@
     const fech = Fin.mesFechamento(base.parametros);
     const recarregar = () => render(el, ctx);
 
-    const abas = [["resumo", "Resumo"], ["despesas", "Despesas"], ["pagamentos", "Pagamentos e aportes"], ["cadastro", "Cadastro"], ["config", "Configurações"]];
+    const abas = [["resumo", "Resumo"], ["fechamento", "Fechamento do mês"], ["cooperativa", "Cooperativa"], ["despesas", "Despesas"], ["pagamentos", "Pagamentos e aportes"], ["cadastro", "Cadastro"], ["config", "Configurações"]];
     el.innerHTML = `
       <div class="pag-cab"><div><p class="eyebrow">Tesouraria</p><h1>Financeiro</h1></div>
         <button class="btn btn-ghost" id="t-exportar">Exportar para Excel</button></div>
@@ -75,6 +79,115 @@
             <tfoot><tr><td>Total</td><td class="num">${moeda(soma("capital_integralizado"))}</td><td class="num">${moeda(soma("valor_em_aberto"))}</td><td class="num">${moeda(soma("outros_creditos"))}</td><td class="num">${moeda(soma("contribuicoes_pagas"))}</td><td></td></tr></tfoot>
           </table></div>` : '<p class="vazio">Nenhum cooperado cadastrado. Comece pela aba Cadastro.</p>'}
         </section>`;
+    }
+
+    /* ---------------- Fechamento do mês ---------------- */
+    if (aba === "fechamento") {
+      const mes = mesSel || fech;
+      const naFolha = new Set((base.folha || []).filter((f) => Fin.mesDe(f.mes) === mes).map((f) => f.fin_cooperado_id));
+      const linhas = coops.filter((c) => naFolha.has(c.id) || (c.data_admissao && Fin.mesDe(c.data_admissao) <= mes && (!c.data_desligamento || Fin.mesDe(c.data_desligamento) >= mes)));
+      const folhaDe = (id) => (base.folha || []).find((f) => f.fin_cooperado_id === id && Fin.mesDe(f.mes) === mes) || {};
+      const rec = (base.receitas || []).find((r) => Fin.mesDe(r.mes) === mes) || {};
+      const semCat = linhas.filter((c) => !c.categoria);
+      corpo.innerHTML = `
+        <section class="painel">
+          <div class="painel-cab"><h2>Retiradas de ${Fin.nomeMes(mes)}</h2>
+            <div class="sol-acoes"><div class="field"><label for="fm-mes">Mês</label><input class="input" id="fm-mes" type="month" value="${mes}"></div>
+            <button class="btn btn-ghost btn-sm" id="fm-puxar" type="button">Puxar horas lançadas no site</button></div></div>
+          <p class="hint">Preencha as horas de cada cooperado no mês (produtivas e de formação), os dias trabalhados e, quando houver, o 13º e as férias pagas. O site calcula a retirada pelo valor-hora da categoria (art. 8º), o INSS (11% até o teto), a contribuição de capital (1,5% da retirada), o FIC, as provisões de 13º e férias e os auxílios. Ao salvar, tudo aparece na hora na Minha conta de cada um.</p>
+          ${semCat.length ? `<div class="notice warn">Sem categoria salarial (valor-hora zerado): ${semCat.map((c) => esc(c.nome)).join(", ")}. Defina em <b>Cadastro</b> antes de fechar o mês.</div>` : ""}
+          <div class="tabela-wrap"><table class="tabela folha">
+            <thead><tr><th>Cooperado</th><th class="num">Horas produtivas</th><th class="num">Horas de formação</th><th class="num">Dias trabalhados</th><th class="num">13º pago</th><th class="num">Férias pagas</th><th class="num">Retirada bruta</th><th class="num">INSS</th><th class="num">Contribuição</th><th class="num">Auxílios</th><th class="num">Líquido a pagar</th></tr></thead>
+            <tbody>${linhas.map((c) => { const f = folhaDe(c.id); return `<tr data-coop="${c.id}">
+              <td>${esc(c.nome)}<span class="sub">${c.categoria ? esc(c.categoria) + " · " + esc(c.conselho || "sem conselho") + " · " + moeda(Fin.valorHora(c, base.parametros)) + "/h" : "sem categoria"}</span></td>
+              <td class="num"><input class="input mini-num" data-k="horas_produtivas" inputmode="decimal" value="${f.horas_produtivas ? brl(f.horas_produtivas) : ""}"></td>
+              <td class="num"><input class="input mini-num" data-k="horas_formacao" inputmode="decimal" value="${f.horas_formacao ? brl(f.horas_formacao) : ""}"></td>
+              <td class="num"><input class="input mini-num" data-k="dias" inputmode="numeric" value="${f.dias || ""}"></td>
+              <td class="num"><input class="input mini-num" data-k="decimo_pago" inputmode="decimal" value="${f.decimo_pago ? brl(f.decimo_pago) : ""}"></td>
+              <td class="num"><input class="input mini-num" data-k="ferias_pago" inputmode="decimal" value="${f.ferias_pago ? brl(f.ferias_pago) : ""}"></td>
+              <td class="num" data-v="retirada">—</td><td class="num" data-v="inss">—</td><td class="num" data-v="devida">—</td><td class="num" data-v="aux">—</td><td class="num" data-v="liquido">—</td></tr>`; }).join("")}</tbody>
+            <tfoot><tr><td>Total</td><td class="num" data-t="hp"></td><td class="num" data-t="hf"></td><td></td><td></td><td></td><td class="num" data-t="retirada"></td><td class="num" data-t="inss"></td><td class="num" data-t="devida"></td><td class="num" data-t="aux"></td><td class="num" data-t="liquido"></td></tr></tfoot>
+          </table></div>
+          <div class="form-grid">
+            <div class="field"><label for="fm-rec">Receita bruta de contratos no mês (R$)</label><input class="input" id="fm-rec" inputmode="decimal" value="${rec.receita_bruta ? brl(rec.receita_bruta) : ""}"><span class="hint">Base do Custo de Operação e Gestão (20%, art. 23, §7º).</span></div>
+            <div class="field"><label>Custos da cooperativa no mês</label><div id="fm-custos" class="hint"></div></div>
+          </div>
+          <div class="sol-acoes"><button class="btn btn-primary" id="fm-salvar">Salvar fechamento de ${Fin.nomeMes(mes)}</button></div>
+        </section>`;
+      const lerLinhas = () => [...corpo.querySelectorAll("tr[data-coop]")].map((tr) => {
+        const o = { fin_cooperado_id: tr.dataset.coop, mes: mes + "-01" };
+        tr.querySelectorAll("input[data-k]").forEach((i) => { o[i.dataset.k] = i.dataset.k === "dias" ? Math.round(num(i.value)) : num(i.value); });
+        return o;
+      });
+      const recalcular = () => {
+        const novas = lerLinhas();
+        const folha = (base.folha || []).filter((f) => Fin.mesDe(f.mes) !== mes).concat(novas);
+        const tmp = { ...base, folha };
+        const tot = { hp: 0, hf: 0, retirada: 0, inss: 0, devida: 0, aux: 0, liquido: 0 };
+        corpo.querySelectorAll("tr[data-coop]").forEach((tr) => {
+          const p = Fin.calcularCooperado(porId[tr.dataset.coop], tmp);
+          const x = p.detalhes.mensal.find((mm) => mm.mes === mes) || {};
+          const v = { retirada: x.retirada || 0, inss: x.inss || 0, devida: x.devida || 0, aux: (x.aux_tele || 0) + (x.aux_alim || 0), liquido: x.liquido || 0 };
+          Object.entries(v).forEach(([k, val]) => { tr.querySelector(`[data-v="${k}"]`).textContent = moeda(val); tot[k] += val; });
+          tot.hp += x.horas_produtivas || 0; tot.hf += x.horas_formacao || 0;
+        });
+        Object.entries(tot).forEach(([k, val]) => { const td = corpo.querySelector(`[data-t="${k}"]`); if (td) td.textContent = k === "hp" || k === "hf" ? brl(val) + " h" : moeda(val); });
+        const pr = Fin.params(base.parametros), receita = num($("#fm-rec").value);
+        $("#fm-custos").innerHTML = `INSS patronal (20%): <b>${moeda(tot.retirada * pr.patronal_pct)}</b> · Custo de Operação e Gestão: <b>${moeda(receita * pr.custo_op_pct)}</b>`;
+      };
+      corpo.addEventListener("input", recalcular); recalcular();
+      $("#fm-mes").onchange = (e) => { if (e.target.value) { mesSel = e.target.value; recarregar(); } };
+      $("#fm-puxar").onclick = async (ev) => {
+        const hs = await acao(ev.currentTarget, () => API.fin.horasLancadas(mes + "-01")); if (!hs) return;
+        let n = 0;
+        hs.forEach((h) => { const tr = corpo.querySelector(`tr[data-coop="${h.fin_cooperado_id}"]`); if (!tr) return; n++;
+          tr.querySelector('[data-k="horas_produtivas"]').value = h.produtivas ? brl(h.produtivas) : "";
+          tr.querySelector('[data-k="horas_formacao"]').value = h.formacao ? brl(h.formacao) : "";
+          if (!tr.querySelector('[data-k="dias"]').value) tr.querySelector('[data-k="dias"]').value = h.dias || ""; });
+        recalcular();
+        toast(n ? `Horas de ${n} cooperado(s) puxadas de "Minhas horas". Confira e salve.` : "Ninguém lançou horas neste mês no site.");
+      };
+      $("#fm-salvar").onclick = async (ev) => {
+        const linhasF = lerLinhas();
+        const ok = await acao(ev.currentTarget, () => API.fin.salvarFolha(linhasF, { mes: mes + "-01", receita_bruta: num($("#fm-rec").value) }), `Fechamento de ${Fin.nomeMes(mes)} salvo.`);
+        if (ok) recarregar();
+      };
+    }
+
+    /* ---------------- Cooperativa ---------------- */
+    if (aba === "cooperativa") {
+      const vc = Fin.cooperativa(base, calc);
+      const pr = Fin.params(base.parametros);
+      const L = vc.linhas.filter((l) => l.receita || l.retiradas || l.contribuicoes || l.fic_coop);
+      const tot = (k) => L.reduce((t, l) => t + l[k], 0);
+      const cols = [["receita", "Receita de contratos"], ["custo_op", "Custo de Operação (20%)"], ["retiradas", "Retiradas brutas"], ["inss_retido", "INSS retido"], ["inss_patronal", "INSS patronal (20%)"], ["fic_coop", "FIC da cooperativa"], ["provisoes", "Provisões 13º e férias"], ["auxilios", "Auxílios"], ["contribuicoes", "Contribuições de capital"]];
+      corpo.innerHTML = `
+        <section class="painel"><h2>Movimento da cooperativa por mês</h2>
+          ${L.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Mês</th>${cols.map(([, t]) => `<th class="num">${t}</th>`).join("")}</tr></thead>
+            <tbody>${L.map((l) => `<tr><td>${Fin.nomeMes(l.mes)}</td>${cols.map(([k]) => `<td class="num">${moeda(l[k])}</td>`).join("")}</tr>`).join("")}</tbody>
+            <tfoot><tr><td>Total</td>${cols.map(([k]) => `<td class="num">${moeda(tot(k))}</td>`).join("")}</tr></tfoot></table></div>` : '<p class="vazio">Ainda não há retiradas nem receitas lançadas.</p>'}
+        </section>
+        <section class="painel"><h2>Apuração das sobras do exercício</h2>
+          <p class="hint">Preencha depois do balanço de 31/12 e da decisão da Assembleia Geral (art. 71). As sobras de mercado, depois do Fundo de Reserva e do FATES, são rateadas pelas horas produzidas no ano; as de parcerias públicas vão para o FEI e não são rateadas (art. 72).</p>
+          <form id="t-sob" class="form-grid" novalidate>
+            <div class="field"><label for="sb-m">Sobras de contratos de mercado e licitações (R$)</label><input class="input" id="sb-m" inputmode="decimal" value="${brl(pr.sobras_mercado)}"></div>
+            <div class="field"><label for="sb-p">Sobras de parcerias com o Poder Público (R$)</label><input class="input" id="sb-p" inputmode="decimal" value="${brl(pr.sobras_publicas)}"></div>
+            <div class="field"><label for="sb-r">Percentual aprovado para rateio (%)</label><input class="input" id="sb-r" inputmode="decimal" value="${pct(pr.rateio_pct)}"></div>
+            <div class="full"><button class="btn btn-primary" id="sb-btn" type="submit">Salvar apuração</button></div>
+          </form>
+          <dl class="sol-dados">
+            <div><dt>Fundo de Reserva (${pct(pr.reserva_pct)}%)</dt><dd>${moeda(vc.sobras.reserva)}</dd></div>
+            <div><dt>FATES (${pct(pr.fates_pct)}%)</dt><dd>${moeda(vc.sobras.fates)}</dd></div>
+            <div><dt>FEI (parcerias públicas)</dt><dd>${moeda(vc.sobras.fei)}</dd></div>
+            <div><dt>A ratear entre os cooperados</dt><dd>${moeda(vc.sobras.a_ratear)}</dd></div>
+          </dl>
+        </section>`;
+      $("#t-sob").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const r = lerPct($("#sb-r").value);
+        if (!(r >= 0 && r <= 1)) return toast("O percentual de rateio vai de 0 a 100.", "err");
+        if (await acao($("#sb-btn"), () => API.fin.salvarParametros({ sobras_mercado: num($("#sb-m").value), sobras_publicas: num($("#sb-p").value), rateio_pct: r }), "Apuração salva.")) recarregar();
+      });
     }
 
     /* ---------------- Despesas ---------------- */
@@ -126,9 +239,10 @@
           <div class="painel-cab"><h2>Cadastro financeiro dos cooperados</h2><button class="btn btn-primary btn-sm" id="t-novo-coop">Adicionar cooperado</button></div>
           <p class="hint">Todo cooperado tem cadastro aqui, mesmo sem conta no site. Quando ele criar a conta, ela é ligada sozinha pelo e-mail ou pelo nome; você também pode ligar manualmente em Editar.</p>
           ${coops.length ? `<div class="tabela-wrap"><table class="tabela">
-            <thead><tr><th>Cooperado</th><th>Conta no site</th><th class="num">Quotas iniciais</th><th class="num">Integralizado na admissão</th><th>Admissão</th><th>Situação</th><th></th></tr></thead>
+            <thead><tr><th>Cooperado</th><th>Conta no site</th><th>Categoria</th><th class="num">Quotas iniciais</th><th class="num">Integralizado na admissão</th><th>Admissão</th><th>Situação</th><th></th></tr></thead>
             <tbody>${coops.map((c) => `<tr><td>${esc(c.nome)}<span class="sub">${esc(c.cargo || "")}</span></td>
               <td>${c.perfil_id ? `<span class="selo ok">ligada</span><span class="sub">${esc((perfilPorId[c.perfil_id] || {}).email || c.email || "")}</span>` : `<span class="selo">sem conta</span><span class="sub">${esc(c.email || "e-mail não informado")}</span>`}</td>
+              <td>${c.categoria ? `${esc(c.categoria)}<span class="sub">${esc(c.conselho || "")} · ${moeda(Fin.valorHora(c, base.parametros))}/h</span>` : '<span class="selo warn">definir</span>'}</td>
               <td class="num">${c.quotas_iniciais}</td><td class="num">${moeda(c.integralizado_admissao)}${c.compensar_aportes ? '<span class="sub">aportes usados na integralização</span>' : ""}</td>
               <td>${data(c.data_admissao)}</td><td>${c.situacao === "ativo" ? '<span class="selo ok">ativo</span>' : `<span class="selo">desligado</span><span class="sub">${data(c.data_desligamento)}</span>`}</td>
               <td class="acoes-celula"><button class="btn btn-ghost btn-sm" data-ed-coop="${c.id}">Editar</button></td></tr>`).join("")}</tbody>
@@ -139,24 +253,58 @@
 
     /* ---------------- Configurações ---------------- */
     if (aba === "config") {
-      const par = base.parametros;
+      const par = base.parametros, pr = Fin.params(par);
+      const campoP = (id, rot, v, dica) => `<div class="field"><label for="${id}">${rot}</label><input class="input" id="${id}" inputmode="decimal" value="${v}">${dica ? `<span class="hint">${dica}</span>` : ""}</div>`;
+      const tab = Fin.tabelaSalarial(par);
       corpo.innerHTML = `
-        <section class="painel"><h2>Parâmetros do Estatuto</h2>
-          <form id="t-par" class="form-grid" novalidate>
-            <div class="field"><label for="cp-quota">Valor da quota-parte (R$)</label><input class="input" id="cp-quota" inputmode="decimal" value="${brl(par.quota)}"><span class="hint">Art. 23. Reajuste em janeiro pelo INPC.</span></div>
-            <div class="field"><label for="cp-min">Quotas mínimas na admissão</label><input class="input" id="cp-min" type="number" min="1" value="${par.quotas_minimas}"><span class="hint">Art. 25.</span></div>
-            <div class="field"><label for="cp-ini">Início da contribuição mensal</label><input class="input" id="cp-ini" type="month" value="${Fin.mesDe(par.contrib_inicio)}"><span class="hint">Art. 23, §4º. Sem retirada, a contribuição é de 1 quota por mês.</span></div>
-            <div class="field"><label for="cp-fech">Mês de fechamento</label><input class="input" id="cp-fech" type="month" value="${par.fechamento ? Fin.mesDe(par.fechamento) : ""}"><span class="hint">Deixe vazio para atualizar sozinho no mês atual. Preencha só para segurar as cobranças num mês já conferido.</span></div>
-            <div class="full"><button class="btn btn-primary" id="cp-btn" type="submit">Salvar</button></div>
-          </form>
-          ${par.atualizado_nome ? `<p class="hint">Última alteração: ${esc(par.atualizado_nome)}${par.atualizado_em ? " em " + dataHora(par.atualizado_em) : ""}.</p>` : ""}
-        </section>`;
+        <form id="t-par" novalidate style="display:grid;gap:1.6rem">
+        <section class="painel"><h2>Capital e contribuição</h2><div class="form-grid">
+          ${campoP("cp-quota", "Valor da quota-parte (R$)", brl(pr.quota), "Art. 23. Reajuste em janeiro pelo INPC.")}
+          <div class="field"><label for="cp-min">Quotas mínimas na admissão</label><input class="input" id="cp-min" type="number" min="1" value="${pr.quotas_minimas}"><span class="hint">Art. 25.</span></div>
+          <div class="field"><label for="cp-ini">Início da contribuição mensal</label><input class="input" id="cp-ini" type="month" value="${Fin.mesDe(pr.contrib_inicio)}"><span class="hint">Art. 23, §4º.</span></div>
+          <div class="field"><label for="cp-fech">Mês de fechamento</label><input class="input" id="cp-fech" type="month" value="${par.fechamento ? Fin.mesDe(par.fechamento) : ""}"><span class="hint">Vazio = atualiza sozinho no mês atual.</span></div>
+          ${campoP("cp-contrib", "Contribuição sobre as retiradas (%)", pct(pr.contrib_pct), "Art. 23, §4º, I. Sem retirada: 1 quota.")}
+        </div></section>
+        <section class="painel"><h2>Retiradas, INSS e fundos</h2><div class="form-grid">
+          ${campoP("cp-sm", "Salário-mínimo (R$)", brl(pr.sm), "Art. 8º, III. Atualize todo ano.")}
+          <div class="field"><label for="cp-horas">Horas de referência por mês</label><input class="input" id="cp-horas" type="number" min="1" value="${pr.horas_ref}"><span class="hint">6 h/dia × 20 dias.</span></div>
+          ${campoP("cp-inss", "INSS do cooperado (%)", pct(pr.inss_pct), "Art. 24, §1º.")}
+          ${campoP("cp-teto", "Teto do INSS no ano (R$)", brl(pr.inss_teto), "Atualize todo ano.")}
+          ${campoP("cp-patr", "INSS patronal (%)", pct(pr.patronal_pct), "Art. 24, §1º.")}
+          ${campoP("cp-fic", "FIC — aporte da cooperativa (%)", pct(pr.fic_coop_pct), "Art. 78, §1º, a: sobre as retiradas do mês anterior.")}
+          ${campoP("cp-ficv", "FIC — aporte voluntário máximo (%)", pct(pr.fic_vol_max), "Art. 78, §1º, b.")}
+          ${campoP("cp-tele", "Auxílio-teletrabalho (% do SM por mês)", pct(pr.tele_pct), "Art. 80, §1º.")}
+          ${campoP("cp-alim", "Auxílio-alimentação (% do SM por dia)", pct(pr.alim_pct), "Art. 80, §2º.")}
+          ${campoP("cp-cop", "Custo de Operação e Gestão (%)", pct(pr.custo_op_pct), "Art. 23, §7º.")}
+          ${campoP("cp-res", "Fundo de Reserva (%)", pct(pr.reserva_pct), "Mínimo legal; a Assembleia define (art. 71, §3º).")}
+          ${campoP("cp-fates", "FATES (%)", pct(pr.fates_pct), "Mínimo legal; a Assembleia define.")}
+        </div></section>
+        <section class="painel"><h2>Tabela salarial (art. 8º)</h2>
+          <p class="hint">CREA/CAU: multiplicador × salário-mínimo. Demais conselhos: retirada de referência da categoria Pleno × (multiplicador ÷ multiplicador Pleno). A Assembleia aprova a tabela todo ano.</p>
+          <div class="form-grid">
+            ${campoP("cp-base", "Retirada de referência Pleno — demais conselhos (R$)", brl(pr.base_demais_pleno))}
+            ${campoP("cp-mj", "Multiplicador Júnior (× SM)", brl(pr.mult_junior))}
+            ${campoP("cp-mp", "Multiplicador Pleno (× SM)", brl(pr.mult_pleno))}
+            ${campoP("cp-ms", "Multiplicador Sênior (× SM)", brl(pr.mult_senior))}
+            ${campoP("cp-mc", "Multiplicador Coordenador (× SM)", brl(pr.mult_coord))}
+          </div>
+          <div class="tabela-wrap"><table class="tabela"><thead><tr><th>Categoria</th><th>Experiência</th><th class="num">CREA/CAU — mês</th><th class="num">CREA/CAU — hora</th><th class="num">Demais — mês</th><th class="num">Demais — hora</th></tr></thead>
+            <tbody>${tab.map((t) => `<tr><td>${t.categoria}</td><td>${t.experiencia}</td><td class="num">${moeda(t.crea_mensal)}</td><td class="num">${moeda(t.crea_hora)}</td><td class="num">${moeda(t.demais_mensal)}</td><td class="num">${moeda(t.demais_hora)}</td></tr>`).join("")}</tbody></table></div>
+        </section>
+        <div class="sol-acoes"><button class="btn btn-primary" id="cp-btn" type="submit">Salvar parâmetros</button></div>
+        </form>
+        ${par.atualizado_nome ? `<p class="hint">Última alteração: ${esc(par.atualizado_nome)}${par.atualizado_em ? " em " + dataHora(par.atualizado_em) : ""}.</p>` : ""}`;
       $("#t-par").addEventListener("submit", async (e) => {
         e.preventDefault();
-        const quota = lerValor($("#cp-quota").value), min = Number($("#cp-min").value), ini = $("#cp-ini").value, fe = $("#cp-fech").value;
-        if (!(quota > 0) || !(min > 0) || !ini) return toast("Preencha quota, quotas mínimas e início.", "err");
-        const ok = await acao($("#cp-btn"), () => API.fin.salvarParametros({ quota, quotas_minimas: min, contrib_inicio: ini + "-01", fechamento: fe ? fe + "-01" : null }), "Parâmetros salvos.");
-        if (ok) recarregar();
+        const v = (id) => lerValor($("#" + id).value), pc = (id) => lerPct($("#" + id).value);
+        const d = { quota: v("cp-quota"), quotas_minimas: Number($("#cp-min").value), contrib_inicio: $("#cp-ini").value ? $("#cp-ini").value + "-01" : null,
+          fechamento: $("#cp-fech").value ? $("#cp-fech").value + "-01" : null, contrib_pct: pc("cp-contrib"), sm: v("cp-sm"), horas_ref: Number($("#cp-horas").value),
+          inss_pct: pc("cp-inss"), inss_teto: v("cp-teto"), patronal_pct: pc("cp-patr"), fic_coop_pct: pc("cp-fic"), fic_vol_max: pc("cp-ficv"), tele_pct: pc("cp-tele"),
+          alim_pct: pc("cp-alim"), custo_op_pct: pc("cp-cop"), reserva_pct: pc("cp-res"), fates_pct: pc("cp-fates"), base_demais_pleno: v("cp-base"),
+          mult_junior: v("cp-mj"), mult_pleno: v("cp-mp"), mult_senior: v("cp-ms"), mult_coord: v("cp-mc") };
+        const ruim = Object.entries(d).filter(([k, x]) => k !== "fechamento" && !(x === 0 || (x && Number.isFinite(Number(x))) || typeof x === "string"));
+        if (!d.contrib_inicio || ruim.length || !(d.quota > 0) || !(d.sm > 0) || !(d.horas_ref > 0) || !(d.mult_pleno > 0)) return toast("Confira os campos: há valor vazio ou inválido.", "err");
+        if (await acao($("#cp-btn"), () => API.fin.salvarParametros(d), "Parâmetros salvos.")) recarregar();
       });
     }
 
@@ -249,6 +397,11 @@
           <div class="field full"><label for="fc-nome">Nome completo</label><input class="input" id="fc-nome" maxlength="160" value="${esc(c ? c.nome : "")}"></div>
           <div class="field"><label for="fc-email">E-mail</label><input class="input" id="fc-email" type="email" value="${esc(c ? c.email || "" : "")}"></div>
           <div class="field"><label for="fc-cargo">Cargo / função</label><input class="input" id="fc-cargo" maxlength="80" value="${esc(c ? c.cargo || "" : "")}"></div>
+          <div class="field"><label for="fc-cons">Conselho profissional</label><select class="input" id="fc-cons"><option value="">—</option>${Fin.CONSELHOS.map((x) => `<option ${c && c.conselho === x ? "selected" : ""}>${x}</option>`).join("")}</select></div>
+          <div class="field"><label for="fc-cat">Categoria salarial (art. 8º)</label><select class="input" id="fc-cat"><option value="">Definir</option>${Fin.CATEGORIAS_SAL.map(([x, , exp]) => `<option value="${x}" ${c && c.categoria === x ? "selected" : ""}>${x} (${exp})</option>`).join("")}</select></div>
+          <div class="field"><label for="fc-ficv">FIC voluntário (% das retiradas)</label><input class="input" id="fc-ficv" inputmode="decimal" value="${c ? pct(c.fic_voluntario || 0) : "0"}"><span class="hint">De 0 a ${pct(Fin.params(base.parametros).fic_vol_max)}% (art. 78).</span></div>
+          <div class="field"><label for="fc-ficr">FIC — rendimentos creditados (R$)</label><input class="input" id="fc-ficr" inputmode="decimal" value="${brl(c ? c.fic_rendimentos || 0 : 0)}"></div>
+          <div class="field"><label for="fc-ficg">FIC — resgates feitos (R$)</label><input class="input" id="fc-ficg" inputmode="decimal" value="${brl(c ? c.fic_resgates || 0 : 0)}"></div>
           <div class="field"><label for="fc-quotas">Quotas iniciais subscritas</label><input class="input" id="fc-quotas" type="number" min="0" value="${c ? c.quotas_iniciais : base.parametros.quotas_minimas}"></div>
           <div class="field"><label for="fc-integ">Integralizado na admissão (R$)</label><input class="input" id="fc-integ" inputmode="decimal" value="${brl(c ? c.integralizado_admissao : 0)}"></div>
           <div class="field"><label for="fc-adm">Data de admissão</label><input class="input" id="fc-adm" type="date" value="${c && c.data_admissao ? c.data_admissao : hojeISO()}"></div>
@@ -256,6 +409,7 @@
           <div class="field" id="fc-w-sai"><label for="fc-sai">Data de desligamento</label><input class="input" id="fc-sai" type="date" value="${c && c.data_desligamento ? c.data_desligamento : ""}"></div>
           <div class="field full"><label for="fc-perfil">Conta no site</label><select class="input" id="fc-perfil"><option value="">Sem conta ligada (liga sozinha quando ele se cadastrar)</option>${opcoes.map((p) => `<option value="${p.id}" ${c && c.perfil_id === p.id ? "selected" : ""}>${esc(p.nome)} · ${esc(p.email)}</option>`).join("")}</select></div>
         </div>
+        <label class="ciente"><input type="checkbox" id="fc-tele" ${c && c.teletrabalho ? "checked" : ""}> <span>Trabalha em teletrabalho (recebe auxílio-teletrabalho nos meses com horas, art. 80)</span></label>
         <label class="ciente"><input type="checkbox" id="fc-comp" ${c && c.compensar_aportes ? "checked" : ""}> <span>Usar todos os aportes deste cooperado, automaticamente, para integralizar as quotas iniciais</span></label>
         <div class="field"><label for="fc-obs">Observação</label><input class="input" id="fc-obs" maxlength="500" value="${esc(c ? c.observacao || "" : "")}"></div>
         <div class="modal-acoes">${c ? '<button class="btn btn-danger btn-sm" id="fc-del">Excluir</button>' : ""}<button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="fc-ok">Salvar</button></div>`);
@@ -266,7 +420,10 @@
           quotas_iniciais: Number($("#fc-quotas", m.el).value || 0), integralizado_admissao: lerValor($("#fc-integ", m.el).value) || 0,
           data_admissao: $("#fc-adm", m.el).value || null, situacao: $("#fc-sit", m.el).value,
           data_desligamento: $("#fc-sit", m.el).value === "desligado" ? $("#fc-sai", m.el).value || null : null,
-          perfil_id: $("#fc-perfil", m.el).value || null, compensar_aportes: $("#fc-comp", m.el).checked, observacao: $("#fc-obs", m.el).value.trim() || null };
+          perfil_id: $("#fc-perfil", m.el).value || null, compensar_aportes: $("#fc-comp", m.el).checked, observacao: $("#fc-obs", m.el).value.trim() || null,
+          conselho: $("#fc-cons", m.el).value || null, categoria: $("#fc-cat", m.el).value || null, teletrabalho: $("#fc-tele", m.el).checked,
+          fic_voluntario: lerPct($("#fc-ficv", m.el).value) || 0, fic_rendimentos: lerValor($("#fc-ficr", m.el).value) || 0, fic_resgates: lerValor($("#fc-ficg", m.el).value) || 0 };
+        if (reg.fic_voluntario > Fin.params(base.parametros).fic_vol_max + 1e-9) return toast(`O FIC voluntário vai até ${pct(Fin.params(base.parametros).fic_vol_max)}%.`, "err");
         if (!reg.nome) return toast("Informe o nome.", "err");
         if (reg.situacao === "desligado" && !reg.data_desligamento) return toast("Informe a data de desligamento.", "err");
         if (c) reg.id = c.id;
@@ -292,10 +449,14 @@
           <div><dt>Capital integralizado</dt><dd>${moeda(p.capital_integralizado)} de ${moeda(p.capital_subscrito)}</dd></div>
           <div><dt>Falta das quotas iniciais</dt><dd>${moeda(p.detalhes.resumo.falta_inicial)}</dd></div>
           <div><dt>Aportes</dt><dd>${moeda(p.outros_creditos)}</dd></div>
+          <div><dt>FIC</dt><dd>${moeda(p.fic_saldo)}</dd></div>
+          <div><dt>Fundo de 13º / férias</dt><dd>${moeda(p.fundo_13)} / ${moeda(p.fundo_ferias)}</dd></div>
+          <div><dt>Retiradas no período</dt><dd>${moeda(p.detalhes.resumo.retiradas_ano)}</dd></div>
+          <div><dt>Sobras a receber</dt><dd>${moeda(p.sobras_a_receber)}</dd></div>
         </dl>
         <h3 class="mini-tit">Contribuição mensal</h3>
-        <div class="tabela-wrap"><table class="tabela"><thead><tr><th>Mês</th><th class="num">Devida</th><th class="num">Paga</th><th class="num">Em aberto</th></tr></thead>
-          <tbody>${p.detalhes.mensal.map((x) => `<tr><td>${Fin.nomeMes(x.mes)}</td><td class="num">${moeda(x.devida)}</td><td class="num">${moeda(x.paga)}</td><td class="num">${x.em_aberto > 0.005 ? moeda(x.em_aberto) : "—"}</td></tr>`).join("")}</tbody></table></div>
+        <div class="tabela-wrap"><table class="tabela"><thead><tr><th>Mês</th><th class="num">Retirada</th><th class="num">Líquido</th><th class="num">Contribuição devida</th><th class="num">Paga</th><th class="num">Em aberto</th></tr></thead>
+          <tbody>${p.detalhes.mensal.map((x) => `<tr><td>${Fin.nomeMes(x.mes)}</td><td class="num">${x.retirada ? moeda(x.retirada) : "—"}</td><td class="num">${x.retirada ? moeda(x.liquido) : "—"}</td><td class="num">${moeda(x.devida)}</td><td class="num">${moeda(x.paga)}</td><td class="num">${x.em_aberto > 0.005 ? moeda(x.em_aberto) : "—"}</td></tr>`).join("")}</tbody></table></div>
         <h3 class="mini-tit">Lançamentos</h3>
         ${pags.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Data</th><th>Tipo</th><th class="num">Valor</th></tr></thead>
           <tbody>${pags.map((x) => `<tr><td>${x.data ? data(x.data) : "—"}</td><td>${esc(Fin.TIPOS_PAG[x.tipo])}<span class="sub">${esc(x.tipo === "despesa" ? (despPorId[x.despesa_id] || {}).descricao || "" : x.tipo === "contribuicao" ? Fin.nomeMes(Fin.mesDe(x.mes_ref)) : x.observacao || "")}</span></td><td class="num">${moeda(x.valor)}</td></tr>`).join("")}</tbody></table></div>` : '<p class="vazio">Nenhum lançamento.</p>'}
@@ -359,16 +520,21 @@
       return ws;
     };
     const lista = base.cooperados.map((c) => calc[c.id]).sort((a, b) => a.cooperado_nome.localeCompare(b.cooperado_nome));
-    aba("Posição", [["Nome", 32], ["E-mail", 30], ["Quotas subscritas", 11], ["Capital subscrito", 14, "m"], ["Capital integralizado", 14, "m"], ["Total contribuído", 14, "m"], ["Contribuição mensal", 13, "m"], ["Valor em aberto", 13, "m"], ["Meses em atraso", 9], ["Aportes (outros créditos)", 14, "m"], ["Falta integralizar das quotas iniciais", 16, "m"], ["Contribuições pagas antecipadamente", 16, "m"]],
-      lista.map((p) => [p.cooperado_nome, p.email, p.quotas_subscritas, p.capital_subscrito, p.capital_integralizado, p.contribuicoes_pagas, p.contribuicao_mensal, p.valor_em_aberto, p.meses_em_atraso, p.outros_creditos, p.detalhes.resumo.falta_inicial, p.detalhes.resumo.adiantado]));
+    aba("Posição", [["Nome", 32], ["E-mail", 30], ["Quotas subscritas", 11], ["Capital subscrito", 14, "m"], ["Capital integralizado", 14, "m"], ["Total contribuído", 14, "m"], ["Contribuição mensal", 13, "m"], ["Valor em aberto", 13, "m"], ["Meses em atraso", 9], ["Saldo FIC", 12, "m"], ["Fundo 13º", 12, "m"], ["Fundo de férias", 12, "m"], ["Sobras a receber", 12, "m"], ["Aportes (outros créditos)", 14, "m"], ["Falta integralizar das quotas iniciais", 16, "m"], ["Contribuições pagas antecipadamente", 16, "m"], ["Retiradas no período", 14, "m"], ["Horas no período", 10]],
+      lista.map((p) => [p.cooperado_nome, p.email, p.quotas_subscritas, p.capital_subscrito, p.capital_integralizado, p.contribuicoes_pagas, p.contribuicao_mensal, p.valor_em_aberto, p.meses_em_atraso, p.fic_saldo, p.fundo_13, p.fundo_ferias, p.sobras_a_receber, p.outros_creditos, p.detalhes.resumo.falta_inicial, p.detalhes.resumo.adiantado, p.detalhes.resumo.retiradas_ano, p.detalhes.resumo.horas]));
     const mm = []; lista.forEach((p) => p.detalhes.mensal.forEach((x) => mm.push([p.cooperado_nome, dt(x.mes + "-01"), x.devida, x.paga, Math.max(0, x.em_aberto)])));
     aba("Mês a mês", [["Cooperado", 32], ["Mês", 11, "mes"], ["Contribuição devida", 14, "m"], ["Contribuição paga", 14, "m"], ["Em aberto no mês", 14, "m"]], mm);
+    const rr = []; lista.forEach((p) => p.detalhes.mensal.filter((x) => x.retirada || x.horas_produtivas || x.horas_formacao || x.decimo_pago || x.ferias_pago).forEach((x) => rr.push([p.cooperado_nome, dt(x.mes + "-01"), x.horas_produtivas, x.horas_formacao, x.dias, x.retirada, x.inss, x.descontada, x.fic_coop, x.fic_vol, x.prov_13, x.prov_ferias, x.decimo_pago, x.ferias_pago, x.aux_tele, x.aux_alim, x.liquido])));
+    aba("Retiradas", [["Cooperado", 30], ["Mês", 11, "mes"], ["Horas produtivas", 10], ["Horas de formação", 10], ["Dias", 7], ["Retirada bruta", 13, "m"], ["INSS 11%", 12, "m"], ["Contribuição descontada", 13, "m"], ["FIC cooperativa", 12, "m"], ["FIC voluntário", 12, "m"], ["Provisão 13º", 12, "m"], ["Provisão férias", 12, "m"], ["13º pago", 12, "m"], ["Férias pagas", 12, "m"], ["Auxílio-teletrabalho", 12, "m"], ["Auxílio-alimentação", 12, "m"], ["Líquido a pagar", 13, "m"]], rr);
+    const vc = Fin.cooperativa(base, calc);
+    aba("Cooperativa", [["Mês", 11, "mes"], ["Receita de contratos", 14, "m"], ["Custo de Operação", 14, "m"], ["Retiradas brutas", 14, "m"], ["INSS retido", 13, "m"], ["INSS patronal", 13, "m"], ["FIC da cooperativa", 13, "m"], ["Provisões 13º e férias", 14, "m"], ["Auxílios", 12, "m"], ["Contribuições de capital", 14, "m"]],
+      vc.linhas.map((l) => [dt(l.mes + "-01"), l.receita, l.custo_op, l.retiradas, l.inss_retido, l.inss_patronal, l.fic_coop, l.provisoes, l.auxilios, l.contribuicoes]));
     aba("Despesas", [["Data", 12, "d"], ["Descrição", 50], ["Categoria", 20], ["Valor", 13, "m"], ["Cobrada dos cooperados?", 12], ["Cooperados que dividem", 40], ["Valor por cooperado", 13, "m"], ["Observação", 50]],
       base.despesas.map((d) => [dt(d.data), d.descricao, d.categoria, Number(d.valor), d.cobrar ? "Sim" : "Não", d.participantes.map((i) => nome[i]).join(", "), d.cobrar ? Fin.centavos(d.valor / Math.max(1, d.participantes.length)) : null, d.observacao]));
     aba("Pagamentos", [["Data", 12, "d"], ["Cooperado", 32], ["Tipo", 30], ["Despesa", 40], ["Mês de referência", 11, "mes"], ["Valor", 13, "m"], ["Origem", 18], ["Observação", 40], ["Lançado por", 22]],
       base.pagamentos.map((p) => [dt(p.data), nome[p.fin_cooperado_id], Fin.TIPOS_PAG[p.tipo], p.despesa_id ? (desp[p.despesa_id] || {}).descricao : null, p.mes_ref ? dt(p.mes_ref) : null, Number(p.valor), ORIGEM[p.origem] || p.origem, p.observacao, p.criado_nome]));
-    aba("Cadastro", [["Nome", 32], ["E-mail", 30], ["Cargo", 18], ["Conta no site", 12], ["Quotas iniciais", 10], ["Integralizado na admissão", 14, "m"], ["Admissão", 12, "d"], ["Situação", 11], ["Desligamento", 12, "d"], ["Aportes usados na integralização", 14], ["Observação", 40]],
-      base.cooperados.map((c) => [c.nome, c.email, c.cargo, c.perfil_id ? "Ligada" : "Sem conta", c.quotas_iniciais, Number(c.integralizado_admissao), dt(c.data_admissao), c.situacao, dt(c.data_desligamento), c.compensar_aportes ? "Sim" : "Não", c.observacao]));
+    aba("Cadastro", [["Nome", 32], ["E-mail", 30], ["Cargo", 18], ["Conselho", 9], ["Categoria", 12], ["Valor-hora", 11, "m"], ["Teletrabalho", 9], ["FIC voluntário %", 9], ["Conta no site", 12], ["Quotas iniciais", 10], ["Integralizado na admissão", 14, "m"], ["Admissão", 12, "d"], ["Situação", 11], ["Desligamento", 12, "d"], ["Aportes usados na integralização", 14], ["Observação", 40]],
+      base.cooperados.map((c) => [c.nome, c.email, c.cargo, c.conselho, c.categoria, Fin.valorHora(c, base.parametros), c.teletrabalho ? "Sim" : "Não", Number(c.fic_voluntario || 0) * 100, c.perfil_id ? "Ligada" : "Sem conta", c.quotas_iniciais, Number(c.integralizado_admissao), dt(c.data_admissao), c.situacao, dt(c.data_desligamento), c.compensar_aportes ? "Sim" : "Não", c.observacao]));
     const par = base.parametros;
     aba("Parâmetros", [["Parâmetro", 40], ["Valor", 18]], [["Valor da quota-parte", Number(par.quota)], ["Quotas mínimas na admissão", par.quotas_minimas], ["Início da contribuição mensal", Fin.nomeMes(Fin.mesDe(par.contrib_inicio))], ["Contas calculadas até", Fin.nomeMes(Fin.mesFechamento(par))], ["Exportado em", new Date().toLocaleString("pt-BR")]]);
     const buf = await wb.xlsx.writeBuffer();
