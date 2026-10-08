@@ -89,7 +89,7 @@
                 <td>${esc(h.projeto_nome || "Atividade interna")}<span class="sub">${esc(h.descricao || "")}</span></td>
                 <td>${esc(TIPOS[h.tipo] || h.tipo)}</td>
                 <td class="num">${horas(h.horas)}</td>
-                <td class="acoes-celula"><button class="btn btn-danger btn-sm" data-del="${h.id}">Excluir</button></td></tr>`).join("")}</tbody>
+                <td class="acoes-celula"><button class="btn btn-ghost btn-sm" data-edit="${h.id}">Editar</button> <button class="btn btn-danger btn-sm" data-del="${h.id}">Excluir</button></td></tr>`).join("")}</tbody>
             </table></div>`;
         };
         desenhar();
@@ -97,8 +97,31 @@
         $("#h-tipo").addEventListener("change", (e) => { $("#h-tipo-desc").textContent = DESC[e.target.value] || ""; });
         $("#h-mes").addEventListener("change", (e) => { filtroMes = e.target.value; desenhar(); });
         lista.addEventListener("click", async (e) => {
+          const be = e.target.closest("[data-edit]");
+          if (be) {
+            const h = minhas.find((x) => x.id === be.dataset.edit); if (!h) return;
+            const m = UI.modal(`<h2>Corrigir lançamento</h2>
+              <div class="form-grid">
+                <div class="field"><label for="e-proj">Projeto</label><select class="input" id="e-proj">${ativos.map((p) => `<option value="${p.id}" ${p.id === h.projeto_id ? "selected" : ""}>${esc(p.nome)}</option>`).join("")}${h.projeto_id && !ativos.some((p) => p.id === h.projeto_id) ? `<option value="${h.projeto_id}" selected>${esc(h.projeto_nome || "Projeto")}</option>` : ""}<option value="" ${!h.projeto_id ? "selected" : ""}>Sem projeto (atividade interna)</option></select></div>
+                <div class="field"><label for="e-tipo">Tipo de hora</label><select class="input" id="e-tipo">${Object.entries(TIPOS).map(([k, v]) => `<option value="${k}" ${k === h.tipo ? "selected" : ""}>${esc(v)}</option>`).join("")}</select></div>
+                <div class="field"><label for="e-data">Data</label><input class="input" id="e-data" type="date" value="${h.data}" max="${hoje()}"></div>
+                <div class="field"><label for="e-horas">Horas</label><input class="input" id="e-horas" type="number" min="0.25" max="12" step="0.25" inputmode="decimal" value="${h.horas}"></div>
+                <div class="field full"><label for="e-desc">O que foi feito</label><input class="input" id="e-desc" maxlength="300" value="${esc(h.descricao || "")}"></div>
+              </div>
+              <p class="hint">A correção fica registrada com o antes e o depois, e o Conselho Fiscal pode ver o histórico.</p>
+              <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="e-ok">Salvar correção</button></div>`);
+            $("#e-ok", m.el).onclick = async (ev) => {
+              const d = { projeto_id: $("#e-proj", m.el).value || null, tipo: $("#e-tipo", m.el).value, data: $("#e-data", m.el).value, horas: parseFloat(String($("#e-horas", m.el).value).replace(",", ".")), descricao: $("#e-desc", m.el).value.trim() };
+              if (!d.data) return toast("Informe a data.", "err");
+              if (!(d.horas > 0 && d.horas <= 12)) return toast("Informe entre 0,25 e 12 horas.", "err");
+              if (!d.descricao) return toast("Descreva o que foi feito.", "err");
+              const ok = await acao(ev.currentTarget, () => API.producao.editar(h.id, d), "Lançamento corrigido.");
+              if (ok) { m.fechar(); const novas = await API.producao.minhas(); minhas.length = 0; minhas.push(...novas); desenhar(); }
+            };
+            return;
+          }
           const b = e.target.closest("[data-del]"); if (!b) return;
-          if (!(await confirmar("Excluir este lançamento de horas?", "Excluir"))) return;
+          if (!(await confirmar("Excluir este lançamento de horas? A exclusão fica registrada no histórico de correções.", "Excluir"))) return;
           const ok = await acao(b, () => API.producao.excluir(b.dataset.del), "Lançamento excluído.");
           if (ok) { const i = minhas.findIndex((h) => h.id === b.dataset.del); minhas.splice(i, 1); desenhar(); }
         });
@@ -520,6 +543,60 @@
           $("#dm-mes").addEventListener("change", (e) => { sel = e.target.value; mostrar(); });
           $("#dm-imp").onclick = () => D.imprimir(D.dados(c, ext, sel, calc));
         }
+      }
+    },
+
+    transparencia: {
+      titulo: "Prestação de contas",
+      async render(el) {
+        const T = window.Tesouraria;
+        const ps = (await API.cf.prestacoes().catch(() => [])).filter((p) => p.status === "publicada");
+        const nomeTri = (t) => { const [a, q] = t.split("-T"); return `${q}º trimestre de ${a}`; };
+        el.innerHTML = `<div class="pag-cab"><div><p class="eyebrow">Transparência</p><h1>Prestação de contas</h1></div></div>
+          <p class="muted">A cada trimestre, a cooperativa mostra quanto entrou de Custo de Operação e Gestão (os 20% dos contratos) e como foi usado, depois da conferência do Conselho Fiscal (Estatuto, art. 23, §8º; Regimento, art. 170). Todos os cooperados têm acesso amplo às informações financeiras (Estatuto, art. 60, §7º).</p>
+          ${ps.length ? ps.map((p) => `<section class="painel"><div class="painel-cab"><h2>${nomeTri(p.trimestre)}</h2><span class="hint">publicada em ${dataHora(p.publicado_em)}</span></div>
+            ${T ? T.htmlPrestacao(p.dados) : ""}
+            ${p.parecer ? `<div class="notice"><b>Parecer do Conselho Fiscal</b> (${esc(p.conferido_nome || "")}): ${esc(p.parecer)}</div>` : ""}</section>`).join("")
+            : '<p class="vazio">Nenhuma prestação de contas publicada ainda. A primeira sai no fim do primeiro trimestre com contratos.</p>'}`;
+      }
+    },
+
+    denuncia: {
+      titulo: "Denúncias e reclamações",
+      async render(el) {
+        const minhas = await API.cf.minhasDenuncias().catch(() => []);
+        const ST = { recebida: "recebida", em_apuracao: "em apuração", procedente: "procedente", improcedente: "improcedente", arquivada: "arquivada" };
+        el.innerHTML = `<div class="pag-cab"><div><p class="eyebrow">Canal do Conselho Fiscal</p><h1>Denúncias e reclamações</h1></div></div>
+          <p class="muted">Use este canal para denunciar assédio, discriminação, abuso de poder ou irregularidades, ou para reclamar de algo financeiro. Quem recebe e apura é o Conselho Fiscal, em até 30 dias (Regimento, arts. 46 e 47; Estatuto, art. 67, k).</p>
+          <section class="painel"><h2>Enviar</h2>
+            <form id="dn-f" class="form-grid" novalidate>
+              <div class="field"><label for="dn-tipo">Tipo</label><select class="input" id="dn-tipo"><option value="reclamacao">Reclamação (financeira ou de serviço)</option><option value="denuncia">Denúncia</option></select></div>
+              <div class="field"><label for="dn-ass">Assunto</label><input class="input" id="dn-ass" maxlength="150"></div>
+              <div class="field full"><label for="dn-desc">O que aconteceu</label><textarea class="input" id="dn-desc" rows="5" placeholder="Descreva os fatos, quando e onde aconteceram e, se houver, provas ou testemunhas."></textarea></div>
+              <div class="field full"><label for="dn-env">Pessoas envolvidas (opcional)</label><input class="input" id="dn-env" maxlength="200"></div>
+              <label class="ciente full"><input type="checkbox" id="dn-sig"> <span>Enviar de forma sigilosa: seu nome não fica registrado. Você acompanha só pelo número de protocolo, então guarde-o.</span></label>
+              <div class="full"><button class="btn btn-primary" id="dn-btn" type="submit">Enviar ao Conselho Fiscal</button></div>
+            </form>
+          </section>
+          <section class="painel"><h2>Acompanhar pelo protocolo</h2>
+            <form id="dn-ac" class="form-grid" novalidate><div class="field"><label for="dn-prot">Protocolo</label><input class="input" id="dn-prot" placeholder="BC-261008-XXXXX"></div><div class="full"><button class="btn btn-ghost" type="submit">Consultar</button></div></form>
+            <div id="dn-res"></div>
+          </section>
+          ${minhas.length ? `<section class="painel"><h2>Enviadas por você (identificadas)</h2><div class="tabela-wrap"><table class="tabela"><thead><tr><th>Protocolo</th><th>Assunto</th><th>Situação</th><th>Conclusão</th></tr></thead>
+            <tbody>${minhas.map((d) => `<tr><td>${esc(d.protocolo)}<span class="sub">${dataHora(d.criado_em)}</span></td><td>${esc(d.assunto)}</td><td>${ST[d.status] || esc(d.status)}</td><td>${["procedente", "improcedente", "arquivada"].includes(d.status) && d.conclusao ? esc(d.conclusao) : "—"}</td></tr>`).join("")}</tbody></table></div></section>` : ""}`;
+        $("#dn-f").addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const d = { tipo: $("#dn-tipo").value, assunto: $("#dn-ass").value.trim(), descricao: $("#dn-desc").value.trim(), envolvidos: $("#dn-env").value.trim(), sigilosa: $("#dn-sig").checked };
+          if (!d.assunto || !d.descricao) return toast("Informe o assunto e o que aconteceu.", "err");
+          let prot = null;
+          const ok = await acao($("#dn-btn"), async () => { prot = await API.cf.enviarDenuncia(d); return true; }, "Enviado ao Conselho Fiscal.");
+          if (ok) UI.modal(`<h2>Recebido</h2><p>Seu protocolo é <b style="font-size:1.2rem">${esc(prot || "")}</b>.</p><p class="muted">${d.sigilosa ? "Como o envio foi sigiloso, este número é a única forma de acompanhar. Anote ou tire um print agora." : "Você também acompanha por esta página."} O Conselho Fiscal tem até 30 dias para apurar.</p><div class="modal-acoes"><button class="btn btn-primary btn-sm" data-fechar>Entendi</button></div>`, () => paginas.denuncia.render(el));
+        });
+        $("#dn-ac").addEventListener("submit", async (e) => {
+          e.preventDefault(); const p = $("#dn-prot").value.trim(); if (!p) return;
+          const r = await API.cf.acompanharDenuncia(p).catch(() => null);
+          $("#dn-res").innerHTML = r ? `<dl class="sol-dados"><div><dt>Protocolo</dt><dd>${esc(r.protocolo)}</dd></div><div><dt>Assunto</dt><dd>${esc(r.assunto)}</dd></div><div><dt>Situação</dt><dd>${ST[r.status] || esc(r.status)}</dd></div><div><dt>Prazo</dt><dd>${data(r.prazo)}</dd></div></dl>${r.conclusao ? `<p><b>Conclusão:</b> ${esc(r.conclusao)}</p>` : ""}` : '<p class="vazio">Protocolo não encontrado.</p>';
+        });
       }
     },
 

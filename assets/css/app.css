@@ -275,3 +275,13 @@ select.mini { padding: 0.4rem 0.5rem; font-size: 0.85rem; width: auto; }
   .dem-tab .ref { display: none; } .dem-tab .ref-m { display: block; }
   .dem-bases { grid-template-columns: 1fr; }
 }
+
+/* Modo leitura do Conselho Fiscal no Financeiro */
+.so-leitura :is([data-confirmar], [data-recusar], [data-pagar], [data-recret], [data-desfazer], [data-delsal], [data-delguia], [data-val],
+  [data-ed-desp], [data-ex-desp], [data-ed-pag], [data-ex-pag], [data-ed-coop], [data-preparar], [data-publicar],
+  #t-nova-desp, #t-novo-coop, #t-novo-pag, #fm-puxar) { display: none !important; }
+.so-leitura #t-corpo form :is(button[type="submit"], .btn-primary) { display: none !important; }
+.so-leitura :is(#t-sal, #t-guia, #t-rec) { display: none !important; }
+.so-leitura #t-corpo form :is(input, select, textarea) { pointer-events: none; opacity: .6; }
+.so-leitura .modal :is(form, .form-grid) :is(input, select, textarea) { pointer-events: none; opacity: .6; }
+.so-leitura .modal-acoes .btn:not([data-fechar]):not(.permitido) { display: none !important; }

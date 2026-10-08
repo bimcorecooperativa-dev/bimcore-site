@@ -157,6 +157,8 @@
       const u = eu(s);
       if (!u) falha("Sua sessão expirou. Entre novamente.");
       if (coord === "tes" && !(u.status === "ativo" && (u.papel === "coordenacao" || u.tesouraria))) falha("permission denied");
+      else if (coord === "ver" && !(u.status === "ativo" && (u.papel === "coordenacao" || u.tesouraria || u.conselho_fiscal))) falha("permission denied");
+      else if (coord === "cf" && !(u.status === "ativo" && u.conselho_fiscal)) falha("Só o Conselho Fiscal pode fazer isso.");
       else if (coord === true && !(u.papel === "coordenacao" && u.status === "ativo")) falha("permission denied");
       return u;
     };
@@ -217,12 +219,12 @@
         }
       },
       cooperados: {
-        async listar() { const s = ler(); exigir(s, "tes"); return espera(s.perfis.map(semSenha).sort((a, b) => a.nome.localeCompare(b.nome))); },
+        async listar() { const s = ler(); exigir(s, "ver"); return espera(s.perfis.map(semSenha).sort((a, b) => a.nome.localeCompare(b.nome))); },
         async atualizar(id, dados) {
           const s = ler(); exigir(s, true);
           const p = s.perfis.find((x) => x.id === id); if (!p) falha("Cadastro não encontrado.");
           if ("status" in dados && dados.status !== p.status) p.analisado_em = new Date().toISOString();
-          ["papel", "status", "analise_obs", "tesouraria"].forEach((k) => { if (k in dados) p[k] = dados[k]; });
+          ["papel", "status", "analise_obs", "tesouraria", "conselho_fiscal"].forEach((k) => { if (k in dados) p[k] = dados[k]; });
           if (p.status === "ativo" && !p.data_ingresso) p.data_ingresso = new Date().toISOString().slice(0, 10);
           gravar(s); return espera(semSenha(p));
         }
@@ -268,7 +270,7 @@
           return espera(s.producao.filter((h) => h.cooperado_id === u.id).map((h) => ({ ...h, projeto_nome: nomeProjeto(s, h.projeto_id) })).sort((a, b) => b.data.localeCompare(a.data)));
         },
         async todas() {
-          const s = ler(); exigir(s, true);
+          const s = ler(); exigir(s, "ver");
           return espera(s.producao.map((h) => ({ ...h, projeto_nome: nomeProjeto(s, h.projeto_id), cooperado_nome: nomePessoa(s, h.cooperado_id) })).sort((a, b) => b.data.localeCompare(a.data)));
         },
         async lancar(h) {
@@ -280,8 +282,76 @@
           const s = ler(); const u = exigir(s);
           const h = s.producao.find((x) => x.id === id);
           if (!h || (h.cooperado_id !== u.id && u.papel !== "coordenacao")) falha("permission denied");
+          s.producao_historico = s.producao_historico || [];
+          s.producao_historico.push({ id: novoId(), producao_id: h.id, cooperado_id: h.cooperado_id, acao: "excluido", antes: { ...h }, depois: null, por_id: u.id, por_nome: u.nome, em: new Date().toISOString() });
           s.producao = s.producao.filter((x) => x.id !== id); gravar(s); return espera(true);
+        },
+        async editar(id, d) {
+          const s = ler(); const u = exigir(s);
+          const h = s.producao.find((x) => x.id === id);
+          if (!h || (h.cooperado_id !== u.id && u.papel !== "coordenacao")) falha("permission denied");
+          const antes = { ...h }; Object.assign(h, d);
+          s.producao_historico = s.producao_historico || [];
+          s.producao_historico.push({ id: novoId(), producao_id: h.id, cooperado_id: h.cooperado_id, acao: "editado", antes, depois: { ...h }, por_id: u.id, por_nome: u.nome, em: new Date().toISOString() });
+          gravar(s); return espera(true);
+        },
+        async historico() {
+          const s = ler(); const u = exigir(s); const ve = u.papel === "coordenacao" || u.conselho_fiscal;
+          return espera((s.producao_historico || []).filter((x) => ve || x.cooperado_id === u.id).map((x) => ({ ...x, cooperado_nome: nomePessoa(s, x.cooperado_id) })).sort((a, b) => b.em.localeCompare(a.em)));
         }
+      },
+      cf: {
+        _l(s, k) { s.cf = s.cf || {}; s.cf[k] = s.cf[k] || []; return s.cf[k]; },
+        async conferencias() { const s = ler(); exigir(s, "ver"); return espera(JSON.parse(JSON.stringify(this._l(s, "conferencias")))); },
+        async conferir(d) { const s = ler(); const u = exigir(s, "cf"); this._l(s, "conferencias").push({ ...d, id: novoId(), conselheiro_nome: u.nome, criado_em: new Date().toISOString() }); gravar(s); return espera(true); },
+        async guias() { const s = ler(); exigir(s, "ver"); return espera(JSON.parse(JSON.stringify(this._l(s, "guias")))); },
+        async salvarGuia(d) { const s = ler(); const u = exigir(s, "tes"); this._l(s, "guias").push({ ...d, id: novoId(), registrado_nome: u.nome, criado_em: new Date().toISOString() }); gravar(s); return espera(true); },
+        async excluirGuia(id) { const s = ler(); exigir(s, "tes"); s.cf.guias = this._l(s, "guias").filter((x) => x.id !== id); gravar(s); return espera(true); },
+        async prestacoes() { const s = ler(); const u = exigir(s); const ve = u.papel === "coordenacao" || u.tesouraria || u.conselho_fiscal; return espera(JSON.parse(JSON.stringify(this._l(s, "prestacoes").filter((x) => ve || x.status === "publicada")))); },
+        async prepararPrestacao(trimestre, dados) {
+          const s = ler(); const u = exigir(s, "tes"); const l = this._l(s, "prestacoes"); const x = l.find((p) => p.trimestre === trimestre);
+          if (x && x.status === "publicada") falha("Prestação já publicada não pode ser alterada.");
+          const novo = { trimestre, dados, status: "aguardando_cf", preparado_nome: u.nome, preparado_em: new Date().toISOString(), conferido_nome: null, conferido_em: null, parecer: null, publicado_em: null };
+          if (x) Object.assign(x, novo); else l.push(novo); gravar(s); return espera(true);
+        },
+        async conferirPrestacao(trimestre, status, parecer) {
+          const s = ler(); const u = exigir(s, "cf"); if (u.tesouraria) falha("Quem acumula tesouraria e Conselho Fiscal não pode conferir a própria prestação.");
+          const x = this._l(s, "prestacoes").find((p) => p.trimestre === trimestre); if (!x || x.status === "publicada") falha("Prestação não disponível.");
+          Object.assign(x, { status, parecer, conferido_nome: u.nome, conferido_em: new Date().toISOString() }); gravar(s); return espera(true);
+        },
+        async publicarPrestacao(trimestre) {
+          const s = ler(); exigir(s, "tes"); const x = this._l(s, "prestacoes").find((p) => p.trimestre === trimestre);
+          if (!x || x.status !== "conferida") falha("A prestação só pode ser publicada depois da conferência do Conselho Fiscal.");
+          Object.assign(x, { status: "publicada", publicado_em: new Date().toISOString() }); gravar(s); return espera(true);
+        },
+        async inconformidades() { const s = ler(); const u = exigir(s); if (!(u.conselho_fiscal || u.papel === "coordenacao")) falha("permission denied"); return espera(JSON.parse(JSON.stringify(this._l(s, "inconformidades")))); },
+        async salvarInconformidade(d) {
+          const s = ler(); const u = exigir(s, "cf"); const l = this._l(s, "inconformidades");
+          if (d.id) { const x = l.find((i) => i.id === d.id); Object.assign(x, d); } else l.push({ status: "aberta", ...d, id: novoId(), criado_nome: u.nome, criado_em: new Date().toISOString() });
+          gravar(s); return espera(true);
+        },
+        async responderInconformidade(id, resposta) {
+          const s = ler(); const u = exigir(s, true); const x = this._l(s, "inconformidades").find((i) => i.id === id);
+          if (!x || x.status !== "esclarecimento") falha("Esta inconformidade não aguarda esclarecimento.");
+          Object.assign(x, { resposta_ca: resposta, respondido_nome: u.nome, respondido_em: new Date().toISOString(), status: "respondida" }); gravar(s); return espera(true);
+        },
+        async relatorios() { const s = ler(); const u = exigir(s); if (!(u.conselho_fiscal || u.papel === "coordenacao")) falha("permission denied"); return espera(JSON.parse(JSON.stringify(this._l(s, "relatorios")))); },
+        async salvarRelatorio(d) { const s = ler(); const u = exigir(s, "cf"); this._l(s, "relatorios").push({ ...d, id: novoId(), criado_nome: u.nome, criado_em: new Date().toISOString() }); gravar(s); return espera(true); },
+        async enviarDenuncia(d) {
+          const s = ler(); const u = exigir(s); if (u.status !== "ativo") falha("permission denied");
+          const prot = "BC-" + new Date().toISOString().slice(2, 10).replace(/-/g, "") + "-" + Math.random().toString(16).slice(2, 7).toUpperCase();
+          const prazo = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+          this._l(s, "denuncias").push({ ...d, id: novoId(), protocolo: prot, prazo, status: "recebida", prorrogada: false, afastamento_proposto: false, conclusao: null,
+            autor_id: d.sigilosa ? null : u.id, autor_nome: d.sigilosa ? null : u.nome, criado_em: new Date().toISOString(), atualizado_em: new Date().toISOString() });
+          gravar(s); return espera(prot);
+        },
+        async minhasDenuncias() { const s = ler(); const u = exigir(s); return espera(this._l(s, "denuncias").filter((x) => x.autor_id === u.id)); },
+        async acompanharDenuncia(prot) {
+          const s = ler(); exigir(s); const x = this._l(s, "denuncias").find((d) => d.protocolo === String(prot).trim().toUpperCase()); if (!x) return espera(null);
+          return espera({ protocolo: x.protocolo, tipo: x.tipo, assunto: x.assunto, status: x.status, criado_em: x.criado_em, prazo: x.prazo, conclusao: ["procedente", "improcedente", "arquivada"].includes(x.status) ? x.conclusao : null });
+        },
+        async denuncias() { const s = ler(); exigir(s, "cf"); return espera(JSON.parse(JSON.stringify(this._l(s, "denuncias")))); },
+        async atualizarDenuncia(id, d) { const s = ler(); exigir(s, "cf"); const x = this._l(s, "denuncias").find((i) => i.id === id); Object.assign(x, d, { atualizado_em: new Date().toISOString() }); gravar(s); return espera(true); }
       },
       financeiro: {
         async minhas() { const s = ler(); const u = exigir(s); return espera((s.fin_posicoes || []).filter((p) => p.cooperado_id === u.id).sort((a, b) => b.data_base.localeCompare(a.data_base) || String(b.criado_em || "").localeCompare(String(a.criado_em || "")))); },
@@ -313,7 +383,7 @@
       },
       movimentos: {
         async meus() { const s = ler(); const u = exigir(s); return espera((s.fin_movimentos || []).filter((m) => m.cooperado_id === u.id).sort((a, b) => b.criado_em.localeCompare(a.criado_em))); },
-        async todos() { const s = ler(); exigir(s, "tes"); return espera((s.fin_movimentos || []).map((m) => ({ ...m, cooperado_nome: nomePessoa(s, m.cooperado_id) })).sort((a, b) => b.criado_em.localeCompare(a.criado_em))); },
+        async todos() { const s = ler(); exigir(s, "ver"); return espera((s.fin_movimentos || []).map((m) => ({ ...m, cooperado_nome: nomePessoa(s, m.cooperado_id) })).sort((a, b) => b.criado_em.localeCompare(a.criado_em))); },
         async pagarPix({ codigo, valor, alocacao, comprovante }) {
           const s = ler(); const u = exigir(s); if (u.status !== "ativo") falha("permission denied");
           s.fin_movimentos = s.fin_movimentos || [];
@@ -351,9 +421,9 @@
           const internas = c ? (await this.internas()).filter((x) => x.fin_cooperado_id === c.id) : [];
           return espera({ parametros: { ...s.fin.parametros }, cooperado: c, habilitacoes: f("habilitacoes"), experiencias: f("experiencias"), comprovantes: f("comprovantes"), internas });
         },
-        async todos() { const s = ler(); exigir(s, "tes"); return espera({ habilitacoes: s.fin.habilitacoes || [], experiencias: s.fin.experiencias || [], comprovantes: s.fin.comprovantes || [] }); },
+        async todos() { const s = ler(); exigir(s, "ver"); return espera({ habilitacoes: s.fin.habilitacoes || [], experiencias: s.fin.experiencias || [], comprovantes: s.fin.comprovantes || [] }); },
         async internas() {
-          const s = ler(); const u = exigir(s); const valida = u.papel === "coordenacao" || u.tesouraria;
+          const s = ler(); const u = exigir(s); const valida = u.papel === "coordenacao" || u.tesouraria || u.conselho_fiscal;
           const out = {};
           s.fin.cooperados.filter((c) => valida || c.perfil_id === u.id).forEach((c) => {
             (s.producao || []).filter((h) => c.perfil_id && h.cooperado_id === c.perfil_id && (h.tipo === "produtiva" || h.tipo === "formacao")).forEach((h) => {
@@ -412,7 +482,7 @@
         },
         async pagarRetirada(id, d) {
           const s = ler(); const u = exigir(s, "tes"); const r = (s.fin.retiradas || []).find((x) => x.id === id); if (!r) falha("Solicitação não encontrada.");
-          Object.assign(r, d, { status: "paga", pago_nome: u.nome }); gravar(s); return espera(true);
+          Object.assign(r, d, { status: "paga", pago_nome: u.nome, atualizado_em: new Date().toISOString() }); gravar(s); return espera(true);
         },
         async desfazerPagamento(id) {
           const s = ler(); exigir(s, "tes"); const r = (s.fin.retiradas || []).find((x) => x.id === id); if (!r) falha("Solicitação não encontrada.");
@@ -423,7 +493,7 @@
           const rs = s.fin.retiradas || [];
           return { data: sal ? sal.data : null, saldo: sal ? Number(sal.saldo) : null, reserva: Number(s.fin.parametros.reserva_caixa || 0), patronal_pct: s.fin.parametros.patronal_pct != null ? s.fin.parametros.patronal_pct : 0.2,
             pedidos: rs.filter((r) => r.status === "solicitada").reduce((t, r) => t + Number(r.valor), 0),
-            pagas_depois: sal ? rs.filter((r) => r.status === "paga" && r.pago_em > sal.data).reduce((t, r) => t + Number(r.valor), 0) : 0 };
+            pagas_depois: sal ? rs.filter((r) => r.status === "paga" && (r.pago_em > sal.data || (r.pago_em === sal.data && String(r.atualizado_em || "") > String(sal.criado_em || "")))).reduce((t, r) => t + Number(r.valor), 0) : 0 };
         },
         async salvarSaldo(d) {
           const s = ler(); const u = exigir(s, "tes"); s.fin.saldos = s.fin.saldos || [];
@@ -448,7 +518,7 @@
           return espera(JSON.parse(JSON.stringify({ parametros: { ...s.fin.parametros }, cooperado: c, pagamentos: pags, despesas, folha, horas_total, habilitacoes, experiencias, horas_mes, retiradas, vigencias: s.fin.vigencias || [], caixa: this._caixa(s) })));
         },
         async tudo() {
-          const s = ler(); exigir(s, "tes"); s.fin.folha = s.fin.folha || []; s.fin.receitas = s.fin.receitas || []; s.fin.retiradas = s.fin.retiradas || [];
+          const s = ler(); exigir(s, "ver"); s.fin.folha = s.fin.folha || []; s.fin.receitas = s.fin.receitas || []; s.fin.retiradas = s.fin.retiradas || [];
           const horas_total = s.producao.filter((h) => h.tipo === "produtiva" || h.tipo === "formacao").reduce((t, h) => t + Number(h.horas), 0);
           return espera(JSON.parse(JSON.stringify({ ...s.fin, saldos: s.fin.saldos || [], vigencias: s.fin.vigencias || [], horas_mes: this._horasMes(s), horas_total, caixa: this._caixa(s) })));
         },
@@ -550,7 +620,7 @@
       cooperados: {
         async listar() { return ok(await sb.from("perfis").select("*").order("nome")); },
         async atualizar(id, dados) {
-          const limpo = {}; ["papel", "status", "analise_obs", "tesouraria"].forEach((k) => { if (k in dados) limpo[k] = dados[k]; });
+          const limpo = {}; ["papel", "status", "analise_obs", "tesouraria", "conselho_fiscal"].forEach((k) => { if (k in dados) limpo[k] = dados[k]; });
           return ok(await sb.from("perfis").update(limpo).eq("id", id).select().single());
         }
       },
@@ -617,7 +687,49 @@
           ok(await sb.from("producao").insert({ cooperado_id: id, projeto_id: h.projeto_id || null, data: h.data, horas: h.horas, tipo: h.tipo, descricao: h.descricao }));
           return true;
         },
-        async excluir(id) { ok(await sb.from("producao").delete().eq("id", id)); return true; }
+        async excluir(id) { ok(await sb.from("producao").delete().eq("id", id)); return true; },
+        async editar(id, d) { ok(await sb.from("producao").update({ projeto_id: d.projeto_id || null, data: d.data, horas: d.horas, tipo: d.tipo, descricao: d.descricao }).eq("id", id)); return true; },
+        async historico() {
+          const rows = ok(await sb.from("producao_historico").select("*").order("em", { ascending: false }).limit(500));
+          const ids = [...new Set(rows.map((r) => r.cooperado_id).filter(Boolean))];
+          const ps = ids.length ? ok(await sb.from("perfis").select("id,nome").in("id", ids)) : [];
+          const nome = {}; ps.forEach((p) => { nome[p.id] = p.nome; });
+          return rows.map((r) => ({ ...r, cooperado_nome: nome[r.cooperado_id] || "—" }));
+        }
+      },
+      cf: {
+        async _eu() { const uid = await meuId(); return ok(await sb.from("perfis").select("nome").eq("id", uid).single()).nome; },
+        async conferencias() { const r = await sb.from("fin_conferencias").select("*").order("criado_em", { ascending: false }); return r.error ? [] : r.data; },
+        async conferir(d) { ok(await sb.from("fin_conferencias").insert({ ...d, conselheiro_nome: await this._eu() })); return true; },
+        async guias() { const r = await sb.from("fin_guias").select("*").order("competencia", { ascending: false }); return r.error ? [] : r.data; },
+        async salvarGuia(d) { ok(await sb.from("fin_guias").insert({ ...d, registrado_nome: await this._eu() })); return true; },
+        async excluirGuia(id) { ok(await sb.from("fin_guias").delete().eq("id", id)); return true; },
+        async prestacoes() { const r = await sb.from("fin_prestacoes").select("*").order("trimestre", { ascending: false }); return r.error ? [] : r.data; },
+        async prepararPrestacao(trimestre, dados) {
+          const nome = await this._eu();
+          const ex = await sb.from("fin_prestacoes").select("trimestre,status").eq("trimestre", trimestre).maybeSingle();
+          if (ex.data) ok(await sb.from("fin_prestacoes").update({ dados, preparado_nome: nome }).eq("trimestre", trimestre));
+          else ok(await sb.from("fin_prestacoes").insert({ trimestre, dados, preparado_nome: nome }));
+          return true;
+        },
+        async conferirPrestacao(trimestre, status, parecer) { ok(await sb.from("fin_prestacoes").update({ status, parecer, conferido_nome: await this._eu() }).eq("trimestre", trimestre)); return true; },
+        async publicarPrestacao(trimestre) { ok(await sb.from("fin_prestacoes").update({ status: "publicada" }).eq("trimestre", trimestre)); return true; },
+        async inconformidades() { return ok(await sb.from("cf_inconformidades").select("*").order("criado_em", { ascending: false })); },
+        async salvarInconformidade(d) {
+          if (d.id) { const x = { ...d }; delete x.id; ok(await sb.from("cf_inconformidades").update(x).eq("id", d.id)); }
+          else ok(await sb.from("cf_inconformidades").insert({ ...d, criado_nome: await this._eu() }));
+          return true;
+        },
+        async responderInconformidade(id, resposta) { ok(await sb.from("cf_inconformidades").update({ resposta_ca: resposta, respondido_nome: await this._eu() }).eq("id", id)); return true; },
+        async relatorios() { return ok(await sb.from("cf_relatorios").select("*").order("criado_em", { ascending: false })); },
+        async salvarRelatorio(d) { ok(await sb.from("cf_relatorios").insert({ ...d, criado_nome: await this._eu() })); return true; },
+        async enviarDenuncia(d) {
+          return ok(await sb.rpc("enviar_denuncia", { p_tipo: d.tipo, p_sigilosa: !!d.sigilosa, p_assunto: d.assunto, p_descricao: d.descricao, p_envolvidos: d.envolvidos || null }));
+        },
+        async minhasDenuncias() { const uid = await meuId(); return ok(await sb.from("cf_denuncias").select("*").eq("autor_id", uid).order("criado_em", { ascending: false })); },
+        async acompanharDenuncia(prot) { const r = await sb.rpc("acompanhar_denuncia", { p_protocolo: prot }); return r.error ? null : r.data; },
+        async denuncias() { return ok(await sb.from("cf_denuncias").select("*").order("criado_em", { ascending: false })); },
+        async atualizarDenuncia(id, d) { ok(await sb.from("cf_denuncias").update({ ...d, atualizado_em: new Date().toISOString() }).eq("id", id)); return true; }
       },
       financeiro: {
         async minhas() {

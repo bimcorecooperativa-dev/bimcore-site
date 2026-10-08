@@ -22,8 +22,44 @@
   const brl = (v) => (v == null || v === "" ? "" : Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
   const hojeISO = () => UI.hoje();
 
+  /* Trimestre ("2026-T4") e meses */
+  const trimestreDe = (m) => { const [a, mm] = m.split("-").map(Number); return a + "-T" + Math.ceil(mm / 3); };
+  const mesesDoTri = (t) => { const [a, q] = t.split("-T").map(Number); return [1, 2, 3].map((k) => `${a}-${String((q - 1) * 3 + k).padStart(2, "0")}`); };
+  const nomeTri = (t) => { const [a, q] = t.split("-T"); return `${q}º trimestre de ${a}`; };
+  /* Retrato da prestação de contas dos 20% (Estatuto, art. 23, §8º; RI, art. 170) */
+  function dadosTrimestre(base, calc, t) {
+    const ms = mesesDoTri(t);
+    const vc = Fin.cooperativa(base, calc);
+    const meses = ms.map((m) => { const l = vc.linhas.find((x) => x.mes === m) || {}; return { mes: m, receita: l.receita || 0, custo_op: l.custo_op || 0, admin_cog: l.admin_cog || 0, saldo_cog: l.saldo_cog || 0 }; });
+    const despesas = (base.despesas || []).filter((d) => d.data && ms.includes(Fin.mesDe(d.data))).map((d) => ({ data: d.data, descricao: d.descricao, categoria: d.categoria, valor: Number(d.valor) }));
+    const soma = (k) => Fin.centavos(meses.reduce((x, m) => x + m[k], 0));
+    const tDesp = Fin.centavos(despesas.reduce((x, d) => x + d.valor, 0));
+    return { trimestre: t, meses, despesas, totais: { receita: soma("receita"), custo_op: soma("custo_op"), admin_cog: soma("admin_cog"), despesas: tDesp, saldo: Fin.centavos(soma("custo_op") - soma("admin_cog") - tDesp) } };
+  }
+  /* Guias esperadas por competência: INSS (11% retido + 20% patronal) e IRRF retido */
+  function guiasEsperadas(base) {
+    const pr = Fin.params(base.parametros); const out = {};
+    (base.retiradas || []).filter((r) => r.status === "paga" && r.pago_em).forEach((r) => {
+      const m = Fin.mesDe(r.pago_em); const o = out[m] = out[m] || { mes: m, INSS: 0, IRRF: 0 };
+      o.INSS += Number(r.inss || 0) + Number(r.valor) * pr.patronal_pct; o.IRRF += Number(r.ir || 0);
+    });
+    return Object.values(out).map((o) => ({ ...o, INSS: Fin.centavos(o.INSS), IRRF: Fin.centavos(o.IRRF) })).sort((a, b) => b.mes.localeCompare(a.mes));
+  }
+  function htmlPrestacao(d) {
+    return `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Mês</th><th class="num">Receita de contratos</th><th class="num">20% (Custo de Operação e Gestão)</th><th class="num">Suporte administrativo + INSS patronal</th></tr></thead>
+      <tbody>${d.meses.map((m) => `<tr><td>${Fin.nomeMes(m.mes)}</td><td class="num">${moeda(m.receita)}</td><td class="num">${moeda(m.custo_op)}</td><td class="num">${moeda(m.admin_cog)}</td></tr>`).join("")}</tbody>
+      <tfoot><tr><td>Total</td><td class="num">${moeda(d.totais.receita)}</td><td class="num">${moeda(d.totais.custo_op)}</td><td class="num">${moeda(d.totais.admin_cog)}</td></tr></tfoot></table></div>
+      ${d.despesas.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Data</th><th>Despesa</th><th>Categoria</th><th class="num">Valor</th></tr></thead>
+        <tbody>${d.despesas.map((x) => `<tr><td>${data(x.data)}</td><td>${esc(x.descricao)}</td><td>${esc(x.categoria || "")}</td><td class="num">${moeda(x.valor)}</td></tr>`).join("")}</tbody></table></div>` : '<p class="hint">Nenhuma despesa registrada no trimestre.</p>'}
+      <dl class="sol-dados"><div><dt>20% arrecadados</dt><dd>${moeda(d.totais.custo_op)}</dd></div><div><dt>Suporte administrativo</dt><dd>${moeda(d.totais.admin_cog)}</dd></div><div><dt>Despesas</dt><dd>${moeda(d.totais.despesas)}</dd></div><div><dt>Saldo do trimestre</dt><dd style="color:${d.totais.saldo < 0 ? "var(--err)" : "var(--ok)"}">${moeda(d.totais.saldo)}</dd></div></dl>`;
+  }
+  const STATUS_PREST = { aguardando_cf: '<span class="selo warn">aguardando o Conselho Fiscal</span>', devolvida: '<span class="selo err">devolvida pelo Conselho Fiscal</span>', conferida: '<span class="selo info">conferida, pronta para publicar</span>', publicada: '<span class="selo ok">publicada aos cooperados</span>' };
+
   async function render(el, ctx) {
-    const [base, movs, perfis, expAll] = await Promise.all([API.fin.tudo(), API.movimentos.todos().catch(() => []), API.cooperados.listar().catch(() => []), API.exp.todos().catch(() => ({ habilitacoes: [], experiencias: [], comprovantes: [] }))]);
+    const leitura = !!(ctx && ctx.leitura);
+    document.body.classList.toggle("so-leitura", leitura);
+    const [base, movs, perfis, expAll, guias, confs, prests] = await Promise.all([API.fin.tudo(), API.movimentos.todos().catch(() => []), API.cooperados.listar().catch(() => []), API.exp.todos().catch(() => ({ habilitacoes: [], experiencias: [], comprovantes: [] })),
+      API.cf.guias().catch(() => []), API.cf.conferencias().catch(() => []), API.cf.prestacoes().catch(() => [])]);
     base.habilitacoes = expAll.habilitacoes; base.experiencias = expAll.experiencias;
     base.internas = await API.exp.internas().catch(() => []);
     const pendExp = expAll.habilitacoes.filter((h) => h.status === "pendente").length + expAll.experiencias.filter((x) => x.status === "pendente").length;
@@ -47,6 +83,7 @@
     el.querySelectorAll("[data-aba]").forEach((b) => { b.onclick = () => { aba = b.dataset.aba; recarregar(); }; });
     $("#t-exportar").onclick = (ev) => acao(ev.currentTarget, () => exportar(base, calc, perfilPorId), "Planilha exportada.");
     const corpo = $("#t-corpo");
+    if (leitura) corpo.insertAdjacentHTML("beforebegin", '<div class="notice">Modo leitura do Conselho Fiscal: você vê tudo, mas não lança, paga nem valida nada (Estatuto, art. 67, §1º). Para registrar conferências e inconformidades, use a página Conselho Fiscal.</div>');
 
     /* ---------------- Resumo ---------------- */
     if (aba === "resumo") {
@@ -118,8 +155,9 @@
             <div class="full"><button class="btn btn-primary" id="sl-btn" type="submit">Registrar saldo</button></div>
           </form>
           <p class="hint">Os cooperados só conseguem pedir retirada até o valor livre. Atualize o saldo depois de cada entrada de cliente e de cada lote de transferências; as retiradas pagas depois da data do saldo já são descontadas sozinhas.</p>
-          ${saldos.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Data</th><th class="num">Saldo</th><th>Registrado por</th><th></th></tr></thead>
-            <tbody>${saldos.map((x) => `<tr><td>${data(x.data)}${x.observacao ? `<span class="sub">${esc(x.observacao)}</span>` : ""}</td><td class="num">${moeda(x.saldo)}</td><td>${esc(x.registrado_nome || "")}</td><td class="acoes-celula"><button class="btn btn-ghost btn-sm" data-delsal="${x.id}">Excluir</button></td></tr>`).join("")}</tbody></table></div>` : ""}
+          ${saldos.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Data</th><th class="num">Saldo</th><th>Registrado por</th><th>Conselho Fiscal</th><th></th></tr></thead>
+            <tbody>${saldos.map((x) => { const cf = confs.find((k) => k.tipo === "saldo" && k.ref_id === x.id); return `<tr><td>${data(x.data)}${x.observacao ? `<span class="sub">${esc(x.observacao)}</span>` : ""}</td><td class="num">${moeda(x.saldo)}</td><td>${esc(x.registrado_nome || "")}</td>
+              <td>${cf ? `<span class="selo ${cf.situacao === "conferido" ? "ok" : "err"}">${cf.situacao}</span>${cf.observacao ? `<span class="sub">${esc(cf.observacao)}</span>` : ""}` : '<span class="selo">não conferido</span>'}</td><td class="acoes-celula"><button class="btn btn-ghost btn-sm" data-delsal="${x.id}">Excluir</button></td></tr>`; }).join("")}</tbody></table></div>` : ""}
         </section>
         <section class="painel ${pend.length ? "acerto" : ""}">
           <div class="painel-cab"><h2>Retiradas solicitadas</h2>${pend.length ? `<span class="selo warn">${pend.length}</span>` : ""}</div>
@@ -148,7 +186,30 @@
             <td>${r.status === "paga" ? `<span class="selo ok">paga em ${data(r.pago_em)}</span><span class="sub">${esc(r.pago_nome || "")}</span>` : `<span class="selo">cancelada</span>${r.motivo ? `<span class="sub">${esc(r.motivo)}</span>` : ""}`}</td>
             <td class="num">${moeda(r.valor)}</td><td class="num">${r.status === "paga" ? moeda(r.inss) : "—"}</td><td class="num">${r.status === "paga" ? moeda(r.ir || 0) : "—"}</td><td class="num">${r.status === "paga" ? moeda(r.contribuicao) : "—"}</td><td class="num">${r.status === "paga" ? moeda(r.fic_vol) : "—"}</td><td class="num">${r.status === "paga" ? moeda(r.liquido) : "—"}</td>
             <td class="acoes-celula">${r.status === "paga" ? `<button class="btn btn-ghost btn-sm" data-dem="${r.id}">Demonstrativo</button> <button class="btn btn-ghost btn-sm" data-desfazer="${r.id}">Desfazer</button>` : ""}</td></tr>`).join("")}</tbody>
-        </table></div></section>` : ""}`;
+        </table></div></section>` : ""}
+        <section class="painel"><h2>Guias recolhidas (INSS e IR)</h2>
+          <p class="hint">Registre cada guia paga. O site mostra o valor esperado de cada competência pelas retiradas pagas: INSS = 11% retido + 20% patronal; IRRF = IR retido. O Conselho Fiscal confere (Estatuto, art. 67, m e n).</p>
+          ${(() => { const esp = guiasEsperadas(base); return esp.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Competência</th><th class="num">INSS esperado</th><th class="num">INSS registrado</th><th class="num">IRRF esperado</th><th class="num">IRRF registrado</th></tr></thead>
+            <tbody>${esp.map((e) => { const reg = (t) => Fin.centavos(guias.filter((g) => g.tipo === t && Fin.mesDe(g.competencia) === e.mes).reduce((x, g) => x + Number(g.valor), 0)); const ri = reg("INSS"), rr = reg("IRRF");
+              const sel = (a, b) => `<span class="selo ${Math.abs(a - b) < 0.01 ? "ok" : "warn"}">${moeda(b)}</span>`; return `<tr><td>${Fin.nomeMes(e.mes)}</td><td class="num">${moeda(e.INSS)}</td><td class="num">${sel(e.INSS, ri)}</td><td class="num">${moeda(e.IRRF)}</td><td class="num">${sel(e.IRRF, rr)}</td></tr>`; }).join("")}</tbody></table></div>` : '<p class="vazio">Ainda não há retiradas pagas, então não há guias a recolher.</p>'; })()}
+          <form id="t-guia" class="form-grid" novalidate>
+            <div class="field"><label for="gu-comp">Competência</label><input class="input" id="gu-comp" type="month" value="${Fin.mesDe(hojeI)}"></div>
+            <div class="field"><label for="gu-tipo">Tipo</label><select class="input" id="gu-tipo"><option>INSS</option><option>IRRF</option><option>Outro</option></select></div>
+            <div class="field"><label for="gu-val">Valor pago (R$)</label><input class="input" id="gu-val" inputmode="decimal"></div>
+            <div class="field"><label for="gu-pago">Pago em</label><input class="input" id="gu-pago" type="date" value="${hojeI}" max="${hojeI}"></div>
+            <div class="field full"><label for="gu-obs">Observação (nº da guia, DARF, DCTFWeb)</label><input class="input" id="gu-obs" maxlength="200"></div>
+            <div class="full"><button class="btn btn-primary" id="gu-btn" type="submit">Registrar guia</button></div>
+          </form>
+          ${guias.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Competência</th><th>Tipo</th><th class="num">Valor</th><th>Pago em</th><th>Conselho Fiscal</th><th></th></tr></thead>
+            <tbody>${guias.map((g) => { const cf = confs.find((k) => k.tipo === "guia" && k.ref_id === g.id); return `<tr><td>${Fin.nomeMes(Fin.mesDe(g.competencia))}${g.observacao ? `<span class="sub">${esc(g.observacao)}</span>` : ""}</td><td>${esc(g.tipo)}</td><td class="num">${moeda(g.valor)}</td><td>${data(g.pago_em)}</td>
+              <td>${cf ? `<span class="selo ${cf.situacao === "conferido" ? "ok" : "err"}">${cf.situacao}</span>${cf.observacao ? `<span class="sub">${esc(cf.observacao)}</span>` : ""}` : '<span class="selo">não conferida</span>'}</td>
+              <td class="acoes-celula"><button class="btn btn-ghost btn-sm" data-delguia="${g.id}">Excluir</button></td></tr>`; }).join("")}</tbody></table></div>` : ""}
+        </section>`;
+      $("#t-guia").addEventListener("submit", async (e) => {
+        e.preventDefault(); const comp = $("#gu-comp").value, v = lerValor($("#gu-val").value);
+        if (!comp) return toast("Informe a competência.", "err"); if (!(v >= 0) || $("#gu-val").value.trim() === "") return toast("Informe o valor.", "err");
+        if (await acao($("#gu-btn"), () => API.cf.salvarGuia({ competencia: comp + "-01", tipo: $("#gu-tipo").value, valor: v, pago_em: $("#gu-pago").value || null, observacao: $("#gu-obs").value.trim() || null }), "Guia registrada.")) recarregar();
+      });
       $("#t-sal").addEventListener("submit", async (e) => {
         e.preventDefault(); const dt = $("#sl-data").value, v = lerValor($("#sl-val").value);
         if (!dt) return toast("Informe a data.", "err"); if (!Number.isFinite(v) || $("#sl-val").value.trim() === "") return toast("Informe o saldo.", "err");
@@ -159,10 +220,12 @@
         if (bdm) {
           const r = rets.find((x) => x.id === bdm.dataset.dem), c = porId[r.fin_cooperado_id];
           const d = window.Demonstrativo.dados(c, base, Fin.mesDe(r.pago_em), calc[c.id]);
-          const m = UI.modal(`${window.Demonstrativo.html(d)}<div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Fechar</button><button class="btn btn-primary btn-sm" id="dm-imp">Imprimir ou salvar em PDF</button></div>`);
+          const m = UI.modal(`${window.Demonstrativo.html(d)}<div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Fechar</button><button class="btn btn-primary btn-sm permitido" id="dm-imp">Imprimir ou salvar em PDF</button></div>`);
           $("#dm-imp", m.el).onclick = () => window.Demonstrativo.imprimir(d);
           return;
         }
+        const bg = ev.target.closest("[data-delguia]");
+        if (bg) { if (!(await confirmar("Excluir o registro desta guia?", "Excluir"))) return; if (await acao(bg, () => API.cf.excluirGuia(bg.dataset.delguia), "Registro excluído.")) recarregar(); return; }
         const bs = ev.target.closest("[data-delsal]");
         if (bs) { if (!(await confirmar("Excluir este registro de saldo?", "Excluir"))) return; if (await acao(bs, () => API.fin.excluirSaldo(bs.dataset.delsal), "Registro excluído.")) recarregar(); return; }
         const bp = ev.target.closest("[data-pagar]"), br = ev.target.closest("[data-recret]"), bd = ev.target.closest("[data-desfazer]");
@@ -221,6 +284,16 @@
             <tbody>${L.map((l) => `<tr><td>${Fin.nomeMes(l.mes)}</td>${cols.map(([k]) => `<td class="num">${moeda(l[k])}</td>`).join("")}</tr>`).join("")}</tbody>
             <tfoot><tr><td>Total</td>${cols.map(([k]) => `<td class="num">${moeda(tot(k))}</td>`).join("")}</tr></tfoot></table></div>` : '<p class="vazio">Ainda não há retiradas nem receitas lançadas.</p>'}
         </section>
+        <section class="painel"><h2>Prestação de contas trimestral dos 20%</h2>
+          <p class="hint">Mostra quanto entrou de Custo de Operação e Gestão no trimestre e como foi usado. Prepare e envie ao Conselho Fiscal; depois da conferência, publique para todos os cooperados (Estatuto, art. 23, §8º; Regimento, art. 170, até 15 dias após o fim do trimestre).</p>
+          <div class="sol-acoes"><div class="field"><label for="pt-tri">Trimestre</label><select class="input" id="pt-tri">${(() => { const atual = trimestreDe(Fin.mesDe(hojeISO())); const ts = new Set([atual]); L.forEach((l) => ts.add(trimestreDe(l.mes))); prests.forEach((x) => ts.add(x.trimestre)); return [...ts].sort().reverse().map((t) => `<option value="${t}">${nomeTri(t)}</option>`).join(""); })()}</select></div>
+            <button class="btn btn-primary btn-sm" type="button" data-preparar>Preparar e enviar ao Conselho Fiscal</button></div>
+          ${prests.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Trimestre</th><th>Situação</th><th class="num">20% arrecadados</th><th class="num">Saldo</th><th>Conselho Fiscal</th><th></th></tr></thead>
+            <tbody>${prests.map((x) => `<tr><td>${nomeTri(x.trimestre)}<span class="sub">preparada por ${esc(x.preparado_nome || "")} em ${dataHora(x.preparado_em)}</span></td><td>${STATUS_PREST[x.status] || esc(x.status)}</td>
+              <td class="num">${moeda(x.dados.totais.custo_op)}</td><td class="num">${moeda(x.dados.totais.saldo)}</td>
+              <td>${x.conferido_nome ? esc(x.conferido_nome) + " em " + dataHora(x.conferido_em) : "—"}${x.parecer ? `<span class="sub">${esc(x.parecer)}</span>` : ""}</td>
+              <td class="acoes-celula"><button class="btn btn-ghost btn-sm" data-verprest="${x.trimestre}">Ver</button>${x.status === "conferida" ? ` <button class="btn btn-primary btn-sm" data-publicar="${x.trimestre}">Publicar</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}
+        </section>
         <section class="painel"><h2>Receita de contratos</h2>
           <p class="hint">Valor bruto recebido de contratos no mês. É a base do Custo de Operação e Gestão (20%, art. 23, §7º), que paga o suporte administrativo.</p>
           <form id="t-rec" class="form-grid" novalidate>
@@ -244,6 +317,18 @@
             <div><dt>A ratear entre os cooperados</dt><dd>${moeda(vc.sobras.a_ratear)}</dd></div>
           </dl>
         </section>`;
+      corpo.onclick = async (ev) => {
+        const bp = ev.target.closest("[data-preparar]"), bv = ev.target.closest("[data-verprest]"), bu = ev.target.closest("[data-publicar]");
+        if (bp) {
+          const t = $("#pt-tri").value, d = dadosTrimestre(base, calc, t), ex = prests.find((x) => x.trimestre === t);
+          if (ex && ex.status === "publicada") return toast("Esta prestação já foi publicada.", "err");
+          const m = UI.modal(`<h2>Prestação do ${nomeTri(t)}</h2>${htmlPrestacao(d)}<p class="hint">${ex ? "Enviar de novo substitui a versão anterior e volta para a conferência do Conselho Fiscal." : "Depois de enviada, o Conselho Fiscal confere e dá o parecer."}</p>
+            <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="pt-ok">Enviar ao Conselho Fiscal</button></div>`);
+          $("#pt-ok", m.el).onclick = async (e2) => { if (await acao(e2.currentTarget, () => API.cf.prepararPrestacao(t, d), "Prestação enviada ao Conselho Fiscal.")) { m.fechar(); recarregar(); } };
+        }
+        if (bv) { const x = prests.find((p) => p.trimestre === bv.dataset.verprest); UI.modal(`<h2>Prestação do ${nomeTri(x.trimestre)}</h2>${STATUS_PREST[x.status] || ""}${htmlPrestacao(x.dados)}${x.parecer ? `<div class="notice"><b>Parecer do Conselho Fiscal:</b> ${esc(x.parecer)}</div>` : ""}<div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Fechar</button></div>`); }
+        if (bu) { if (!(await confirmar("Publicar a prestação para todos os cooperados? Depois de publicada ela não pode ser alterada.", "Publicar"))) return; if (await acao(bu, () => API.cf.publicarPrestacao(bu.dataset.publicar), "Prestação publicada.")) recarregar(); }
+      };
       const recDe = (m) => (base.receitas || []).find((x) => Fin.mesDe(x.mes) === m);
       const mostrarRec = () => { const x = recDe($("#rc-mes").value); $("#rc-val").value = x && Number(x.receita_bruta) ? brl(x.receita_bruta) : ""; };
       $("#rc-mes").addEventListener("change", mostrarRec); mostrarRec();
@@ -738,5 +823,5 @@
     return true;
   }
 
-  window.Tesouraria = { render };
+  window.Tesouraria = { render, dadosTrimestre, htmlPrestacao, nomeTri, trimestreDe, guiasEsperadas, STATUS_PREST };
 })();

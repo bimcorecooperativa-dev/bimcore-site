@@ -12,10 +12,12 @@
     const p = sessao.perfil || {};
     const coord = p.papel === "coordenacao" && p.status === "ativo";
     const tes = p.status === "ativo" && (coord || !!p.tesouraria);
-    if (opcoes.area === "interno" && !tes) { location.replace("painel.html"); return; }
+    const fiscal = p.status === "ativo" && !!p.conselho_fiscal;
+    const interno = tes || fiscal;
+    if (opcoes.area === "interno" && !interno) { location.replace("painel.html"); return; }
 
     window.UI.barraDemo();
-    const paginas = opcoes.filtrar ? opcoes.filtrar(opcoes.paginas, { coord, tes }) : opcoes.paginas;
+    const paginas = opcoes.filtrar ? opcoes.filtrar(opcoes.paginas, { coord, tes, fiscal }) : opcoes.paginas;
     const chaves = Object.keys(paginas);
     const rotulo = opcoes.area === "interno" ? "Área interna" : "Área do cooperado";
 
@@ -26,8 +28,8 @@
           <span><b>BIMCORE</b><small>${esc(rotulo)}</small></span>
         </a>
         <div class="app-usuario">
-          <div class="quem"><b>${esc(p.nome || p.email || "")}</b><span>${coord ? "Coordenação" : tes ? "Tesouraria" : "Cooperado"} · ${esc(p.email || "")}</span></div>
-          ${tes ? `<a class="btn btn-ghost btn-sm" href="${opcoes.area === "interno" ? "painel.html" : "interno.html"}">${opcoes.area === "interno" ? "Minha área" : "Área interna"}</a>` : ""}
+          <div class="quem"><b>${esc(p.nome || p.email || "")}</b><span>${coord ? "Coordenação" : tes ? "Tesouraria" : fiscal ? "Conselho Fiscal" : "Cooperado"} · ${esc(p.email || "")}</span></div>
+          ${interno ? `<a class="btn btn-ghost btn-sm" href="${opcoes.area === "interno" ? "painel.html" : "interno.html"}">${opcoes.area === "interno" ? "Minha área" : "Área interna"}</a>` : ""}
           <button class="btn btn-ghost btn-sm" id="sair">Sair</button>
         </div>
       </div></header>
@@ -63,7 +65,7 @@
     $("#sair").addEventListener("click", async () => { await API.signOut(); location.replace("entrar.html"); });
 
     const ctx = {
-      sessao, coord, tes,
+      sessao, coord, tes, fiscal, leitura: fiscal && !tes,
       async recarregarSessao() { ctx.sessao = await API.getSession(); return ctx.sessao; },
       ir(k) { location.hash = k; },
       async atualizarContadores() {
