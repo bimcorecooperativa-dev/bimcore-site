@@ -78,7 +78,7 @@
       <div class="pag-cab"><div><p class="eyebrow">Tesouraria</p><h1>Financeiro</h1></div>
         <button class="btn btn-ghost" id="t-exportar">Exportar para Excel</button></div>
       <p class="muted">Contas calculadas pelo Estatuto até <b>${Fin.nomeMes(fech)}</b>${base.parametros.fechamento ? " (mês de fechamento fixado em Configurações)" : " (atualiza sozinho a cada mês)"}. Cada lançamento aparece na hora na "Minha conta" do cooperado.</p>
-      <nav class="subabas" role="tablist">${abas.map(([k, t]) => `<button role="tab" data-aba="${k}" aria-selected="${aba === k}">${t}${k === "retiradas" && (base.retiradas || []).some((r) => r.status === "solicitada") ? ` <span class="contador">${(base.retiradas || []).filter((r) => r.status === "solicitada").length}</span>` : ""}${k === "resumo" && aguardando.length ? ` <span class="contador">${aguardando.length}</span>` : ""}${k === "cadastro" && pendExp ? ` <span class="contador">${pendExp}</span>` : ""}</button>`).join("")}</nav>
+      <nav class="subabas" role="tablist">${abas.map(([k, t]) => `<button role="tab" data-aba="${k}" aria-selected="${aba === k}">${t}${k === "retiradas" && (base.retiradas || []).some((r) => r.status === "solicitada") ? ` <span class="contador">${(base.retiradas || []).filter((r) => r.status === "solicitada").length}</span>` : ""}${k === "resumo" && aguardando.length ? ` <span class="contador">${aguardando.length}</span>` : ""}${false && pendExp ? ` <span class="contador">${pendExp}</span>` : ""}</button>`).join("")}</nav>
       <div id="t-corpo"></div>`;
     el.querySelectorAll("[data-aba]").forEach((b) => { b.onclick = () => { aba = b.dataset.aba; recarregar(); }; });
     $("#t-exportar").onclick = (ev) => acao(ev.currentTarget, () => exportar(base, calc, perfilPorId), "Planilha exportada.");
@@ -649,14 +649,14 @@
       const exps = expAll.experiencias.filter((x) => x.fin_cooperado_id === id);
       const habPor = {}; habs.forEach((h) => { habPor[h.id] = h; });
       const docs = (rid) => expAll.comprovantes.filter((x) => x.ref_id === rid).map((x) => `<button class="link-botao" data-doc="${x.id}">${esc(x.nome_arquivo)}</button>`).join("<br>") || '<span class="sub">sem documento</span>';
-      const selo = (x) => x.status === "aprovada" ? `<span class="selo ok">validado</span><span class="sub">${esc(x.analise_nome || "")}</span>` : x.status === "recusada" ? `<span class="selo warn">em exigência</span><span class="sub">${esc(x.motivo || "")}</span>` : '<span class="selo warn">em análise</span>';
-      const botoes = (tab, x) => `<button class="btn btn-primary btn-sm" data-val="${tab}:${x.id}:aprovada">Validar</button> <button class="btn btn-ghost btn-sm" data-val="${tab}:${x.id}:recusada">Pôr em exigência</button>`;
+      const selo = (x) => x.status === "aprovada" ? `<span class="selo ok">validado</span><span class="sub">por ${esc(x.analise_nome || "")}${x.analise_cargo ? " — " + esc(x.analise_cargo) : ""}</span>` : x.status === "recusada" ? `<span class="selo warn">em exigência</span><span class="sub">${esc(x.motivo || "")}</span>` : '<span class="selo warn">em análise</span>';
+      const botoes = () => "";
       const enq = Fin.enquadramento(c, base, fech);
       const aprov = habs.filter((h) => h.status === "aprovada");
       const md = UI.modal(`
         <h2>Experiência de ${esc(c.nome)}</h2>
         <div class="notice ${enq.categoria ? "ok" : "warn"}">Enquadramento em ${Fin.nomeMes(fech)}: <b>${esc(enq.categoria || "pendente")}</b>${enq.habilitacao ? ` · ${esc(enq.habilitacao.titulo)} (${esc(enq.conselho || "")}) · ${enq.anos} ano(s) comprovados (${(enq.anos_externos || 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} fora + ${enq.interna ? enq.interna.meses.toLocaleString("pt-BR", { maximumFractionDigits: 1 }) : 0} mês(es) na BIMCORE)` : ""}${enq.proxima ? ` · vira ${esc(enq.proxima.categoria)} em ${data(enq.proxima.data)}` : ""}${enq.avisos.length ? "<br>" + enq.avisos.map(esc).join("<br>") : ""}</div>
-        <p class="hint">Valide com base nos documentos (art. 8º, V). Conta só o que tiver relação com a formação indicada; períodos em outra atividade não contam. Se faltar algo, ponha em exigência dizendo o que falta. Ninguém valida o próprio registro.</p>
+        <p class="hint">Quem valida formação e experiência é o Conselho de Administração, na página <b>Enquadramento (CA)</b> da área interna (Estatuto, art. 8º, V; Regimento, art. 89). Aqui a tesouraria só consulta e define a formação usada na remuneração e a designação de coordenador.</p>
         <h3 class="mini-tit">Formações</h3>
         ${habs.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Formação</th><th>Diploma / registro</th><th>Documentos</th><th>Situação</th><th></th></tr></thead>
           <tbody>${habs.map((h) => `<tr><td>${esc(h.titulo)}<span class="sub">${esc(Fin.NIVEIS[h.nivel] || "")} · ${esc(h.conselho || "")}</span></td><td>${data(h.data_habilitacao)}${h.registro ? `<span class="sub">${esc(h.registro)}</span>` : ""}</td><td>${docs(h.id)}</td><td>${selo(h)}</td><td class="acoes-celula">${botoes("habilitacoes", h)}</td></tr>`).join("")}</tbody></table></div>` : '<p class="vazio">Nenhuma formação enviada.</p>'}

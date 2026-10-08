@@ -84,7 +84,7 @@
       const p1 = novoId(), p2 = novoId(), p3 = novoId();
       return {
         perfis: [
-          { id: "u-coord", nome: "Coordenação (exemplo)", email: "coordenacao@bimcore.demo", senha: "demo1234", telefone: "", especialidade: "Orçamento e planejamento", papel: "coordenacao", status: "ativo", data_ingresso: dia(-200), criado_em: dia(-200) },
+          { id: "u-coord", nome: "Coordenação (exemplo)", email: "coordenacao@bimcore.demo", senha: "demo1234", telefone: "", especialidade: "Orçamento e planejamento", papel: "coordenacao", status: "ativo", conselho_adm: true, cargo_ca: "presidente", data_ingresso: dia(-200), criado_em: dia(-200) },
           { id: "u-coop", nome: "Cooperada Exemplo", email: "cooperado@bimcore.demo", senha: "demo1234", telefone: "", especialidade: "Modelagem de arquitetura", papel: "cooperado", status: "ativo", data_ingresso: dia(-90), criado_em: dia(-90) },
           { id: "u-pend", nome: "Candidato Exemplo", email: "novo@bimcore.demo", senha: "demo1234", telefone: "(22) 90000-0000", cidade: "Cabo Frio/RJ", area_atuacao: "Projetos de engenharia (estrutural, instalações, infraestrutura)", especialidade: "Projetos de engenharia (estrutural, instalações, infraestrutura)", formacao: "Engenharia elétrica", registro_profissional: "CREA-RJ (exemplo)", curriculo_url: "", experiencia: "Cinco anos em projetos elétricos prediais e modelagem MEP.", motivacao: "Quero trabalhar em projetos públicos com remuneração justa e formação continuada.", papel: "cooperado", status: "pendente", data_ingresso: null, criado_em: dia(-2) }
         ],
@@ -160,6 +160,7 @@
       else if (coord === "ver" && !(u.status === "ativo" && (u.papel === "coordenacao" || u.tesouraria || u.conselho_fiscal))) falha("permission denied");
       else if (coord === "cf" && !(u.status === "ativo" && u.conselho_fiscal)) falha("Só o Conselho Fiscal pode fazer isso.");
       else if (coord === true && !(u.papel === "coordenacao" && u.status === "ativo")) falha("permission denied");
+      else if (coord === "ca" && !(u.status === "ativo" && u.conselho_adm)) falha("Só o Conselho de Administração valida formação e experiência (Estatuto, art. 8º, V).");
       return u;
     };
     const semSenha = (p) => { const c = { ...p }; delete c.senha; return c; };
@@ -224,7 +225,9 @@
           const s = ler(); exigir(s, true);
           const p = s.perfis.find((x) => x.id === id); if (!p) falha("Cadastro não encontrado.");
           if ("status" in dados && dados.status !== p.status) p.analisado_em = new Date().toISOString();
-          ["papel", "status", "analise_obs", "tesouraria", "conselho_fiscal"].forEach((k) => { if (k in dados) p[k] = dados[k]; });
+          if (dados.conselho_adm && dados.conselho_fiscal) falha("Quem é do Conselho Fiscal não pode ser do Conselho de Administração (Estatuto, art. 60, §5º).");
+          ["papel", "status", "analise_obs", "tesouraria", "conselho_fiscal", "conselho_adm", "cargo_ca"].forEach((k) => { if (k in dados) p[k] = dados[k]; });
+          if (!p.conselho_adm) p.cargo_ca = null;
           if (p.status === "ativo" && !p.data_ingresso) p.data_ingresso = new Date().toISOString().slice(0, 10);
           gravar(s); return espera(semSenha(p));
         }
@@ -565,9 +568,13 @@
           const internas = c ? (await this.internas()).filter((x) => x.fin_cooperado_id === c.id) : [];
           return espera({ parametros: { ...s.fin.parametros }, cooperado: c, habilitacoes: f("habilitacoes"), experiencias: f("experiencias"), comprovantes: f("comprovantes"), internas });
         },
-        async todos() { const s = ler(); exigir(s, "ver"); return espera({ habilitacoes: s.fin.habilitacoes || [], experiencias: s.fin.experiencias || [], comprovantes: s.fin.comprovantes || [] }); },
+        async todos() { const s = ler(); const u = exigir(s); if (!u.conselho_adm) exigir(s, "ver"); return espera({ habilitacoes: s.fin.habilitacoes || [], experiencias: s.fin.experiencias || [], comprovantes: s.fin.comprovantes || [] }); },
+        async painelCA() {
+          const s = ler(); const u = exigir(s); if (!u.conselho_adm) exigir(s, "ver"); const t = await this.todos();
+          return espera(JSON.parse(JSON.stringify({ parametros: { ...s.fin.parametros }, cooperados: s.fin.cooperados, ...t, internas: await this.internas() })));
+        },
         async internas() {
-          const s = ler(); const u = exigir(s); const valida = u.papel === "coordenacao" || u.tesouraria || u.conselho_fiscal;
+          const s = ler(); const u = exigir(s); const valida = u.papel === "coordenacao" || u.tesouraria || u.conselho_fiscal || u.conselho_adm;
           const out = {};
           s.fin.cooperados.filter((c) => valida || c.perfil_id === u.id).forEach((c) => {
             (s.producao || []).filter((h) => c.perfil_id && h.cooperado_id === c.perfil_id && (h.tipo === "produtiva" || h.tipo === "formacao")).forEach((h) => {
@@ -581,7 +588,7 @@
           const s = ler(); const u = exigir(s); const lista = (s.fin[tabela] = s.fin[tabela] || []);
           const meu = s.fin.cooperados.find((x) => x.perfil_id === u.id);
           if (!meu || d.fin_cooperado_id !== meu.id) { if (!(u.papel === "coordenacao" || u.tesouraria)) falha("permission denied"); }
-          if (d.id) { const x = lista.find((r) => r.id === d.id); if (!x) falha("Registro não encontrado."); if (x.status === "aprovada" && meu && x.fin_cooperado_id === meu.id) falha("Registro já validado: peça à tesouraria para alterar."); Object.assign(x, d, { status: "pendente", analise_nome: null, motivo: null }); }
+          if (d.id) { const x = lista.find((r) => r.id === d.id); if (!x) falha("Registro não encontrado."); if (x.status === "aprovada" && meu && x.fin_cooperado_id === meu.id) falha("Registro já validado: peça ao Conselho de Administração para alterar."); Object.assign(x, d, { status: "pendente", analise_nome: null, motivo: null }); }
           else lista.push({ ...d, id: novoId(), status: "pendente", criado_em: new Date().toISOString() });
           gravar(s); return espera(d.id || lista[lista.length - 1].id);
         },
@@ -594,9 +601,10 @@
         async link() { falha("No modo demonstração os arquivos não são guardados."); },
         async excluirComprovante(c) { const s = ler(); exigir(s); s.fin.comprovantes = (s.fin.comprovantes || []).filter((x) => x.id !== c.id); gravar(s); return espera(true); },
         async analisar(tabela, id, status, motivo) {
-          const s = ler(); const u = exigir(s, "tes"); const x = (s.fin[tabela] || []).find((r) => r.id === id); if (!x) falha("Registro não encontrado.");
+          const s = ler(); const u = exigir(s, "ca"); const x = (s.fin[tabela] || []).find((r) => r.id === id); if (!x) falha("Registro não encontrado.");
           const meu = s.fin.cooperados.find((c) => c.perfil_id === u.id); if (meu && x.fin_cooperado_id === meu.id) falha("Você não pode validar o seu próprio registro.");
-          Object.assign(x, { status, motivo: motivo || null, analise_nome: u.nome, analise_em: new Date().toISOString() }); gravar(s); return espera(true);
+          const CG = { presidente: "Presidente do Conselho de Administração", gestao_tecnica: "Conselheiro(a) de Gestão Técnica, BIM e Qualidade", financeira: "Conselheiro(a) de Área Financeira e de Fundos", institucional: "Conselheiro(a) de Área Institucional, Contratos e Relações Externas" };
+          Object.assign(x, { status, motivo: motivo || null, analise_nome: u.nome, analise_cargo: CG[u.cargo_ca] || "Conselheiro(a) de Administração", analise_em: new Date().toISOString() }); gravar(s); return espera(true);
         }
       },
       fin: {
@@ -814,7 +822,7 @@
       cooperados: {
         async listar() { return ok(await sb.from("perfis").select("*").order("nome")); },
         async atualizar(id, dados) {
-          const limpo = {}; ["papel", "status", "analise_obs", "tesouraria", "conselho_fiscal"].forEach((k) => { if (k in dados) limpo[k] = dados[k]; });
+          const limpo = {}; ["papel", "status", "analise_obs", "tesouraria", "conselho_fiscal", "conselho_adm", "cargo_ca"].forEach((k) => { if (k in dados) limpo[k] = dados[k]; });
           return ok(await sb.from("perfis").update(limpo).eq("id", id).select().single());
         }
       },
@@ -1087,6 +1095,10 @@
           const [h, e, d] = await Promise.all([sb.from("fin_habilitacoes").select("*").order("criado_em"), sb.from("fin_experiencias").select("*").order("inicio"), sb.from("fin_comprovantes").select("*").order("criado_em")]);
           return { habilitacoes: ok(h), experiencias: ok(e), comprovantes: ok(d) };
         },
+        async painelCA() {
+          const [par, coo, t, it] = await Promise.all([sb.from("fin_parametros").select("*").eq("id", 1).maybeSingle(), sb.from("fin_cooperados").select("*").order("nome"), this.todos(), this.internas()]);
+          return { parametros: par.data || {}, cooperados: ok(coo), ...t, internas: it };
+        },
         async internas() { const r = await sb.rpc("horas_internas"); return r.error ? [] : r.data || []; },
         async salvar(tabela, d) {
           const t = { habilitacoes: "fin_habilitacoes", experiencias: "fin_experiencias" }[tabela];
@@ -1114,11 +1126,10 @@
         async excluirComprovante(c) { ok(await sb.from("fin_comprovantes").delete().eq("id", c.id)); await sb.storage.from("experiencia").remove([c.caminho]); return true; },
         async analisar(tabela, id, status, motivo) {
           const t = { habilitacoes: "fin_habilitacoes", experiencias: "fin_experiencias" }[tabela];
-          const uid = await meuId(); const eu = ok(await sb.from("perfis").select("nome").eq("id", uid).single());
-          const q = await sb.from(t).update({ status, motivo: motivo || null, analise_nome: eu.nome, analise_em: new Date().toISOString() }).eq("id", id).select("id");
-          if (q.error && /row-level security|permission/i.test(q.error.message || "")) falha("Você não pode validar o seu próprio registro.");
+          const q = await sb.from(t).update({ status, motivo: motivo || null }).eq("id", id).select("id");
+          if (q.error && /row-level security|permission/i.test(q.error.message || "")) falha("Só o Conselho de Administração valida, e ninguém valida o próprio registro.");
           const r = ok(q);
-          if (!r.length) falha("Você não pode validar o seu próprio registro.");
+          if (!r.length) falha("Só o Conselho de Administração valida, e ninguém valida o próprio registro.");
           return true;
         }
       },

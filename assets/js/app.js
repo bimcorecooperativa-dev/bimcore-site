@@ -13,11 +13,12 @@
     const coord = p.papel === "coordenacao" && p.status === "ativo";
     const tes = p.status === "ativo" && (coord || !!p.tesouraria);
     const fiscal = p.status === "ativo" && !!p.conselho_fiscal;
-    const interno = tes || fiscal;
+    const ca = p.status === "ativo" && !!p.conselho_adm;
+    const interno = tes || fiscal || ca;
     if (opcoes.area === "interno" && !interno) { location.replace("painel.html"); return; }
 
     window.UI.barraDemo();
-    const paginas = opcoes.filtrar ? opcoes.filtrar(opcoes.paginas, { coord, tes, fiscal }) : opcoes.paginas;
+    const paginas = opcoes.filtrar ? opcoes.filtrar(opcoes.paginas, { coord, tes, fiscal, ca }) : opcoes.paginas;
     const chaves = Object.keys(paginas);
     const rotulo = opcoes.area === "interno" ? "Área interna" : "Área do cooperado";
 
@@ -28,7 +29,7 @@
           <span><b>BIMCORE</b><small>${esc(rotulo)}</small></span>
         </a>
         <div class="app-usuario">
-          <div class="quem"><b>${esc(p.nome || p.email || "")}</b><span>${coord ? "Coordenação" : tes ? "Tesouraria" : fiscal ? "Conselho Fiscal" : "Cooperado"} · ${esc(p.email || "")}</span></div>
+          <div class="quem"><b>${esc(p.nome || p.email || "")}</b><span>${coord ? "Coordenação" : tes ? "Tesouraria" : fiscal ? "Conselho Fiscal" : ca ? "Conselho de Administração" : "Cooperado"} · ${esc(p.email || "")}</span></div>
           ${interno ? `<a class="btn btn-ghost btn-sm" href="${opcoes.area === "interno" ? "painel.html" : "interno.html"}">${opcoes.area === "interno" ? "Minha área" : "Área interna"}</a>` : ""}
           <button class="btn btn-ghost btn-sm" id="sair">Sair</button>
         </div>
@@ -65,7 +66,7 @@
     $("#sair").addEventListener("click", async () => { await API.signOut(); location.replace("entrar.html"); });
 
     const ctx = {
-      sessao, coord, tes, fiscal, leitura: fiscal && !tes,
+      sessao, coord, tes, fiscal, ca, leitura: fiscal && !tes,
       async recarregarSessao() { ctx.sessao = await API.getSession(); return ctx.sessao; },
       ir(k) { location.hash = k; },
       async atualizarContadores() {

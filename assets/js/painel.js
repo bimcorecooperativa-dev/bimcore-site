@@ -654,7 +654,7 @@
         const enq = Fin.enquadramento(c, base, mesAtual());
         const comps = (id) => d.comprovantes.filter((x) => x.ref_id === id);
         const habPor = {}; d.habilitacoes.forEach((h) => { habPor[h.id] = h; });
-        const selo = (x) => x.status === "aprovada" ? '<span class="selo ok">validado</span>' : x.status === "recusada" ? `<span class="selo warn">em exigência</span>${x.motivo ? `<span class="sub">O que falta: ${esc(x.motivo)}</span>` : ""}` : '<span class="selo warn">em análise</span>';
+        const selo = (x) => x.status === "aprovada" ? `<span class="selo ok">validado</span>${x.analise_nome ? `<span class="sub">por ${esc(x.analise_nome)}${x.analise_cargo ? " — " + esc(x.analise_cargo) : ""}</span>` : ""}` : x.status === "recusada" ? `<span class="selo warn">em exigência</span>${x.motivo ? `<span class="sub">O que falta: ${esc(x.motivo)}</span>` : ""}` : '<span class="selo warn">em análise</span>';
         const duracao = (ini, fim) => { const a = new Date(ini + "T12:00:00"), b = fim ? new Date(fim + "T12:00:00") : new Date(); const m = Math.max(0, (b.getFullYear() - a.getFullYear()) * 12 + b.getMonth() - a.getMonth() + 1); return (m >= 12 ? Math.floor(m / 12) + " ano(s)" + (m % 12 ? " e " : "") : "") + (m % 12 ? (m % 12) + " mês(es)" : ""); };
         const anosTxt = (e) => { if (e.anos_exatos == null) return "—"; const m = Math.floor(e.anos_exatos * 12 + 1e-9); return Math.floor(m / 12) + " ano(s)" + (m % 12 ? " e " + (m % 12) + " mês(es)" : ""); };
         const docs = (id, tipo, podeMexer) => `<div class="docs-mini">${comps(id).map((x) => `<button class="link-botao" data-doc="${x.id}">${esc(x.nome_arquivo)}</button>${podeMexer ? ` <button class="link-botao perigo" data-rmdoc="${x.id}" aria-label="Remover ${esc(x.nome_arquivo)}">remover</button>` : ""}`).join("<br>") || '<span class="sub">nenhum documento</span>'}</div>`;
@@ -674,7 +674,7 @@
               <li>Júnior: até 5 anos de experiência comprovada · Pleno: 6 a 10 anos · Sênior: acima de 10 anos (teto).</li>
               <li>Coordenador: acima de 10 anos na formação, só por necessidade da cooperativa e designação formal do Conselho de Administração.</li>
               <li>Conta só a experiência na função ligada à formação que você exerce na cooperativa. ${d.parametros.exp_tecnico_antes === false ? "" : "Em nível técnico, a prática na área antes do diploma também conta. "}${d.parametros.exp_superior_antes ? "" : "Em nível superior, conta a partir do diploma ou registro."}</li>
-              <li>Cada registro é validado pela coordenação ou pela tesouraria, com base nos documentos (art. 8º, V). A progressão é automática quando o tempo é atingido.</li>
+              <li>Cada registro é validado pelo Conselho de Administração, com base nos documentos (Estatuto, art. 8º, V; Regimento, art. 89). Você vê quem analisou. A progressão é automática quando o tempo é atingido.</li>
             </ul>
           </section>
 

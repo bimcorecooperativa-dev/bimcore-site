@@ -124,9 +124,9 @@
         coops.sort((a, b) => (a.status === b.status ? 0 : a.status === "ativo" ? -1 : 1) || a.nome.localeCompare(b.nome));
         el.innerHTML = `
           <div class="pag-cab"><div><p class="eyebrow">Quadro social</p><h1>Cooperados</h1></div><a class="btn btn-ghost" href="#solicitacoes">Ver solicitações</a></div>
-          <p class="muted">Cooperados admitidos. O papel <b>coordenação</b> dá acesso a toda a área interna; a marcação <b>Tesouraria</b> dá acesso só à aba Financeiro, para quem atualiza os valores; <b>Conselho Fiscal</b> dá leitura de todo o Financeiro e a página do Conselho Fiscal, sem poder lançar nada. Novos pedidos de entrada ficam em Solicitações de admissão.</p>
+          <p class="muted">Cooperados admitidos. O papel <b>coordenação</b> dá acesso a toda a área interna; a marcação <b>Tesouraria</b> dá acesso só à aba Financeiro, para quem atualiza os valores; <b>Conselho de Administração</b> dá acesso à página Enquadramento, onde se valida formação e experiência; <b>Conselho Fiscal</b> dá leitura de todo o Financeiro e a página do Conselho Fiscal, sem poder lançar nada. Novos pedidos de entrada ficam em Solicitações de admissão.</p>
           ${coops.length ? `<div class="tabela-wrap"><table class="tabela">
-            <thead><tr><th>Nome</th><th>Área de atuação</th><th>Desde</th><th>Situação</th><th>Papel</th><th>Tesouraria</th><th>Conselho Fiscal</th><th><span class="sr-only">Ações</span></th></tr></thead>
+            <thead><tr><th>Nome</th><th>Área de atuação</th><th>Desde</th><th>Situação</th><th>Papel</th><th>Tesouraria</th><th>Conselho de Administração</th><th>Conselho Fiscal</th><th><span class="sr-only">Ações</span></th></tr></thead>
             <tbody>${coops.map((c) => `<tr data-id="${c.id}">
               <td><b>${esc(c.nome || "(sem nome)")}</b><span class="sub">${esc(c.email)}${c.telefone ? " · " + esc(c.telefone) : ""}</span></td>
               <td>${esc(c.area_atuacao || c.especialidade || "—")}${c.registro_profissional ? `<span class="sub">${esc(c.registro_profissional)}</span>` : ""}</td>
@@ -134,13 +134,18 @@
               <td><select class="input mini" data-campo="status" aria-label="Situação de ${esc(c.nome)}" ${c.id === ctx.sessao.perfil.id ? "disabled" : ""}><option value="ativo" ${c.status === "ativo" ? "selected" : ""}>ativo</option><option value="desligado" ${c.status === "desligado" ? "selected" : ""}>desligado</option></select></td>
               <td><select class="input mini" data-campo="papel" aria-label="Papel de ${esc(c.nome)}" ${c.id === ctx.sessao.perfil.id ? "disabled" : ""}><option value="cooperado" ${c.papel === "cooperado" ? "selected" : ""}>cooperado</option><option value="coordenacao" ${c.papel === "coordenacao" ? "selected" : ""}>coordenação</option></select></td>
               <td><label class="ciente" style="margin:0"><input type="checkbox" data-campo="tesouraria" ${c.tesouraria ? "checked" : ""} ${c.id === ctx.sessao.perfil.id ? "disabled" : ""}> <span>acesso</span></label></td>
+              <td><label class="ciente" style="margin:0"><input type="checkbox" data-campo="conselho_adm" ${c.conselho_adm ? "checked" : ""} ${c.id === ctx.sessao.perfil.id ? "disabled" : ""}> <span>membro</span></label>
+                <select class="input mini" data-campo="cargo_ca" aria-label="Cargo no CA de ${esc(c.nome)}" ${c.id === ctx.sessao.perfil.id ? "disabled" : ""} style="margin-top:.3rem">${[["", "cargo"], ["presidente", "Presidente"], ["gestao_tecnica", "Gestão Técnica, BIM e Qualidade"], ["financeira", "Financeira e Fundos"], ["institucional", "Institucional e Contratos"], ["conselheiro", "Outro cargo"]].map(([v, t]) => `<option value="${v}" ${(c.cargo_ca || "") === v ? "selected" : ""}>${t}</option>`).join("")}</select></td>
               <td><label class="ciente" style="margin:0"><input type="checkbox" data-campo="conselho_fiscal" ${c.conselho_fiscal ? "checked" : ""} ${c.id === ctx.sessao.perfil.id ? "disabled" : ""}> <span>membro</span></label></td>
               <td class="acoes-celula">${c.id === ctx.sessao.perfil.id ? '<span class="hint">você</span>' : '<button class="btn btn-primary btn-sm" data-salvar>Salvar</button>'}</td></tr>`).join("")}</tbody>
           </table></div>` : '<p class="vazio">Nenhum cooperado admitido ainda.</p>'}`;
         el.onclick = async (e) => {
           const b = e.target.closest("[data-salvar]"); if (!b) return;
           const tr = b.closest("tr");
-          const dados = { status: tr.querySelector('[data-campo="status"]').value, papel: tr.querySelector('[data-campo="papel"]').value, tesouraria: tr.querySelector('[data-campo="tesouraria"]').checked, conselho_fiscal: tr.querySelector('[data-campo="conselho_fiscal"]').checked };
+          const dados = { status: tr.querySelector('[data-campo="status"]').value, papel: tr.querySelector('[data-campo="papel"]').value, tesouraria: tr.querySelector('[data-campo="tesouraria"]').checked, conselho_fiscal: tr.querySelector('[data-campo="conselho_fiscal"]').checked,
+            conselho_adm: tr.querySelector('[data-campo="conselho_adm"]').checked, cargo_ca: tr.querySelector('[data-campo="cargo_ca"]').value || null };
+          if (dados.conselho_adm && dados.conselho_fiscal) return toast("Quem é do Conselho Fiscal não pode ser do Conselho de Administração (Estatuto, art. 60, §5º).", "err");
+          if (dados.conselho_adm && !dados.cargo_ca) return toast("Escolha o cargo no Conselho de Administração (Regimento, art. 71).", "err");
           if (dados.conselho_fiscal && (dados.tesouraria || dados.papel === "coordenacao")) return toast("Quem é do Conselho Fiscal não pode estar na coordenação nem na tesouraria: o CF fiscaliza essas funções (Estatuto, art. 60).", "err");
           if (dados.status === "desligado" && !(await confirmar("Desligar este cooperado? Ele perde o acesso à área do cooperado.", "Desligar"))) return;
           const ok = await acao(b, () => API.cooperados.atualizar(tr.dataset.id, dados), "Cadastro atualizado.");
@@ -537,6 +542,12 @@
       }
     },
 
+    enquadramento: {
+      titulo: "Enquadramento (CA)",
+      async contador(ctx) { return window.Enquadramento.contador(ctx); },
+      async render(el, ctx) { return window.Enquadramento.render(el, ctx); }
+    },
+
     conselho: {
       titulo: "Conselho Fiscal",
       async contador(ctx) { return window.ConselhoFiscal.contador(ctx); },
@@ -645,9 +656,10 @@
   window.App.iniciar({
     area: "interno",
     paginas,
-    filtrar: (todas, { coord, tes, fiscal }) => {
+    filtrar: (todas, { coord, tes, fiscal, ca }) => {
       if (coord) return todas;
       const out = {};
+      if (ca) out.enquadramento = { ...todas.enquadramento, separador: false };
       if (tes || fiscal) out.financeiro = { ...todas.financeiro, separador: false };
       if (fiscal) out.conselho = { ...todas.conselho, separador: false };
       return out;
