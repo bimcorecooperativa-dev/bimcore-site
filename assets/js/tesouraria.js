@@ -98,19 +98,20 @@
           <div class="painel-cab"><h2>Retiradas de ${Fin.nomeMes(mes)}</h2>
             <div class="sol-acoes"><div class="field"><label for="fm-mes">Mês</label><input class="input" id="fm-mes" type="month" value="${mes}"></div>
             <button class="btn btn-ghost btn-sm" id="fm-puxar" type="button">Puxar horas lançadas no site</button></div></div>
-          <p class="hint">Preencha as horas de cada cooperado no mês (produtivas e de formação), os dias trabalhados e, quando houver, o 13º e as férias pagas. O site calcula a retirada pelo valor-hora da categoria (art. 8º), o INSS (11% até o teto), a contribuição de capital (1,5% da retirada), o FIC, as provisões de 13º e férias e os auxílios. Ao salvar, tudo aparece na hora na Minha conta de cada um.</p>
+          <p class="hint">Preencha as horas de cada cooperado no mês (produtivas, de formação e de suporte administrativo), os dias trabalhados e, quando houver, o 13º e as férias pagas. O site calcula a retirada pelo valor-hora da categoria (art. 8º), o INSS (11% até o teto), a contribuição de capital (1,5% da retirada), o FIC, as provisões de 13º e férias e os auxílios. Ao salvar, tudo aparece na hora na Minha conta de cada um.</p>
           ${semCat.length ? `<div class="notice warn">Sem enquadramento (valor-hora zerado): ${semCat.map((c) => esc(c.nome)).join(", ")}. O cooperado precisa enviar formação e experiências em <b>Minha experiência</b> e alguém validar em <b>Cadastro → Experiência</b>.</div>` : ""}
           <div class="tabela-wrap"><table class="tabela folha">
-            <thead><tr><th>Cooperado</th><th class="num">Horas produtivas</th><th class="num">Horas de formação</th><th class="num">Dias trabalhados</th><th class="num">13º pago</th><th class="num">Férias pagas</th><th class="num">Retirada bruta</th><th class="num">INSS</th><th class="num">Contribuição</th><th class="num">Auxílios</th><th class="num">Líquido a pagar</th></tr></thead>
+            <thead><tr><th>Cooperado</th><th class="num">Horas produtivas</th><th class="num">Horas de formação</th><th class="num">Suporte adm. (20%)</th><th class="num">Dias trabalhados</th><th class="num">13º pago</th><th class="num">Férias pagas</th><th class="num">Retirada bruta</th><th class="num">INSS</th><th class="num">Contribuição</th><th class="num">Auxílios</th><th class="num">Líquido a pagar</th></tr></thead>
             <tbody>${linhas.map((c) => { const f = folhaDe(c.id); return `<tr data-coop="${c.id}">
               <td>${esc(c.nome)}<span class="sub">${enqDe[c.id].categoria ? esc(enqDe[c.id].categoria) + " · " + esc(enqDe[c.id].conselho || "sem conselho") + " · " + moeda(Fin.valorHoraDe(enqDe[c.id].categoria, enqDe[c.id].conselho, base.parametros)) + "/h" + (enqDe[c.id].origem === "automatico" ? " · " + enqDe[c.id].anos + " ano(s) comprovados" : " · manual") : "sem enquadramento"}</span></td>
               <td class="num"><input class="input mini-num" data-k="horas_produtivas" inputmode="decimal" value="${f.horas_produtivas ? brl(f.horas_produtivas) : ""}"></td>
               <td class="num"><input class="input mini-num" data-k="horas_formacao" inputmode="decimal" value="${f.horas_formacao ? brl(f.horas_formacao) : ""}"></td>
+              <td class="num"><input class="input mini-num" data-k="horas_admin" inputmode="decimal" value="${f.horas_admin ? brl(f.horas_admin) : ""}"></td>
               <td class="num"><input class="input mini-num" data-k="dias" inputmode="numeric" value="${f.dias || ""}"></td>
               <td class="num"><input class="input mini-num" data-k="decimo_pago" inputmode="decimal" value="${f.decimo_pago ? brl(f.decimo_pago) : ""}"></td>
               <td class="num"><input class="input mini-num" data-k="ferias_pago" inputmode="decimal" value="${f.ferias_pago ? brl(f.ferias_pago) : ""}"></td>
               <td class="num" data-v="retirada">—</td><td class="num" data-v="inss">—</td><td class="num" data-v="devida">—</td><td class="num" data-v="aux">—</td><td class="num" data-v="liquido">—</td></tr>`; }).join("")}</tbody>
-            <tfoot><tr><td>Total</td><td class="num" data-t="hp"></td><td class="num" data-t="hf"></td><td></td><td></td><td></td><td class="num" data-t="retirada"></td><td class="num" data-t="inss"></td><td class="num" data-t="devida"></td><td class="num" data-t="aux"></td><td class="num" data-t="liquido"></td></tr></tfoot>
+            <tfoot><tr><td>Total</td><td class="num" data-t="hp"></td><td class="num" data-t="hf"></td><td class="num" data-t="ha"></td><td></td><td></td><td></td><td class="num" data-t="retirada"></td><td class="num" data-t="inss"></td><td class="num" data-t="devida"></td><td class="num" data-t="aux"></td><td class="num" data-t="liquido"></td></tr></tfoot>
           </table></div>
           <div class="form-grid">
             <div class="field"><label for="fm-rec">Receita bruta de contratos no mês (R$)</label><input class="input" id="fm-rec" inputmode="decimal" value="${rec.receita_bruta ? brl(rec.receita_bruta) : ""}"><span class="hint">Base do Custo de Operação e Gestão (20%, art. 23, §7º).</span></div>
@@ -127,17 +128,19 @@
         const novas = lerLinhas();
         const folha = (base.folha || []).filter((f) => Fin.mesDe(f.mes) !== mes).concat(novas);
         const tmp = { ...base, folha };
-        const tot = { hp: 0, hf: 0, retirada: 0, inss: 0, devida: 0, aux: 0, liquido: 0 };
+        const tot = { hp: 0, hf: 0, ha: 0, adm: 0, retirada: 0, inss: 0, devida: 0, aux: 0, liquido: 0 };
         corpo.querySelectorAll("tr[data-coop]").forEach((tr) => {
           const p = Fin.calcularCooperado(porId[tr.dataset.coop], tmp);
           const x = p.detalhes.mensal.find((mm) => mm.mes === mes) || {};
           const v = { retirada: x.retirada || 0, inss: x.inss || 0, devida: x.devida || 0, aux: (x.aux_tele || 0) + (x.aux_alim || 0), liquido: x.liquido || 0 };
           Object.entries(v).forEach(([k, val]) => { tr.querySelector(`[data-v="${k}"]`).textContent = moeda(val); tot[k] += val; });
-          tot.hp += x.horas_produtivas || 0; tot.hf += x.horas_formacao || 0;
+          tot.hp += x.horas_produtivas || 0; tot.hf += x.horas_formacao || 0; tot.ha += x.horas_admin || 0; tot.adm += x.retirada_admin || 0;
         });
-        Object.entries(tot).forEach(([k, val]) => { const td = corpo.querySelector(`[data-t="${k}"]`); if (td) td.textContent = k === "hp" || k === "hf" ? brl(val) + " h" : moeda(val); });
+        Object.entries(tot).forEach(([k, val]) => { const td = corpo.querySelector(`[data-t="${k}"]`); if (td) td.textContent = k === "hp" || k === "hf" || k === "ha" ? brl(val) + " h" : moeda(val); });
         const pr = Fin.params(base.parametros), receita = num($("#fm-rec").value);
-        $("#fm-custos").innerHTML = `INSS patronal (20%): <b>${moeda(tot.retirada * pr.patronal_pct)}</b> · Custo de Operação e Gestão: <b>${moeda(receita * pr.custo_op_pct)}</b>`;
+        const cog = receita * pr.custo_op_pct, admTotal = tot.adm * (1 + pr.patronal_pct), saldo = cog - admTotal;
+        $("#fm-custos").innerHTML = `INSS patronal (20%): <b>${moeda(tot.retirada * pr.patronal_pct)}</b> · Custo de Operação e Gestão: <b>${moeda(cog)}</b>`
+          + (tot.ha ? `<br>Suporte administrativo pago pelos 20%: <b>${moeda(tot.adm)}</b> + INSS patronal <b>${moeda(tot.adm * pr.patronal_pct)}</b> · ${saldo >= 0 ? `sobram <b>${moeda(saldo)}</b> dos 20%` : `<span style="color:var(--err)">faltam <b>${moeda(-saldo)}</b> nos 20% deste mês</span>`}` : "");
       };
       corpo.addEventListener("input", recalcular); recalcular();
       $("#fm-mes").onchange = (e) => { if (e.target.value) { mesSel = e.target.value; recarregar(); } };
@@ -147,6 +150,7 @@
         hs.forEach((h) => { const tr = corpo.querySelector(`tr[data-coop="${h.fin_cooperado_id}"]`); if (!tr) return; n++;
           tr.querySelector('[data-k="horas_produtivas"]').value = h.produtivas ? brl(h.produtivas) : "";
           tr.querySelector('[data-k="horas_formacao"]').value = h.formacao ? brl(h.formacao) : "";
+          tr.querySelector('[data-k="horas_admin"]').value = h.administrativas ? brl(h.administrativas) : "";
           if (!tr.querySelector('[data-k="dias"]').value) tr.querySelector('[data-k="dias"]').value = h.dias || ""; });
         recalcular();
         toast(n ? `Horas de ${n} cooperado(s) puxadas de "Minhas horas". Confira e salve.` : "Ninguém lançou horas neste mês no site.");
@@ -162,9 +166,9 @@
     if (aba === "cooperativa") {
       const vc = Fin.cooperativa(base, calc);
       const pr = Fin.params(base.parametros);
-      const L = vc.linhas.filter((l) => l.receita || l.retiradas || l.contribuicoes || l.fic_coop);
+      const L = vc.linhas.filter((l) => l.receita || l.retiradas || l.admin_cog || l.contribuicoes || l.fic_coop);
       const tot = (k) => L.reduce((t, l) => t + l[k], 0);
-      const cols = [["receita", "Receita de contratos"], ["custo_op", "Custo de Operação (20%)"], ["retiradas", "Retiradas brutas"], ["inss_retido", "INSS retido"], ["inss_patronal", "INSS patronal (20%)"], ["fic_coop", "FIC da cooperativa"], ["provisoes", "Provisões 13º e férias"], ["auxilios", "Auxílios"], ["contribuicoes", "Contribuições de capital"]];
+      const cols = [["receita", "Receita de contratos"], ["custo_op", "Custo de Operação (20%)"], ["admin_cog", "Suporte adm. pago pelos 20% (com INSS patronal)"], ["saldo_cog", "Saldo dos 20%"], ["retiradas", "Retiradas brutas"], ["inss_retido", "INSS retido"], ["inss_patronal", "INSS patronal (20%)"], ["fic_coop", "FIC da cooperativa"], ["provisoes", "Provisões 13º e férias"], ["auxilios", "Auxílios"], ["contribuicoes", "Contribuições de capital"]];
       corpo.innerHTML = `
         <section class="painel"><h2>Movimento da cooperativa por mês</h2>
           ${L.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Mês</th>${cols.map(([, t]) => `<th class="num">${t}</th>`).join("")}</tr></thead>
@@ -607,11 +611,11 @@
       lista.map((p) => [p.cooperado_nome, p.email, p.quotas_subscritas, p.capital_subscrito, p.capital_integralizado, p.contribuicoes_pagas, p.contribuicao_mensal, p.valor_em_aberto, p.meses_em_atraso, p.fic_saldo, p.fundo_13, p.fundo_ferias, p.sobras_a_receber, p.outros_creditos, p.detalhes.resumo.falta_inicial, p.detalhes.resumo.adiantado, p.detalhes.resumo.retiradas_ano, p.detalhes.resumo.horas]));
     const mm = []; lista.forEach((p) => p.detalhes.mensal.forEach((x) => mm.push([p.cooperado_nome, dt(x.mes + "-01"), x.devida, x.paga, Math.max(0, x.em_aberto)])));
     aba("Mês a mês", [["Cooperado", 32], ["Mês", 11, "mes"], ["Contribuição devida", 14, "m"], ["Contribuição paga", 14, "m"], ["Em aberto no mês", 14, "m"]], mm);
-    const rr = []; lista.forEach((p) => p.detalhes.mensal.filter((x) => x.retirada || x.horas_produtivas || x.horas_formacao || x.decimo_pago || x.ferias_pago).forEach((x) => rr.push([p.cooperado_nome, dt(x.mes + "-01"), x.horas_produtivas, x.horas_formacao, x.dias, x.retirada, x.inss, x.descontada, x.fic_coop, x.fic_vol, x.prov_13, x.prov_ferias, x.decimo_pago, x.ferias_pago, x.aux_tele, x.aux_alim, x.liquido])));
-    aba("Retiradas", [["Cooperado", 30], ["Mês", 11, "mes"], ["Horas produtivas", 10], ["Horas de formação", 10], ["Dias", 7], ["Retirada bruta", 13, "m"], ["INSS 11%", 12, "m"], ["Contribuição descontada", 13, "m"], ["FIC cooperativa", 12, "m"], ["FIC voluntário", 12, "m"], ["Provisão 13º", 12, "m"], ["Provisão férias", 12, "m"], ["13º pago", 12, "m"], ["Férias pagas", 12, "m"], ["Auxílio-teletrabalho", 12, "m"], ["Auxílio-alimentação", 12, "m"], ["Líquido a pagar", 13, "m"]], rr);
+    const rr = []; lista.forEach((p) => p.detalhes.mensal.filter((x) => x.retirada || x.horas_produtivas || x.horas_formacao || x.horas_admin || x.decimo_pago || x.ferias_pago).forEach((x) => rr.push([p.cooperado_nome, dt(x.mes + "-01"), x.horas_produtivas, x.horas_formacao, x.horas_admin || 0, x.dias, x.retirada, x.inss, x.descontada, x.fic_coop, x.fic_vol, x.prov_13, x.prov_ferias, x.decimo_pago, x.ferias_pago, x.aux_tele, x.aux_alim, x.liquido])));
+    aba("Retiradas", [["Cooperado", 30], ["Mês", 11, "mes"], ["Horas produtivas", 10], ["Horas de formação", 10], ["Suporte adm. (20%)", 10], ["Dias", 7], ["Retirada bruta", 13, "m"], ["INSS 11%", 12, "m"], ["Contribuição descontada", 13, "m"], ["FIC cooperativa", 12, "m"], ["FIC voluntário", 12, "m"], ["Provisão 13º", 12, "m"], ["Provisão férias", 12, "m"], ["13º pago", 12, "m"], ["Férias pagas", 12, "m"], ["Auxílio-teletrabalho", 12, "m"], ["Auxílio-alimentação", 12, "m"], ["Líquido a pagar", 13, "m"]], rr);
     const vc = Fin.cooperativa(base, calc);
-    aba("Cooperativa", [["Mês", 11, "mes"], ["Receita de contratos", 14, "m"], ["Custo de Operação", 14, "m"], ["Retiradas brutas", 14, "m"], ["INSS retido", 13, "m"], ["INSS patronal", 13, "m"], ["FIC da cooperativa", 13, "m"], ["Provisões 13º e férias", 14, "m"], ["Auxílios", 12, "m"], ["Contribuições de capital", 14, "m"]],
-      vc.linhas.map((l) => [dt(l.mes + "-01"), l.receita, l.custo_op, l.retiradas, l.inss_retido, l.inss_patronal, l.fic_coop, l.provisoes, l.auxilios, l.contribuicoes]));
+    aba("Cooperativa", [["Mês", 11, "mes"], ["Receita de contratos", 14, "m"], ["Custo de Operação", 14, "m"], ["Suporte adm. pago pelos 20%", 14, "m"], ["Saldo dos 20%", 14, "m"], ["Retiradas brutas", 14, "m"], ["INSS retido", 13, "m"], ["INSS patronal", 13, "m"], ["FIC da cooperativa", 13, "m"], ["Provisões 13º e férias", 14, "m"], ["Auxílios", 12, "m"], ["Contribuições de capital", 14, "m"]],
+      vc.linhas.map((l) => [dt(l.mes + "-01"), l.receita, l.custo_op, l.admin_cog, l.saldo_cog, l.retiradas, l.inss_retido, l.inss_patronal, l.fic_coop, l.provisoes, l.auxilios, l.contribuicoes]));
     aba("Despesas", [["Data", 12, "d"], ["Descrição", 50], ["Categoria", 20], ["Valor", 13, "m"], ["Cobrada dos cooperados?", 12], ["Cooperados que dividem", 40], ["Valor por cooperado", 13, "m"], ["Observação", 50]],
       base.despesas.map((d) => [dt(d.data), d.descricao, d.categoria, Number(d.valor), d.cobrar ? "Sim" : "Não", d.participantes.map((i) => nome[i]).join(", "), d.cobrar ? Fin.centavos(d.valor / Math.max(1, d.participantes.length)) : null, d.observacao]));
     aba("Pagamentos", [["Data", 12, "d"], ["Cooperado", 32], ["Tipo", 30], ["Despesa", 40], ["Mês de referência", 11, "mes"], ["Valor", 13, "m"], ["Origem", 18], ["Observação", 40], ["Lançado por", 22]],

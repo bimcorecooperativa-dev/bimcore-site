@@ -11,6 +11,7 @@
   const TIPOS_HORA = {
     produtiva: "Produção técnica",
     formacao: "Formação Técnica Integrada",
+    administrativa: "Suporte administrativo (pago pelos 20%)",
     ociosidade_estrategica: "Ociosidade estratégica (pendência externa)",
     ociosidade_operacional: "Ociosidade operacional"
   };
@@ -403,8 +404,10 @@
           return espera(s.fin.cooperados.filter((c) => c.perfil_id).map((c) => {
             const hs = s.producao.filter((h) => h.cooperado_id === c.perfil_id && String(h.data).slice(0, 7) === m);
             return { fin_cooperado_id: c.id, produtivas: hs.filter((h) => h.tipo === "produtiva").reduce((t, h) => t + Number(h.horas), 0),
-              formacao: hs.filter((h) => h.tipo === "formacao").reduce((t, h) => t + Number(h.horas), 0), dias: new Set(hs.filter((h) => h.tipo === "produtiva" || h.tipo === "formacao").map((h) => h.data)).size };
-          }).filter((x) => x.produtivas || x.formacao));
+              formacao: hs.filter((h) => h.tipo === "formacao").reduce((t, h) => t + Number(h.horas), 0),
+              administrativas: hs.filter((h) => h.tipo === "administrativa").reduce((t, h) => t + Number(h.horas), 0),
+              dias: new Set(hs.filter((h) => h.tipo === "produtiva" || h.tipo === "formacao" || h.tipo === "administrativa").map((h) => h.data)).size };
+          }).filter((x) => x.produtivas || x.formacao || x.administrativas));
         },
         async salvarFolha(linhas, receita) {
           const s = ler(); const u = exigir(s, "tes"); s.fin.folha = s.fin.folha || []; s.fin.receitas = s.fin.receitas || [];
@@ -749,6 +752,7 @@
   api.DESC_HORA = {
     produtiva: "Trabalho técnico nos projetos da cooperativa: modelagem, compatibilização, desenhos, memoriais, relatórios. É remunerada pelo valor-hora da sua categoria e é a base da divisão das sobras.",
     formacao: "Estudo ligado diretamente a um projeto em andamento, como aprender a ferramenta ou a norma necessária para entregar o trabalho. É remunerada como a produção técnica, até 10% das suas horas do mês.",
+    administrativa: "Execução das atividades administrativas, financeiras e de suporte da cooperativa: planilhas, conciliação bancária, documentos, fechamento do mês (art. 53, §4º e §5º). É remunerada pelo valor-hora da sua categoria e paga pelo Custo de Operação e Gestão (os 20%). Não inclui o exercício do cargo no Conselho, que é voluntário (art. 53, §1º). Não entra na divisão das sobras.",
     ociosidade_estrategica: "Tempo parado à espera de órgão público ou terceiro (prefeitura, concessionária, cliente). Não é remunerada, mas comprova o atraso e não pesa no seu IEO. Informe o número do protocolo ou o e-mail na descrição.",
     ociosidade_operacional: "Tempo disponível sem tarefa por motivo interno, como projeto parado ou espera de outra disciplina da equipe. Não é remunerada; serve para a coordenação ver a capacidade livre e redistribuir o trabalho."
   };

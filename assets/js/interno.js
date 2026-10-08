@@ -235,19 +235,19 @@
           const por = {};
           doPeriodo.forEach((h) => {
             const k = h.cooperado_id;
-            por[k] = por[k] || { nome: h.cooperado_nome, produtiva: 0, formacao: 0, ociosidade_estrategica: 0, ociosidade_operacional: 0 };
-            por[k][h.tipo] += Number(h.horas || 0);
+            por[k] = por[k] || { nome: h.cooperado_nome, produtiva: 0, formacao: 0, administrativa: 0, ociosidade_estrategica: 0, ociosidade_operacional: 0 };
+            por[k][h.tipo] = (por[k][h.tipo] || 0) + Number(h.horas || 0);
           });
           const linhas = Object.values(por).sort((a, b) => b.produtiva - a.produtiva);
           const totalProd = linhas.reduce((a, l) => a + l.produtiva, 0);
           $("#pr-resumo").innerHTML = linhas.length ? `<div class="tabela-wrap"><table class="tabela">
-            <thead><tr><th>Cooperado</th><th class="num">Produtivas</th><th class="num">Formação</th><th class="num">Pend. externa</th><th class="num">Ociosidade op.</th><th class="num">Participação</th></tr></thead>
+            <thead><tr><th>Cooperado</th><th class="num">Produtivas</th><th class="num">Formação</th><th class="num">Suporte adm. (20%)</th><th class="num">Pend. externa</th><th class="num">Ociosidade op.</th><th class="num">Participação</th></tr></thead>
             <tbody>${linhas.map((l) => { const fti = l.produtiva + l.formacao ? l.formacao / (l.produtiva + l.formacao) : 0; return `<tr>
               <td>${esc(l.nome)}</td><td class="num">${horas(l.produtiva)}</td>
               <td class="num">${horas(l.formacao)}${fti > 0.1 ? `<span class="sub"><span class="selo warn">${Math.round(fti * 100)}%</span></span>` : ""}</td>
-              <td class="num">${horas(l.ociosidade_estrategica)}</td><td class="num">${horas(l.ociosidade_operacional)}</td>
+              <td class="num">${horas(l.administrativa)}</td><td class="num">${horas(l.ociosidade_estrategica)}</td><td class="num">${horas(l.ociosidade_operacional)}</td>
               <td class="num">${totalProd ? ((l.produtiva / totalProd) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "%" : "—"}</td></tr>`; }).join("")}</tbody>
-            <tfoot><tr><td>Total</td><td class="num">${horas(totalProd)}</td><td class="num">${horas(linhas.reduce((a, l) => a + l.formacao, 0))}</td><td class="num">${horas(linhas.reduce((a, l) => a + l.ociosidade_estrategica, 0))}</td><td class="num">${horas(linhas.reduce((a, l) => a + l.ociosidade_operacional, 0))}</td><td class="num">100%</td></tr></tfoot>
+            <tfoot><tr><td>Total</td><td class="num">${horas(totalProd)}</td><td class="num">${horas(linhas.reduce((a, l) => a + l.formacao, 0))}</td><td class="num">${horas(linhas.reduce((a, l) => a + l.administrativa, 0))}</td><td class="num">${horas(linhas.reduce((a, l) => a + l.ociosidade_estrategica, 0))}</td><td class="num">${horas(linhas.reduce((a, l) => a + l.ociosidade_operacional, 0))}</td><td class="num">100%</td></tr></tfoot>
           </table></div>` : '<p class="vazio">Nenhuma hora lançada no período.</p>';
 
           $("#pr-lista").innerHTML = doPeriodo.length ? `<div class="tabela-wrap"><table class="tabela">

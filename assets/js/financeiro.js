@@ -295,7 +295,7 @@
     const vhMes = {};
     const vhDe = (m) => (vhMes[m] !== undefined ? vhMes[m] : (vhMes[m] = valorHora(c, base.parametros || {}, base, m)));
     const ficVol = Math.min(Number(c.fic_voluntario || 0), par.fic_vol_max);
-    const retiradaDe = (m) => { const f = folha[m]; return f ? (Number(f.horas_produtivas || 0) + Number(f.horas_formacao || 0)) * vhDe(m) : 0; };
+    const retiradaDe = (m) => { const f = folha[m]; return f ? (Number(f.horas_produtivas || 0) + Number(f.horas_formacao || 0) + Number(f.horas_admin || 0)) * vhDe(m) : 0; };
 
     const mesesSet = new Set();
     for (let m = inicio; m <= fech; m = somaMes(m, 1)) mesesSet.add(m);
@@ -305,9 +305,9 @@
     const meses = [...mesesSet].sort();
     const mensal = meses.map((m) => {
       const f = folha[m] || {};
-      const hp = Number(f.horas_produtivas || 0), hf = Number(f.horas_formacao || 0), dias = Number(f.dias || 0);
+      const hp = Number(f.horas_produtivas || 0), hf = Number(f.horas_formacao || 0), ha = Number(f.horas_admin || 0), dias = Number(f.dias || 0);
       const vh = vhDe(m);
-      const ret = (hp + hf) * vh;
+      const ret = (hp + hf + ha) * vh;
       const inss = Math.min(ret, par.inss_teto) * par.inss_pct;
       const devida = ativo(m) && m >= inicio && m <= fech ? (ret > 0 ? ret * par.contrib_pct : quota) : 0;
       const descontada = ret > 0 ? devida : 0;
@@ -317,12 +317,12 @@
       const ficV = ret * ficVol;
       const p13 = ret / 12, pfer = ret / 12;
       const d13 = Number(f.decimo_pago || 0), dfer = Number(f.ferias_pago || 0);
-      const tele = ativo(m) && c.teletrabalho && hp + hf > 0 ? par.tele_pct * par.sm : 0;
+      const tele = ativo(m) && c.teletrabalho && hp + hf + ha > 0 ? par.tele_pct * par.sm : 0;
       const alim = ativo(m) ? dias * par.alim_pct * par.sm : 0;
       const v = somaBruta(partes.filter((x) => x.mes === m), (x) => x.valor);
       const w = somaBruta(pags.filter((p) => cobrada(p) && mesDe(p.data) === m), (p) => p.valor);
       const liquido = ret - inss - descontada - ficV + tele + alim + d13 + dfer;
-      return { mes: m, valor_hora: vh, horas_produtivas: hp, horas_formacao: hf, dias, retirada: centavos(ret), inss: centavos(inss), devida: centavos(devida), descontada: centavos(descontada),
+      return { mes: m, valor_hora: vh, horas_produtivas: hp, horas_formacao: hf, horas_admin: ha, retirada_admin: centavos(ha * vh), dias, retirada: centavos(ret), inss: centavos(inss), devida: centavos(devida), descontada: centavos(descontada),
         paga: centavos(paga), fic_coop: centavos(ficCoop), fic_vol: centavos(ficV), prov_13: centavos(p13), prov_ferias: centavos(pfer), decimo_pago: d13, ferias_pago: dfer,
         aux_tele: centavos(tele), aux_alim: centavos(alim), liquido: centavos(liquido), em_aberto: centavos(devida - paga + Math.max(0, v - w)),
         _ret: ret, _inss: inss, _dev: devida, _paga: paga, _fic: ficCoop + ficV, _p13: p13, _pf: pfer };
@@ -384,7 +384,8 @@
       const s = (k) => centavos(xs.reduce((t, x) => t + Number(x[k] || 0), 0));
       const sb = (k) => xs.reduce((t, x) => t + Number(x[k] || 0), 0);
       const receita = rec[m] || 0, ret = xs.some((x) => x._ret !== undefined) ? centavos(sb("_ret")) : s("retirada");
-      return { mes: m, receita, custo_op: centavos(receita * par.custo_op_pct), retiradas: ret, inss_retido: s("inss"), inss_patronal: centavos((xs.some((x) => x._ret !== undefined) ? sb("_ret") : ret) * par.patronal_pct),
+      const admin = centavos(sb("retirada_admin") * (1 + par.patronal_pct));
+      return { mes: m, receita, custo_op: centavos(receita * par.custo_op_pct), admin_cog: admin, saldo_cog: centavos(receita * par.custo_op_pct - admin), retiradas: ret, inss_retido: s("inss"), inss_patronal: centavos((xs.some((x) => x._ret !== undefined) ? sb("_ret") : ret) * par.patronal_pct),
         fic_coop: s("fic_coop"), provisoes: centavos(xs.some((x) => x._p13 !== undefined) ? sb("_p13") + sb("_pf") : s("prov_13") + s("prov_ferias")), auxilios: centavos(s("aux_tele") + s("aux_alim")), contribuicoes: s("paga"), liquido: s("liquido") };
     });
     const sm = par.sobras_mercado, sp = par.sobras_publicas, r = par.reserva_pct, f = par.fates_pct;

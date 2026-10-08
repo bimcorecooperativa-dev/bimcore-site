@@ -10,7 +10,7 @@
   const LIMITE_FTI = 0.10;
 
   const resumo = (lista) => {
-    const t = { produtiva: 0, formacao: 0, ociosidade_estrategica: 0, ociosidade_operacional: 0 };
+    const t = { produtiva: 0, formacao: 0, administrativa: 0, ociosidade_estrategica: 0, ociosidade_operacional: 0 };
     lista.forEach((h) => { t[h.tipo] = (t[h.tipo] || 0) + Number(h.horas || 0); });
     const base = t.produtiva + t.formacao;
     t.fti = base ? t.formacao / base : 0;

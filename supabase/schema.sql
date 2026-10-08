@@ -38,7 +38,7 @@ create table if not exists public.producao (
   projeto_id   uuid references public.projetos(id) on delete restrict,
   data         date not null,
   horas        numeric(5,2) not null check (horas > 0 and horas <= 12),
-  tipo         text not null check (tipo in ('produtiva','formacao','ociosidade_estrategica','ociosidade_operacional')),
+  tipo         text not null check (tipo in ('produtiva','formacao','administrativa','ociosidade_estrategica','ociosidade_operacional')),
   descricao    text not null default '',
   criado_em    timestamptz not null default now()
 );
