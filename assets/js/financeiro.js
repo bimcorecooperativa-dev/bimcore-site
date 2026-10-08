@@ -401,9 +401,10 @@
     const f13 = centavos(somaBruta(mensal, (x) => x._p13 - x.decimo_pago));
     const ffer = centavos(somaBruta(mensal, (x) => x._pf - x.ferias_pago));
     const horas = somaBruta(mensal, (x) => x.horas_produtivas + x.horas_formacao);
-    const totalH = horasTotais(base);
-    const ratear = Math.max(0, par.sobras_mercado * (1 - par.reserva_pct - par.fates_pct)) * par.rateio_pct;
-    const sobras = totalH > 0 ? centavos(ratear * horas / totalH) : 0;
+    /* Sobras e aposentadoria: cotas gravadas quando a apuração do exercício é lançada (RI 116 e 121) */
+    const cotasS = (base.sobras_cotas || []).filter((x) => x.fin_cooperado_id === c.id);
+    const sobras = centavos(somaBruta(cotasS.filter((x) => !x.pago_em), (x) => Number(x.rateio || 0)));
+    const fapos = centavos(somaBruta(cotasS, (x) => Number(x.aposentadoria || 0)));
     const retFech = retiradaDe(fech);
     const aportes = pags.filter((p) => ehAporte(p) || cobrada(p)).map((p) => ({
       data: p.data, valor: Number(p.valor), tipo: cobrada(p) ? "Pagamento da sua parte" : "Aporte à cooperativa",
@@ -418,7 +419,7 @@
       data_base: fimDoMes(fech), criado_em: new Date().toISOString(), valor_hora: vhDe(fech), enquadramento: enquadramento(c, base, fech),
       quotas_subscritas: centavos(E / quota), capital_subscrito: E, capital_integralizado: F, contribuicoes_pagas: U,
       contribuicao_mensal: quota, /* nos meses com retirada paga, a contribuição é 1,5% descontada dela */ valor_em_aberto: L, meses_em_atraso: mensal.filter((x) => x.em_aberto > 0.005).length,
-      fic_saldo: fic, fundo_13: f13, fundo_ferias: ffer, sobras_a_receber: sobras, outros_creditos: T,
+      fic_saldo: fic, fundo_13: f13, fundo_ferias: ffer, sobras_a_receber: sobras, fundo_aposentadoria: fapos, sobras_cotas: cotasS, outros_creditos: T,
       credito: { gerado: creditoTotal, retirado, solicitado, saldo: centavos(Math.max(0, creditoTotal - retirado - solicitado)), retiradas: rets },
       observacao: T > 0 ? "Outros créditos = aportes que você adiantou à cooperativa. Não são sacáveis a qualquer momento: só são devolvidos no desligamento, após aprovação do balanço (art. 19)." : null,
       detalhes: { mensal, aportes, resumo: { contribuicoes_devidas: H, contribuicoes_pagas_mensais: I, falta_integralizar: G, aportes_brutos: AB, aportes_no_capital: AC, falta_inicial: AD, adiantado: AE,
@@ -481,9 +482,7 @@
       return { mes: m, receita, custo_op: centavos(receita * par.custo_op_pct), admin_cog: admin, saldo_cog: centavos(receita * par.custo_op_pct - admin), retiradas: ret, inss_retido: s("inss"), inss_patronal: centavos((xs.some((x) => x._ret !== undefined) ? sb("_ret") : ret) * par.patronal_pct),
         fic_coop: s("fic_coop"), provisoes: centavos(xs.some((x) => x._p13 !== undefined) ? sb("_p13") + sb("_pf") : s("prov_13") + s("prov_ferias")), auxilios: centavos(s("aux_tele") + s("aux_alim")), contribuicoes: s("paga"), liquido: s("liquido") };
     });
-    const sm = par.sobras_mercado, sp = par.sobras_publicas, r = par.reserva_pct, f = par.fates_pct;
-    return { linhas, sobras: { mercado: sm, publicas: sp, reserva: centavos((sm + sp) * r), fates: centavos((sm + sp) * f), fei: centavos(Math.max(0, sp * (1 - r - f))),
-      mercado_liquido: centavos(Math.max(0, sm * (1 - r - f))), rateio_pct: par.rateio_pct, a_ratear: centavos(Math.max(0, sm * (1 - r - f)) * par.rateio_pct) } };
+    return { linhas };
   }
 
   /* ---------- Pix: BR Code estático ---------- */

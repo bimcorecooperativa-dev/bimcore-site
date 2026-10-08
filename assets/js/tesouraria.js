@@ -1,5 +1,5 @@
 /* BIMCORE — Financeiro como sistema (etapa 1): a tesouraria lança tudo no site.
-   Abas: Resumo, Retiradas, Cooperativa, Despesas, Pagamentos e aportes, Cadastro, Configurações. */
+   Abas: Resumo, Retiradas, Cooperativa, Sobras e fundos, Despesas, Pagamentos e aportes, Cadastro, Configurações. */
 (function () {
   "use strict";
   const UI = window.UI, API = window.API, Fin = window.Fin;
@@ -73,7 +73,7 @@
     const fech = Fin.mesFechamento(base.parametros);
     const recarregar = () => render(el, ctx);
 
-    const abas = [["resumo", "Resumo"], ["retiradas", "Retiradas"], ["cooperativa", "Cooperativa"], ["despesas", "Despesas"], ["pagamentos", "Pagamentos e aportes"], ["cadastro", "Cadastro"], ["config", "Configurações"]];
+    const abas = [["resumo", "Resumo"], ["retiradas", "Retiradas"], ["cooperativa", "Cooperativa"], ["sobras", "Sobras e fundos"], ["despesas", "Despesas"], ["pagamentos", "Pagamentos e aportes"], ["cadastro", "Cadastro"], ["config", "Configurações"]];
     el.innerHTML = `
       <div class="pag-cab"><div><p class="eyebrow">Tesouraria</p><h1>Financeiro</h1></div>
         <button class="btn btn-ghost" id="t-exportar">Exportar para Excel</button></div>
@@ -301,21 +301,6 @@
             <div class="field"><label for="rc-val">Receita bruta (R$)</label><input class="input" id="rc-val" inputmode="decimal"></div>
             <div class="full"><button class="btn btn-primary" id="rc-btn" type="submit">Salvar receita do mês</button></div>
           </form>
-        </section>
-        <section class="painel"><h2>Apuração das sobras do exercício</h2>
-          <p class="hint">Preencha depois do balanço de 31/12 e da decisão da Assembleia Geral (art. 71). As sobras de mercado, depois do Fundo de Reserva e do FATES, são rateadas pelas horas produzidas no ano; as de parcerias públicas vão para o FEI e não são rateadas (art. 72).</p>
-          <form id="t-sob" class="form-grid" novalidate>
-            <div class="field"><label for="sb-m">Sobras de contratos de mercado e licitações (R$)</label><input class="input" id="sb-m" inputmode="decimal" value="${brl(pr.sobras_mercado)}"></div>
-            <div class="field"><label for="sb-p">Sobras de parcerias com o Poder Público (R$)</label><input class="input" id="sb-p" inputmode="decimal" value="${brl(pr.sobras_publicas)}"></div>
-            <div class="field"><label for="sb-r">Percentual aprovado para rateio (%)</label><input class="input" id="sb-r" inputmode="decimal" value="${pct(pr.rateio_pct)}"></div>
-            <div class="full"><button class="btn btn-primary" id="sb-btn" type="submit">Salvar apuração</button></div>
-          </form>
-          <dl class="sol-dados">
-            <div><dt>Fundo de Reserva (${pct(pr.reserva_pct)}%)</dt><dd>${moeda(vc.sobras.reserva)}</dd></div>
-            <div><dt>FATES (${pct(pr.fates_pct)}%)</dt><dd>${moeda(vc.sobras.fates)}</dd></div>
-            <div><dt>FEI (parcerias públicas)</dt><dd>${moeda(vc.sobras.fei)}</dd></div>
-            <div><dt>A ratear entre os cooperados</dt><dd>${moeda(vc.sobras.a_ratear)}</dd></div>
-          </dl>
         </section>`;
       corpo.onclick = async (ev) => {
         const bp = ev.target.closest("[data-preparar]"), bv = ev.target.closest("[data-verprest]"), bu = ev.target.closest("[data-publicar]");
@@ -336,13 +321,10 @@
         e.preventDefault(); const m = $("#rc-mes").value; if (!m) return toast("Escolha o mês.", "err");
         if (await acao($("#rc-btn"), () => API.fin.salvarReceita({ mes: m + "-01", receita_bruta: num($("#rc-val").value) }), "Receita salva.")) recarregar();
       });
-      $("#t-sob").addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const r = lerPct($("#sb-r").value);
-        if (!(r >= 0 && r <= 1)) return toast("O percentual de rateio vai de 0 a 100.", "err");
-        if (await acao($("#sb-btn"), () => API.fin.salvarParametros({ sobras_mercado: num($("#sb-m").value), sobras_publicas: num($("#sb-p").value), rateio_pct: r }), "Apuração salva.")) recarregar();
-      });
     }
+
+    /* ---------------- Sobras e fundos coletivos ---------------- */
+    if (aba === "sobras") await window.Sobras.renderTesouraria(corpo, { base, calc, recarregar });
 
     /* ---------------- Despesas ---------------- */
     if (aba === "despesas") {
@@ -729,6 +711,7 @@
           <div><dt>Fundo de 13º / férias</dt><dd>${moeda(p.fundo_13)} / ${moeda(p.fundo_ferias)}</dd></div>
           <div><dt>Retiradas no período</dt><dd>${moeda(p.detalhes.resumo.retiradas_ano)}</dd></div>
           <div><dt>Sobras a receber</dt><dd>${moeda(p.sobras_a_receber)}</dd></div>
+          <div><dt>Fundo de Aposentadoria</dt><dd>${moeda(p.fundo_aposentadoria)}</dd></div>
         </dl>
         <h3 class="mini-tit">Contribuição mensal</h3>
         <div class="tabela-wrap"><table class="tabela"><thead><tr><th>Mês</th><th class="num">Retirada</th><th class="num">Líquido</th><th class="num">Contribuição devida</th><th class="num">Paga</th><th class="num">Em aberto</th></tr></thead>
@@ -797,8 +780,8 @@
       return ws;
     };
     const lista = base.cooperados.map((c) => calc[c.id]).sort((a, b) => a.cooperado_nome.localeCompare(b.cooperado_nome));
-    aba("Posição", [["Nome", 32], ["E-mail", 30], ["Quotas subscritas", 11], ["Capital subscrito", 14, "m"], ["Capital integralizado", 14, "m"], ["Total contribuído", 14, "m"], ["Contribuição mensal", 13, "m"], ["Valor em aberto", 13, "m"], ["Meses em atraso", 9], ["Saldo FIC", 12, "m"], ["Fundo 13º", 12, "m"], ["Fundo de férias", 12, "m"], ["Sobras a receber", 12, "m"], ["Aportes (outros créditos)", 14, "m"], ["Falta integralizar das quotas iniciais", 16, "m"], ["Contribuições pagas antecipadamente", 16, "m"], ["Retiradas no período", 14, "m"], ["Horas no período", 10]],
-      lista.map((p) => [p.cooperado_nome, p.email, p.quotas_subscritas, p.capital_subscrito, p.capital_integralizado, p.contribuicoes_pagas, p.contribuicao_mensal, p.valor_em_aberto, p.meses_em_atraso, p.fic_saldo, p.fundo_13, p.fundo_ferias, p.sobras_a_receber, p.outros_creditos, p.detalhes.resumo.falta_inicial, p.detalhes.resumo.adiantado, p.detalhes.resumo.retiradas_ano, p.detalhes.resumo.horas]));
+    aba("Posição", [["Nome", 32], ["E-mail", 30], ["Quotas subscritas", 11], ["Capital subscrito", 14, "m"], ["Capital integralizado", 14, "m"], ["Total contribuído", 14, "m"], ["Contribuição mensal", 13, "m"], ["Valor em aberto", 13, "m"], ["Meses em atraso", 9], ["Saldo FIC", 12, "m"], ["Fundo 13º", 12, "m"], ["Fundo de férias", 12, "m"], ["Sobras a receber", 12, "m"], ["Fundo de Aposentadoria", 12, "m"], ["Aportes (outros créditos)", 14, "m"], ["Falta integralizar das quotas iniciais", 16, "m"], ["Contribuições pagas antecipadamente", 16, "m"], ["Retiradas no período", 14, "m"], ["Horas no período", 10]],
+      lista.map((p) => [p.cooperado_nome, p.email, p.quotas_subscritas, p.capital_subscrito, p.capital_integralizado, p.contribuicoes_pagas, p.contribuicao_mensal, p.valor_em_aberto, p.meses_em_atraso, p.fic_saldo, p.fundo_13, p.fundo_ferias, p.sobras_a_receber, p.fundo_aposentadoria, p.outros_creditos, p.detalhes.resumo.falta_inicial, p.detalhes.resumo.adiantado, p.detalhes.resumo.retiradas_ano, p.detalhes.resumo.horas]));
     const mm = []; lista.forEach((p) => p.detalhes.mensal.forEach((x) => mm.push([p.cooperado_nome, dt(x.mes + "-01"), x.devida, x.paga, Math.max(0, x.em_aberto)])));
     aba("Mês a mês", [["Cooperado", 32], ["Mês", 11, "mes"], ["Contribuição devida", 14, "m"], ["Contribuição paga", 14, "m"], ["Em aberto no mês", 14, "m"]], mm);
     const rr = []; lista.forEach((p) => p.detalhes.mensal.filter((x) => x.retirada || x.credito || x.horas_produtivas || x.horas_formacao || x.horas_admin).forEach((x) => rr.push([p.cooperado_nome, dt(x.mes + "-01"), x.horas_produtivas, x.horas_formacao, x.horas_admin || 0, x.dias, x.credito || 0, x.retirada, x.inss, x.descontada, x.fic_coop, x.fic_vol, x.prov_13, x.prov_ferias, x.aux_tele, x.aux_alim, x.liquido])));

@@ -659,12 +659,12 @@
           const horas_total = s.producao.filter((h) => h.tipo === "produtiva" || h.tipo === "formacao").reduce((t, h) => t + Number(h.horas), 0);
           const horas_mes = c ? this._horasMes(s, [c.id]) : [];
           const retiradas = c ? (s.fin.retiradas || []).filter((r) => r.fin_cooperado_id === c.id) : [];
-          return espera(JSON.parse(JSON.stringify({ parametros: { ...s.fin.parametros }, cooperado: c, pagamentos: pags, despesas, folha, horas_total, habilitacoes, experiencias, horas_mes, retiradas, vigencias: s.fin.vigencias || [], caixa: this._caixa(s) })));
+          return espera(JSON.parse(JSON.stringify({ parametros: { ...s.fin.parametros }, cooperado: c, pagamentos: pags, despesas, folha, horas_total, habilitacoes, experiencias, horas_mes, retiradas, vigencias: s.fin.vigencias || [], caixa: this._caixa(s), sobras_cotas: c ? (s.fin.sobras_cotas || []).filter((x) => x.fin_cooperado_id === c.id) : [] })));
         },
         async tudo() {
           const s = ler(); exigir(s, "ver"); s.fin.folha = s.fin.folha || []; s.fin.receitas = s.fin.receitas || []; s.fin.retiradas = s.fin.retiradas || [];
           const horas_total = s.producao.filter((h) => h.tipo === "produtiva" || h.tipo === "formacao").reduce((t, h) => t + Number(h.horas), 0);
-          return espera(JSON.parse(JSON.stringify({ ...s.fin, saldos: s.fin.saldos || [], vigencias: s.fin.vigencias || [], horas_mes: this._horasMes(s), horas_total, caixa: this._caixa(s) })));
+          return espera(JSON.parse(JSON.stringify({ ...s.fin, saldos: s.fin.saldos || [], vigencias: s.fin.vigencias || [], sobras: s.fin.sobras || [], sobras_cotas: s.fin.sobras_cotas || [], fundos_mov: s.fin.fundos_mov || [], horas_mes: this._horasMes(s), horas_total, caixa: this._caixa(s) })));
         },
         async horasLancadas(mes) {
           const s = ler(); exigir(s, "tes"); const m = String(mes).slice(0, 7);
@@ -706,6 +706,56 @@
           s.fin[tabela] = s.fin[tabela].filter((r) => r.id !== id);
           if (tabela === "cooperados") s.fin.pagamentos = s.fin.pagamentos.filter((p) => p.fin_cooperado_id !== id);
           gravar(s); return espera(true);
+        }
+      },
+      sobras: {
+        _st(s) { s.fin.sobras = s.fin.sobras || []; s.fin.sobras_cotas = s.fin.sobras_cotas || []; s.fin.fundos_mov = s.fin.fundos_mov || []; },
+        async publico() {
+          const s = ler(); const u = exigir(s); this._st(s); const ver = u.papel === "coordenacao" || u.tesouraria || u.conselho_fiscal;
+          return espera(JSON.parse(JSON.stringify({ sobras: s.fin.sobras.filter((x) => ver || x.status === "lancada"), movimentos: s.fin.fundos_mov })));
+        },
+        async salvar(d) {
+          const s = ler(); const u = exigir(s, "tes"); this._st(s); const x = s.fin.sobras.find((r) => r.exercicio === d.exercicio);
+          if (x && x.status !== "rascunho") falha("Esta apuração já foi lançada. Estorne antes de alterar.");
+          const novo = { ...d, status: "rascunho", salvo_nome: u.nome, salvo_em: new Date().toISOString() };
+          if (x) Object.assign(x, novo); else s.fin.sobras.push(novo); gravar(s); return espera(true);
+        },
+        async excluir(ex) {
+          const s = ler(); exigir(s, "tes"); this._st(s); const x = s.fin.sobras.find((r) => r.exercicio === ex);
+          if (!x || x.status !== "rascunho") falha("Só um rascunho pode ser apagado."); s.fin.sobras = s.fin.sobras.filter((r) => r !== x); gravar(s); return espera(true);
+        },
+        async lancar(ex, cotas, aprovado_em, ata) {
+          const s = ler(); const u = exigir(s, "tes"); this._st(s); const x = s.fin.sobras.find((r) => r.exercicio === ex);
+          if (!x) falha("Apuração não encontrada."); if (x.status !== "rascunho") falha("Esta apuração já foi lançada.");
+          if (!aprovado_em) falha("Informe a data da Assembleia Geral que aprovou a destinação.");
+          const sm = (k) => cotas.reduce((t, c) => t + Number(c[k] || 0), 0);
+          if (Math.abs(sm("rateio") - x.rateio) > 0.05 || Math.abs(sm("aposentadoria") - x.aposentadoria) > 0.05) falha("As cotas dos cooperados não fecham com o total da apuração. Recarregue a página e tente de novo.");
+          cotas.forEach((c) => s.fin.sobras_cotas.push({ exercicio: ex, fin_cooperado_id: c.fin_cooperado_id, nome: c.nome, horas: c.horas, rateio: c.rateio, aposentadoria: c.aposentadoria, pago_em: null }));
+          const agora = new Date().toISOString();
+          [["reserva", x.reserva], ["fates", x.fates], ["soberania", x.soberania], ["fei", x.fei_publicas + x.fei_mercado], ["aposentadoria", x.aposentadoria], ["apoio", x.apoio]].forEach(([f, v]) => {
+            if (v > 0) s.fin.fundos_mov.push({ id: novoId(), fundo: f, data: aprovado_em, valor: Math.round(v * 100) / 100, descricao: "Sobras do exercício " + ex, exercicio: ex, registrado_nome: u.nome, criado_em: agora });
+          });
+          Object.assign(x, { status: "lancada", aprovado_em, ata: ata || null, lancado_nome: u.nome, lancado_em: agora }); gravar(s); return espera(true);
+        },
+        async estornar(ex) {
+          const s = ler(); exigir(s, "tes"); this._st(s); const x = s.fin.sobras.find((r) => r.exercicio === ex);
+          if (!x || x.status !== "lancada") falha("Esta apuração não está lançada."); if (x.rateio_pago_em) falha("O rateio já foi pago. Desfaça o pagamento antes de estornar.");
+          s.fin.fundos_mov = s.fin.fundos_mov.filter((m) => m.exercicio !== ex); s.fin.sobras_cotas = s.fin.sobras_cotas.filter((c) => c.exercicio !== ex);
+          Object.assign(x, { status: "rascunho", lancado_nome: null, lancado_em: null }); gravar(s); return espera(true);
+        },
+        async pagarRateio(ex, dataPag) {
+          const s = ler(); const u = exigir(s, "tes"); this._st(s); const x = s.fin.sobras.find((r) => r.exercicio === ex);
+          if (!x || x.status !== "lancada") falha("Lance a apuração antes de pagar o rateio.");
+          Object.assign(x, { rateio_pago_em: dataPag || null, rateio_pago_nome: dataPag ? u.nome : null });
+          s.fin.sobras_cotas.filter((c) => c.exercicio === ex).forEach((c) => { c.pago_em = dataPag || null; }); gravar(s); return espera(true);
+        },
+        async salvarMov(d) {
+          const s = ler(); const u = exigir(s, "tes"); this._st(s); if (d.fundo === "aposentadoria") falha("permission denied");
+          s.fin.fundos_mov.push({ ...d, id: novoId(), exercicio: null, registrado_nome: u.nome, criado_em: new Date().toISOString() }); gravar(s); return espera(true);
+        },
+        async excluirMov(id) {
+          const s = ler(); exigir(s, "tes"); this._st(s); const m = s.fin.fundos_mov.find((x) => x.id === id);
+          if (!m || m.exercicio) falha("Movimentos da apuração só saem pelo estorno."); s.fin.fundos_mov = s.fin.fundos_mov.filter((x) => x !== m); gravar(s); return espera(true);
         }
       },
       contatos: {
@@ -1077,8 +1127,9 @@
         async extrato() {
           const ext = ok(await sb.rpc("meu_extrato"));
           if (!ext || !ext.cooperado) return ext;
-          const [hm, rt, ht, vg, cx] = await Promise.all([sb.rpc("horas_mensais"), sb.from("fin_retiradas").select("*").eq("fin_cooperado_id", ext.cooperado.id).order("solicitado_em"), sb.rpc("horas_produtivas_total"),
-            sb.from("fin_vigencias").select("*").order("vigencia"), sb.rpc("caixa_retiradas")]);
+          const [hm, rt, ht, vg, cx, sc] = await Promise.all([sb.rpc("horas_mensais"), sb.from("fin_retiradas").select("*").eq("fin_cooperado_id", ext.cooperado.id).order("solicitado_em"), sb.rpc("horas_produtivas_total"),
+            sb.from("fin_vigencias").select("*").order("vigencia"), sb.rpc("caixa_retiradas"), sb.from("fin_sobras_cotas").select("*").eq("fin_cooperado_id", ext.cooperado.id)]);
+          ext.sobras_cotas = sc.error ? [] : sc.data;
           ext.vigencias = vg.error ? [] : vg.data;
           ext.caixa = cx.error ? null : cx.data;
           ext.horas_mes = hm.error ? [] : (hm.data || []).filter((h) => h.fin_cooperado_id === ext.cooperado.id);
@@ -1112,7 +1163,7 @@
           ok(await sb.from("fin_receitas").upsert({ ...receita, atualizado_nome: eu.nome, atualizado_em: new Date().toISOString() }, { onConflict: "mes" })); return true;
         },
         async tudo() {
-          const [par, coo, desp, pag, fol, rec, hab, exps, hm, rt, ht, sal, vg, cx] = await Promise.all([
+          const [par, coo, desp, pag, fol, rec, hab, exps, hm, rt, ht, sal, vg, cx, sc] = await Promise.all([
             sb.from("fin_parametros").select("*").eq("id", 1).single(),
             sb.from("fin_cooperados").select("*").order("nome"),
             sb.from("fin_despesas").select("*").order("data", { ascending: false, nullsFirst: false }),
@@ -1126,11 +1177,12 @@
             sb.rpc("horas_produtivas_total"),
             sb.from("fin_saldos").select("*").order("data", { ascending: false }),
             sb.from("fin_vigencias").select("*").order("vigencia"),
-            sb.rpc("caixa_retiradas")
+            sb.rpc("caixa_retiradas"),
+            sb.from("fin_sobras_cotas").select("*")
           ]);
           return { parametros: ok(par), cooperados: ok(coo), despesas: ok(desp), pagamentos: ok(pag), folha: fol.error ? [] : fol.data, receitas: rec.error ? [] : rec.data, habilitacoes: hab.error ? [] : hab.data, experiencias: exps.error ? [] : exps.data,
             horas_mes: hm.error ? [] : hm.data, retiradas: rt.error ? [] : rt.data, horas_total: ht.error ? null : Number(ht.data),
-            saldos: sal.error ? [] : sal.data, vigencias: vg.error ? [] : vg.data, caixa: cx.error ? null : cx.data };
+            saldos: sal.error ? [] : sal.data, vigencias: vg.error ? [] : vg.data, caixa: cx.error ? null : cx.data, sobras_cotas: sc.error ? [] : sc.data };
         },
         async horasLancadas(mes) { return ok(await sb.rpc("horas_lancadas", { p_mes: mes })); },
         async salvarFolha(linhas, receita) {
@@ -1163,6 +1215,23 @@
           if (r.error && /foreign key|violates/i.test(r.error.message || "")) falha("Esta despesa tem pagamentos lançados. Apague os pagamentos dela antes.");
           ok(r); return true;
         }
+      },
+      sobras: {
+        async publico() {
+          const [a, b] = await Promise.all([sb.from("fin_sobras").select("*").order("exercicio", { ascending: false }), sb.from("fin_fundos_mov").select("*").order("data", { ascending: false })]);
+          return { sobras: a.error ? [] : a.data, movimentos: b.error ? [] : b.data };
+        },
+        async salvar(d) {
+          const r = await sb.from("fin_sobras").upsert(d, { onConflict: "exercicio" });
+          if (r.error && /row-level security|permission/i.test(r.error.message || "")) falha("Esta apuração já foi lançada. Estorne antes de alterar.");
+          ok(r); return true;
+        },
+        async excluir(ex) { const r = ok(await sb.from("fin_sobras").delete().eq("exercicio", ex).eq("status", "rascunho").select("exercicio")); if (!r.length) falha("Só um rascunho pode ser apagado."); return true; },
+        async lancar(ex, cotas, aprovado_em, ata) { ok(await sb.rpc("lancar_sobras", { p_exercicio: ex, p_cotas: cotas, p_aprovado_em: aprovado_em, p_ata: ata || null })); return true; },
+        async estornar(ex) { ok(await sb.rpc("estornar_sobras", { p_exercicio: ex })); return true; },
+        async pagarRateio(ex, dataPag) { ok(await sb.rpc("pagar_rateio_sobras", { p_exercicio: ex, p_data: dataPag || null })); return true; },
+        async salvarMov(d) { ok(await sb.from("fin_fundos_mov").insert(d)); return true; },
+        async excluirMov(id) { const r = ok(await sb.from("fin_fundos_mov").delete().eq("id", id).is("exercicio", null).select("id")); if (!r.length) falha("Movimentos da apuração só saem pelo estorno."); return true; }
       },
       contatos: {
         async enviar(c) { ok(await sb.from("contatos").insert({ tipo: c.tipo || "contato", nome: c.nome || "Anônimo", email: c.email || null, orgao: c.orgao || null, telefone: c.telefone || null, mensagem: c.mensagem })); return true; },

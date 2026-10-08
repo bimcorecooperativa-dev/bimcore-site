@@ -206,7 +206,7 @@
         const pct = n("capital_subscrito") ? Math.min(100, (n("capital_integralizado") / n("capital_subscrito")) * 100) : 0;
         const contribuido = p.contribuicoes_pagas != null ? n("contribuicoes_pagas") : n("capital_integralizado");
         const emDebito = n("valor_em_aberto") > 0;
-        const fundosInd = n("fic_saldo") + n("fundo_13") + n("fundo_ferias") + n("sobras_a_receber");
+        const fundosInd = n("fic_saldo") + n("fundo_13") + n("fundo_ferias") + n("sobras_a_receber") + n("fundo_aposentadoria");
         const aportes = n("outros_creditos");
         const det = p.detalhes || {};
         const res = det.resumo || {};
@@ -341,7 +341,8 @@
               ${linhaFundo("Fundo Individual de Capitalização (FIC)", "fic_saldo", "Aporte da cooperativa e aportes voluntários, com rendimentos (art. 78)")}
               ${linhaFundo("Fundo de 13º", "fundo_13", "Provisão mensal de 1/12 das retiradas, paga até 20 de dezembro (art. 79)")}
               ${linhaFundo("Fundo de férias", "fundo_ferias", "Provisão mensal de 1/12 das retiradas, paga no recesso anual (art. 79)")}
-              ${linhaFundo("Sobras a receber", "sobras_a_receber", "Rateio aprovado em Assembleia Geral")}
+              ${linhaFundo("Sobras a receber", "sobras_a_receber", "Sua parte do rateio aprovado pela Assembleia Geral, pelas horas do ano (Estatuto, art. 7º)")}
+              ${linhaFundo("Fundo de Aposentadoria", "fundo_aposentadoria", "Individual, resgatável no desligamento, aposentadoria, 1º imóvel ou veículo (Regimento, art. 121)")}
             </tbody><tfoot><tr><td>Total</td><td class="num">${moeda(fundosInd)}</td></tr></tfoot></table></div>
           </section>
 
@@ -571,6 +572,7 @@
             ${T ? T.htmlPrestacao(p.dados) : ""}
             ${p.parecer ? `<div class="notice"><b>Parecer do Conselho Fiscal</b> (${esc(p.conferido_nome || "")}): ${esc(p.parecer)}</div>` : ""}</section>`).join("")
             : '<p class="vazio">Nenhuma prestação de contas publicada ainda. A primeira sai no fim do primeiro trimestre com contratos.</p>'}`;
+        if (window.Sobras) el.insertAdjacentHTML("beforeend", await window.Sobras.htmlTransparencia());
       }
     },
 

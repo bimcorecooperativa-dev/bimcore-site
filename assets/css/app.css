@@ -238,6 +238,8 @@ select.mini { padding: 0.4rem 0.5rem; font-size: 0.85rem; width: auto; }
 .sinal.warn { background: var(--warn); box-shadow: 0 0 0 3px rgba(242, 177, 52, 0.18); }
 .app-nav a > span:first-child { display: inline-flex; align-items: center; }
 .notice.err { border-color: rgba(244, 114, 114, 0.5); }
+.notice.warn { border-color: rgba(242, 177, 52, 0.45); }
+.so-leitura .so-tes { display: none !important; }
 
 /* Ícone de explicação "i" */
 .info-i { display: inline-flex; align-items: center; justify-content: center; width: 1.05rem; height: 1.05rem; margin-left: .25rem; padding: 0; border: 1px solid var(--faint); border-radius: 50%; background: transparent; color: var(--muted); font: italic 600 .68rem/1 Georgia, "Times New Roman", serif; text-transform: none; letter-spacing: 0; cursor: help; vertical-align: middle; position: relative; }
