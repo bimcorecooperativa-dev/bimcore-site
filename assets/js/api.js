@@ -725,7 +725,8 @@
         _caixa(s) {
           const sal = (s.fin.saldos || []).slice().sort((a, b) => String(b.data).localeCompare(String(a.data)) || String(b.criado_em).localeCompare(String(a.criado_em)))[0];
           const rs = s.fin.retiradas || [];
-          return { data: sal ? sal.data : null, saldo: sal ? Number(sal.saldo) : null, reserva: Number(s.fin.parametros.reserva_caixa || 0), patronal_pct: s.fin.parametros.patronal_pct != null ? s.fin.parametros.patronal_pct : 0.2,
+          const mp = (s.fin.mapa || [])[0]; const reservado = mp && mp.dados ? Number(mp.dados.reservado_mov || 0) : 0;
+          return { data: sal ? sal.data : null, saldo: sal ? Number(sal.saldo) : null, reserva: Math.max(Number(s.fin.parametros.reserva_caixa || 0), reservado), reservado_mov: reservado, patronal_pct: s.fin.parametros.patronal_pct != null ? s.fin.parametros.patronal_pct : 0.2,
             pedidos: rs.filter((r) => r.status === "solicitada").reduce((t, r) => t + Number(r.valor), 0),
             pagas_depois: sal ? rs.filter((r) => r.status === "paga" && (r.pago_em > sal.data || (r.pago_em === sal.data && String(r.atualizado_em || "") > String(sal.criado_em || "")))).reduce((t, r) => t + Number(r.valor), 0) : 0 };
         },

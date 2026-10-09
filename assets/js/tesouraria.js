@@ -150,7 +150,7 @@
           <div class="painel-cab"><h2>Caixa da cooperativa</h2>${!cx.informado ? '<span class="selo err">saldo não informado</span>' : diasSaldo > 7 ? `<span class="selo warn">saldo de ${diasSaldo} dias atrás</span>` : '<span class="selo ok">saldo em dia</span>'}</div>
           <div class="kpis">
             <div class="kpi"><span class="rot">Saldo em conta</span><span class="val">${cx.informado ? moeda(cx.saldo) : "—"}</span><span class="det">${cx.informado ? "informado em " + data(cx.data) : "Informe abaixo o saldo do BTG"}</span></div>
-            <div class="kpi"><span class="rot">Livre para retiradas</span><span class="val" style="color:${cx.livre > 0 ? "var(--ok)" : "var(--err)"}">${moeda(Math.max(0, cx.livre))}</span><span class="det">Saldo − reserva (${moeda(pr.reserva_caixa)}) − pedidos e pagamentos posteriores, com os 20% patronais</span></div>
+            <div class="kpi"><span class="rot">Livre para retiradas</span><span class="val" style="color:${cx.livre > 0 ? "var(--ok)" : "var(--err)"}">${moeda(Math.max(0, cx.livre))}</span><span class="det">Saldo da conta movimento − camadas reservadas (${moeda(Number(base.caixa && base.caixa.reserva) || 0)}: guias, contas, sobras, os 20%, FIC e fundos a transferir) − pedidos e pagamentos posteriores, com os 20% patronais</span></div>
             <div class="kpi"><span class="rot">Crédito acumulado a pagar</span><span class="val">${moeda(aPagar * pat)}</span><span class="det">Saldo de crédito de todos + 20% patronal: o que a cooperativa deve se todos pedirem</span></div>
             <div class="kpi"><span class="rot">Receita × retiradas (3 meses)</span><span class="val" style="color:${ret3 > rec3 * (1 - pr.custo_op_pct) + 0.005 ? "var(--err)" : "var(--ok)"}">${moeda(rec3)} × ${moeda(ret3)}</span><span class="det">${ret3 > rec3 * (1 - pr.custo_op_pct) + 0.005 ? "Retiradas acima dos 80% da receita: atenção" : "Retiradas dentro dos 80% da receita"}</span></div>
           </div>
@@ -516,7 +516,7 @@
           </div>
         </section>
         <section class="painel"><h2>Caixa para retiradas</h2><div class="form-grid">
-          ${campoP("cp-rescx", "Reserva mínima em conta (R$)", brl(pr.reserva_caixa), "Valor que as retiradas nunca podem usar (ex.: guias de INSS e IR do mês, despesas fixas, Fundo de Soberania).")}
+          ${campoP("cp-rescx", "Reserva mínima em conta (R$)", brl(pr.reserva_caixa), "Colchão extra, opcional. As camadas (guias, contas, sobras, os 20%, FIC e fundos a transferir) já são descontadas sozinhas; vale a maior entre as camadas e este valor.")}
         </div></section>
         <section class="painel"><h2>Enquadramento por experiência (art. 8º, IV e V)</h2>
           <p class="hint">Júnior até 5 anos completos de experiência comprovada; Pleno de 6 a 10; Sênior a partir de 11 (teto). Coordenador só com designação do Conselho e mais de 10 anos. Conta apenas a experiência validada na função ligada à formação usada na cooperativa.</p>

@@ -66,19 +66,41 @@
     const guardado = { fic, fundos: fundosTot, provisoes, saldo20 };
     const guardadoTot = c2(fic + fundosTot + provisoes + saldo20);
     const livre = c2(total - curtoTot - guardadoTot);
+    /* Camadas de cada conta: o saldo informado é repartido pelo destino de cada parte, e a soma das camadas dá o saldo.
+       FIC e fundos/provisões ficam nas contas próprias; o que ainda não foi transferido para elas fica reservado na conta movimento.
+       Os 20% ficam na conta movimento, contabilizados à parte (art. 23, §8º), salvo se houver conta específica para eles. */
+    const fundosProv = c2(fundosTot + provisoes);
+    const mov = {
+      guias: curto.guias, contas: curto.contas, sobras: curto.sobras,
+      saldo20: c2(Math.max(0, saldo20 - porTipo.custo_op)),
+      fic_a_transferir: c2(Math.max(0, fic - porTipo.fic)),
+      a_aplicar: c2(Math.max(0, fundosProv - porTipo.aplicacao)),
+      retiradas: curto.retiradas
+    };
+    const reservadoMov = c2(mov.guias + mov.contas + mov.sobras + mov.saldo20 + mov.fic_a_transferir + mov.a_aplicar);
+    mov.livre = c2(porTipo.movimento - reservadoMov - mov.retiradas);
+    const camadas = {
+      movimento: mov,
+      fic: { devido: fic, diferenca: c2(porTipo.fic - fic) },
+      aplicacao: { devido: fundosProv, diferenca: c2(porTipo.aplicacao - fundosProv) },
+      custo_op: { devido: saldo20, diferenca: c2(porTipo.custo_op - saldo20) }
+    };
+    // de onde vieram os 20% (parcelas de contrato recebidas)
+    const nomeCt = {}; (base.contratos || []).forEach((c) => { nomeCt[c.id] = [c.numero, c.contratante].filter(Boolean).join(" · ") || c.objeto; });
+    const origem20 = {}; (base.parcelas || []).filter((x) => x.recebido_em).forEach((x) => { const k = nomeCt[x.contrato_id] || "Contrato"; origem20[k] = c2((origem20[k] || 0) + Number(x.valor_recebido != null ? x.valor_recebido : x.valor) * pr.custo_op_pct); });
     const alertas = [];
-    if (!ativas.length) alertas.push(["warn", "Cadastre as contas da cooperativa (conta movimento, conta dos 20%, conta do FIC e aplicação) e informe os saldos."]);
+    if (!ativas.length) alertas.push(["warn", "Cadastre as contas da cooperativa (conta movimento, conta do FIC e aplicação) e informe os saldos."]);
     ativas.forEach((c) => { const u = ult[c.id]; if (!u) alertas.push(["warn", `Informe o saldo de "${c.nome}".`]); else if (somaDias(u.data, 7) < hoje) alertas.push(["warn", `Saldo de "${c.nome}" desatualizado (informado em ${data(u.data)}).`]); });
-    const temFic = ativas.some((c) => c.tipo === "fic"), temApl = ativas.some((c) => c.tipo === "aplicacao"), temCop = ativas.some((c) => c.tipo === "custo_op");
+    const temFic = ativas.some((c) => c.tipo === "fic"), temApl = ativas.some((c) => c.tipo === "aplicacao");
     if (fic > 0.009 && porTipo.fic + 0.009 < fic) alertas.push(["err", `O FIC dos cooperados soma ${moeda(fic)}, mas a conta do FIC tem ${moeda(porTipo.fic)}. Transfira ${moeda(fic - porTipo.fic)} para a conta segregada${temFic ? "" : " (cadastre a conta do FIC)"}.`]);
     const aplicar = c2(fundosTot + provisoes - porTipo.aplicacao);
     if (aplicar > 0.009) alertas.push(["warn", `Fundos coletivos e provisões de 13º e férias somam ${moeda(fundosTot + provisoes)}, e as aplicações têm ${moeda(porTipo.aplicacao)}. Aplique ${moeda(aplicar)} em renda fixa de baixo risco e liquidez diária${temApl ? "" : " (cadastre a conta de aplicação)"}.`]);
-    if (saldo20 > 0.009 && porTipo.custo_op + 0.009 < saldo20) alertas.push(["warn", `O saldo dos 20% ainda não gasto é ${moeda(saldo20)}; a conta específica tem ${moeda(porTipo.custo_op)} (Estatuto, art. 23, §8º)${temCop ? "" : " — cadastre a conta dos 20%"}.`]);
+    if (mov.livre < -0.009 && porTipo.movimento > 0.009) alertas.push(["err", `A conta movimento (${moeda(porTipo.movimento)}) não cobre as camadas reservadas nela (${moeda(reservadoMov + mov.retiradas)}). Nenhuma retirada nova pode ser liberada até entrar dinheiro.`]);
     if (porTipo.movimento + 0.009 < curtoTot) alertas.push(["err", `Os pagamentos dos próximos 30 dias somam ${moeda(curtoTot)} e a conta movimento tem ${moeda(porTipo.movimento)}. Não aplique; ${livre < 0 ? "faltam " + moeda(-livre) + " no total" : "resgate " + moeda(curtoTot - porTipo.movimento) + " da aplicação"}.`]);
     else if (livre > 0.009 && aplicar <= 0.009) alertas.push(["ok", `Há ${moeda(livre)} livres. Podem pagar despesas da cooperativa ou ser aplicados sem prender dinheiro de ninguém.`]);
     if (livre < -0.009) alertas.push(["err", `O dinheiro em conta não cobre o que está comprometido e guardado: faltam ${moeda(-livre)}.`]);
     const venc = abertas.filter((x) => x.vencimento < hoje); if (venc.length) alertas.push(["err", `${venc.length} conta(s) vencida(s): ${venc.map((x) => x.descricao).join(", ")}.`]);
-    return { data: hoje, total, porTipo, linhasContas, curto, curtoTot, guardado, guardadoTot, livre, sf, capital, aportes, alertas, autos };
+    return { data: hoje, total, porTipo, linhasContas, curto, curtoTot, guardado, guardadoTot, livre, sf, capital, aportes, alertas, autos, camadas, reservado_mov: reservadoMov, origem20 };
   }
 
   function htmlMapa(m, publico) {
@@ -106,7 +128,36 @@
           ${linha("Saldo dos 20% ainda não gasto", m.guardado.saldo20, "despesas administrativas (art. 23, §8º)")}
           </tbody><tfoot><tr><td>Livre</td><td class="num">${moeda(m.livre)}</td></tr></tfoot></table></div></div>
       </div>
+      ${m.camadas ? htmlCamadas(m) : ""}
       <p class="hint">Para saber: o <b>capital social</b> integralizado (${moeda(m.capital)}) é patrimônio da cooperativa e pode custear as atividades; é devolvido a cada cooperado no desligamento, depois do balanço. Os <b>aportes</b> feitos além das obrigações (${moeda(m.aportes)}) são créditos dos cooperados, também devolvidos no desligamento (art. 19). Nenhum dos dois é dinheiro parado na conta.</p>`;
+  }
+
+  /* Camadas: cada conta repartida pelo destino do dinheiro; a soma das camadas é o saldo do extrato */
+  function htmlCamadas(m) {
+    const k = m.camadas, mv = k.movimento;
+    const l = (t, v, h, forte) => `<tr${forte ? ' class="tot"' : ""}><td>${forte ? "<b>" + esc(t) + "</b>" : esc(t)}${h ? `<span class="sub">${esc(h)}</span>` : ""}</td><td class="num">${forte ? "<b>" + moeda(v) + "</b>" : moeda(v)}</td></tr>`;
+    const dif = (v) => Math.abs(v) < 0.01 ? "confere" : v > 0 ? `sobra ${moeda(v)} (pode voltar à conta movimento)` : `faltam ${moeda(-v)} (transferir da conta movimento)`;
+    const orig = Object.entries(m.origem20 || {});
+    return `
+      <h3 class="mini-tit" style="margin-top:1.2rem">Camadas de cada conta</h3>
+      <p class="hint">O saldo de cada conta repartido pelo destino de cada parte. A soma das camadas é o saldo do extrato.</p>
+      <div class="mapa-grade">
+        <div><div class="tabela-wrap"><table class="tabela"><thead><tr><th>Conta movimento</th><th class="num">${moeda(m.porTipo.movimento)}</th></tr></thead><tbody>
+          ${l("Guias de INSS e IR a recolher", mv.guias)}
+          ${l("Contas a pagar em 30 dias", mv.contas)}
+          ${l("Sobras a pagar aos cooperados", mv.sobras)}
+          ${l("Os 20% ainda não gastos", mv.saldo20, "Custo de Operação e Gestão, contabilizado à parte (art. 23, §8º)" + (orig.length ? " · entrou: " + orig.map(([n, v]) => n + " " + moeda(v)).join(", ") : ""))}
+          ${mv.fic_a_transferir > 0.009 ? l("FIC ainda não transferido", mv.fic_a_transferir, "transferir para a conta do FIC") : ""}
+          ${mv.a_aplicar > 0.009 ? l("Fundos e provisões ainda não aplicados", mv.a_aplicar, "aplicar no Tesouro Selic") : ""}
+          ${l("Retiradas pedidas", mv.retiradas, "com o INSS patronal")}
+          ${l("Livre para novas retiradas", mv.livre, mv.livre < 0 ? "faltam recursos" : "o que o site libera para pedidos", true)}
+        </tbody></table></div></div>
+        <div><div class="tabela-wrap"><table class="tabela"><thead><tr><th>Demais contas</th><th class="num">Saldo</th></tr></thead><tbody>
+          ${l("Conta do FIC", m.porTipo.fic, `FIC dos cooperados: ${moeda(k.fic.devido)} · ${dif(k.fic.diferenca)}`)}
+          ${l("Aplicações (fundos e 13º/férias)", m.porTipo.aplicacao, `Fundos ${moeda(m.guardado.fundos)} + provisões ${moeda(m.guardado.provisoes)} · ${dif(k.aplicacao.diferenca)}`)}
+          ${m.porTipo.custo_op > 0.009 ? l("Conta dos 20%", m.porTipo.custo_op, `20% ainda não gastos: ${moeda(k.custo_op.devido)}`) : ""}
+        </tbody></table></div></div>
+      </div>`;
   }
 
   /* ---------------- Tesouraria: aba "Contas e caixa" ---------------- */
@@ -124,8 +175,7 @@
     const ultSaldo = (id) => cx.saldos.filter((s) => s.conta_id === id).sort((a, b) => b.data.localeCompare(a.data) || String(b.criado_em).localeCompare(String(a.criado_em)))[0];
     corpo.innerHTML = `
       <section class="painel"><div class="painel-cab"><h2>Mapa do dinheiro</h2><span class="hint">publicado para todos os cooperados</span></div>${htmlMapa(m, false)}
-        ${(() => { const pr = Fin.params(base.parametros); const sug = c2(m.curto.guias + m.curto.contas + m.curto.sobras + m.guardado.saldo20); return sug > Number(pr.reserva_caixa || 0) + 0.009
-          ? `<div class="notice warn">A reserva mínima em conta (${moeda(pr.reserva_caixa || 0)}) é menor que guias, contas a pagar, sobras e os 20% ainda não gastos (${moeda(sug)}). Com ela baixa, o site pode liberar retiradas com dinheiro que já tem outro destino. <button class="btn btn-ghost btn-sm so-tes" id="cx-reserva" data-v="${sug}">Ajustar a reserva para ${moeda(sug)}</button></div>` : ""; })()}</section>
+        <p class="hint">O caixa livre para retiradas desconta sozinho as camadas da conta movimento (guias, contas a pagar, sobras, os 20% não gastos e o que falta transferir para o FIC e para as aplicações). Ele é atualizado sempre que esta aba é aberta.</p></section>
       <section class="painel"><div class="painel-cab"><h2>Contas a pagar</h2><button class="btn btn-primary btn-sm so-tes" id="cp-nova">Nova conta a pagar</button></div>
         <p class="hint">As guias, as retiradas pedidas e o 13º entram sozinhos (marcados como "automático"). Cadastre aqui o resto: taxas, contadora, softwares, anuidades, seguros. Contas mensais ou anuais se repetem sozinhas quando pagas.</p>
         ${lista.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Vencimento</th><th>Descrição</th><th class="num">Valor</th><th>Situação</th><th></th></tr></thead>
@@ -136,8 +186,8 @@
           <tbody>${cx.pagar.filter((x) => x.status === "paga").sort((a, b) => String(b.pago_em).localeCompare(String(a.pago_em))).slice(0, 60).map((x) => `<tr><td>${data(x.pago_em)}</td><td>${esc(x.descricao)}<span class="sub">${esc(x.categoria || "")}</span></td><td class="num">${moeda(x.valor_pago != null ? x.valor_pago : x.valor)}</td></tr>`).join("")}</tbody></table></div></details>` : ""}
       </section>
       <section class="painel"><div class="painel-cab"><h2>Contas bancárias e saldos</h2><button class="btn btn-ghost btn-sm so-tes" id="ct-nova">Nova conta</button></div>
-        <p class="hint">Informe o saldo de cada conta pelo extrato, pelo menos uma vez por semana. O saldo da conta movimento também alimenta o caixa livre das retiradas.${cx.contas.length ? "" : " Sugestão: comece com as quatro contas padrão."}</p>
-        ${cx.contas.length ? "" : '<p><button class="btn btn-primary btn-sm so-tes" id="ct-padrao">Criar as quatro contas padrão</button></p>'}
+        <p class="hint">Informe o saldo de cada conta pelo extrato, pelo menos uma vez por semana. O saldo da conta movimento também alimenta o caixa livre das retiradas.${cx.contas.length ? "" : " Sugestão: comece com as contas padrão."}</p>
+        ${cx.contas.length ? "" : '<p><button class="btn btn-primary btn-sm so-tes" id="ct-padrao">Criar as contas padrão</button></p>'}
         ${cx.contas.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Conta</th><th class="num">Último saldo</th><th>Informado</th><th></th></tr></thead>
           <tbody>${cx.contas.map((c) => { const u = ultSaldo(c.id); return `<tr${c.ativa === false ? ' style="opacity:.55"' : ""}><td>${esc(c.nome)}<span class="sub">${esc(TIPOS_CONTA[c.tipo])}${c.banco ? " · " + esc(c.banco) : ""}${c.finalidade ? " · " + esc(c.finalidade) : ""}</span></td><td class="num">${u ? moeda(u.saldo) : "—"}</td><td>${u ? data(u.data) + `<span class="sub">${esc(u.registrado_nome || "")}</span>` : "—"}</td>
             <td class="acoes-celula"><button class="btn btn-primary btn-sm so-tes" data-saldo="${c.id}">Informar saldo</button> <button class="btn btn-ghost btn-sm so-tes" data-ed-ct="${c.id}">Editar</button></td></tr>`; }).join("")}</tbody></table></div>` : ""}
@@ -197,9 +247,8 @@
       const b = e.target.closest("button"); if (!b) return;
       if (b.id === "ct-nova") return modalConta(null);
       if (b.id === "cp-nova") return modalPagar(null);
-      if (b.id === "cx-reserva") { if (await acao(b, () => API.fin.salvarParametros({ reserva_caixa: Number(b.dataset.v) }), "Reserva ajustada. As retiradas passam a respeitar esse valor.")) recarregar(); return; }
       if (b.id === "ct-padrao") {
-        const ok = await acao(b, async () => { for (const [i, c] of [["Conta movimento", "movimento", "Pagamentos, retiradas e guias"], ["Conta dos 20%", "custo_op", "Custo de Operação e Gestão (art. 23, §8º)"], ["Conta do FIC", "fic", "Dinheiro dos cooperados, segregado"], ["Aplicação", "aplicacao", "Fundos e provisões — renda fixa de liquidez diária"]].entries()) await API.caixa.salvarConta({ nome: c[0], tipo: c[1], finalidade: c[2], banco: "BTG", ativa: true, ordem: i }); return true; }, "Contas criadas.");
+        const ok = await acao(b, async () => { for (const [i, c] of [["Conta movimento", "movimento", "Recebe e paga tudo; os 20% ficam aqui, contabilizados à parte", "BTG"], ["Conta do FIC", "fic", "Dinheiro dos cooperados, segregado", "BTG"], ["Aplicação — Tesouro Selic", "aplicacao", "Fundos coletivos e provisões de 13º e férias", "Necton"]].entries()) await API.caixa.salvarConta({ nome: c[0], tipo: c[1], finalidade: c[2], banco: c[3], ativa: true, ordem: i }); return true; }, "Contas criadas.");
         if (ok) recarregar(); return;
       }
       if (b.dataset.edCt) return modalConta(cx.contas.find((c) => c.id === b.dataset.edCt));
