@@ -249,7 +249,7 @@
               <thead><tr><th>Cooperado</th><th>Avisado em</th><th class="num">Valor</th><th>Identificador</th><th>Quita</th><th></th></tr></thead>
               <tbody>${aguardando.map((m) => `<tr><td>${esc(m.cooperado_nome)}</td><td>${dataHora(m.criado_em)}</td><td class="num">${moeda(m.valor)}</td><td>BIMC${esc(m.codigo)}</td>
                 <td>${(m.alocacao || []).map((a) => esc(Fin.descreverItem(a)) + " " + moeda(a.valor)).join("<br>")}</td>
-                <td class="acoes-celula">${m.comprovante ? `<button class="btn btn-ghost btn-sm" data-comp="${m.id}">Comprovante</button> ` : ""}<button class="btn btn-primary btn-sm" data-confirmar="${m.id}">Confirmar</button> <button class="btn btn-danger btn-sm" data-recusar="${m.id}">Recusar</button></td></tr>`).join("")}</tbody>
+                <td class="acoes-celula">${m.comprovante ? `<button class="btn btn-ghost btn-sm" data-comp="${m.id}">Comprovante</button> ` : ""}${m.cooperado_id === ctx.sessao.perfil.id ? '<span class="hint">Seu Pix: outra pessoa da tesouraria confirma</span>' : `<button class="btn btn-primary btn-sm" data-confirmar="${m.id}">Confirmar</button> <button class="btn btn-danger btn-sm" data-recusar="${m.id}">Recusar</button>`}</td></tr>`).join("")}</tbody>
             </table></div>
           </section>` : ""}
 

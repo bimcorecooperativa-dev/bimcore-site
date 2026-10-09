@@ -625,7 +625,8 @@
         },
         async decidir(id, status, motivo) {
           const s = ler(); const u = exigir(s, "tes"); const m = (s.fin_movimentos || []).find((x) => x.id === id && x.status === "aguardando");
-          if (!m) falha("Este Pix já foi decidido."); m.status = status; m.motivo = motivo || null; m.decidido_em = new Date().toISOString(); m.decidido_nome = u.nome; lancarDemo(s, m); gravar(s); return espera(true);
+          if (!m) falha("Este Pix já foi decidido."); if (m.cooperado_id === u.id) falha("Ninguém confirma o próprio Pix: outra pessoa da tesouraria confirma.");
+          m.status = status; m.motivo = motivo || null; m.decidido_em = new Date().toISOString(); m.decidido_nome = u.nome; lancarDemo(s, m); gravar(s); return espera(true);
         },
         async comprovante() { falha("No modo demonstração os comprovantes não são guardados."); }
       },
@@ -702,6 +703,7 @@
         },
         async pagarRetirada(id, d) {
           const s = ler(); const u = exigir(s, "tes"); const r = (s.fin.retiradas || []).find((x) => x.id === id); if (!r) falha("Solicitação não encontrada.");
+          if ((s.fin.cooperados.find((x) => x.id === r.fin_cooperado_id) || {}).perfil_id === u.id) falha("Ninguém registra o pagamento da própria retirada: outra pessoa da tesouraria registra.");
           Object.assign(r, d, { status: "paga", pago_nome: u.nome, atualizado_em: new Date().toISOString() });
           // cotas atrasadas quitadas com a retirada viram pagamentos de contribuição (no banco, um gatilho faz isso)
           s.fin.pagamentos = s.fin.pagamentos.filter((p) => p.retirada_id !== r.id);
@@ -1395,6 +1397,8 @@
         async decidir(id, status, motivo) {
           const uid = await meuId();
           const eu = ok(await sb.from("perfis").select("nome").eq("id", uid).single());
+          const mv = await sb.from("financeiro_movimentos").select("cooperado_id").eq("id", id).maybeSingle();
+          if (mv.data && mv.data.cooperado_id === uid) falha("Ninguém confirma o próprio Pix: outra pessoa da tesouraria confirma.");
           const r = ok(await sb.from("financeiro_movimentos").update({ status, motivo: motivo || null, decidido_em: new Date().toISOString(), decidido_nome: eu.nome }).eq("id", id).eq("status", "aguardando").select());
           if (!r.length) falha("Este Pix já foi decidido.");
           return true;

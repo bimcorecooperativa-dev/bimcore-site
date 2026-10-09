@@ -108,7 +108,7 @@
             <thead><tr><th>Cooperado</th><th>Avisado em</th><th class="num">Valor</th><th>Identificador</th><th>Quita</th><th></th></tr></thead>
             <tbody>${aguardando.map((m) => `<tr><td>${esc(m.cooperado_nome)}</td><td>${dataHora(m.criado_em)}</td><td class="num">${moeda(m.valor)}</td><td>BIMC${esc(m.codigo)}</td>
               <td>${(m.alocacao || []).map((a) => esc(Fin.descreverItem(a)) + " " + moeda(a.valor)).join("<br>")}</td>
-              <td class="acoes-celula">${m.comprovante ? `<button class="btn btn-ghost btn-sm" data-comp="${m.id}">Comprovante</button> ` : ""}<button class="btn btn-primary btn-sm" data-confirmar="${m.id}">Confirmar</button> <button class="btn btn-danger btn-sm" data-recusar="${m.id}">Recusar</button></td></tr>`).join("")}</tbody>
+              <td class="acoes-celula">${m.comprovante ? `<button class="btn btn-ghost btn-sm" data-comp="${m.id}">Comprovante</button> ` : ""}${m.cooperado_id === ctx.sessao.perfil.id ? '<span class="hint">Seu Pix: outra pessoa da tesouraria confirma</span>' : `<button class="btn btn-primary btn-sm" data-confirmar="${m.id}">Confirmar</button> <button class="btn btn-danger btn-sm" data-recusar="${m.id}">Recusar</button>`}</td></tr>`).join("")}</tbody>
           </table></div>
         </section>` : ""}
         <section class="painel">
@@ -175,7 +175,7 @@
               <td>${dataHora(r.solicitado_em)}</td><td class="num">${moeda(r.valor)}</td><td class="num">${moeda(d.inss)}</td><td class="num">${moeda(d.ir)}</td><td class="num">${moeda(d.contribuicao)}</td><td class="num">${moeda(d.fic_vol)}</td>
               <td class="num"><b>${moeda(Fin.centavos(d.liquido - Number(r.quitar_valor || 0)))}</b>${Number(r.quitar_valor) ? `<span class="sub">já descontadas ${(r.quitar_meses || []).length} cota(s) atrasada(s): ${moeda(r.quitar_valor)}</span>` : ""}</td>
               <td>${atr ? `<span class="selo err">${data(r.prazo)}</span>` : data(r.prazo)}</td>
-              <td class="acoes-celula"><button class="btn btn-primary btn-sm" data-pagar="${r.id}">Registrar pagamento</button> <button class="btn btn-danger btn-sm" data-recret="${r.id}">Recusar</button></td></tr>`; }).join("")}</tbody>
+              <td class="acoes-celula">${(porId[r.fin_cooperado_id] || {}).perfil_id === ctx.sessao.perfil.id ? '<span class="hint">Sua retirada: outra pessoa da tesouraria registra</span>' : `<button class="btn btn-primary btn-sm" data-pagar="${r.id}">Registrar pagamento</button> <button class="btn btn-danger btn-sm" data-recret="${r.id}">Recusar</button>`}</td></tr>`; }).join("")}</tbody>
           </table></div>` : '<p class="vazio">Nenhuma retirada aguardando transferência.</p>'}
         </section>
         <section class="painel">
