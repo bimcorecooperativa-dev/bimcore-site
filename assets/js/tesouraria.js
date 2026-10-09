@@ -294,14 +294,35 @@
               <td>${x.conferido_nome ? esc(x.conferido_nome) + " em " + dataHora(x.conferido_em) : "—"}${x.parecer ? `<span class="sub">${esc(x.parecer)}</span>` : ""}</td>
               <td class="acoes-celula"><button class="btn btn-ghost btn-sm" data-verprest="${x.trimestre}">Ver</button>${x.status === "conferida" ? ` <button class="btn btn-primary btn-sm" data-publicar="${x.trimestre}">Publicar</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}
         </section>
-        <section class="painel"><h2>Receita de contratos</h2>
-          <p class="hint">Valor bruto recebido de contratos no mês. É a base do Custo de Operação e Gestão (20%, art. 23, §7º), que paga o suporte administrativo.</p>
+        <section class="painel"><h2>Parcelas dos contratos</h2>
+          <p class="hint">Quando o pagamento de uma parcela cair na conta, registre aqui. O valor entra sozinho na receita do mês e nos 20% do Custo de Operação e Gestão (art. 23, §7º). Os contratos e as parcelas previstas são cadastrados em Contratos e projetos.</p>
+          ${(() => { const pcs = (base.parcelas || []).slice().sort((a, b) => (!!a.recebido_em - !!b.recebido_em) || String(a.previsto_em || "9").localeCompare(String(b.previsto_em || "9"))); const ctr = {}; (base.contratos || []).forEach((c) => { ctr[c.id] = c; });
+            return pcs.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Contrato</th><th>Parcela</th><th>Previsto</th><th class="num">Valor</th><th>Recebimento</th><th></th></tr></thead>
+              <tbody>${pcs.map((x) => `<tr><td>${esc((ctr[x.contrato_id] || {}).objeto || "—")}<span class="sub">${esc((ctr[x.contrato_id] || {}).contratante || "")}</span></td><td>${esc(x.descricao)}</td><td>${x.previsto_em ? data(x.previsto_em) : "—"}</td><td class="num">${moeda(x.valor)}</td>
+                <td>${x.recebido_em ? `<span class="selo ok">${data(x.recebido_em)}</span><span class="sub">${moeda(x.valor_recebido != null ? x.valor_recebido : x.valor)}${x.nota_fiscal ? " · NF " + esc(x.nota_fiscal) : ""}${x.registrado_nome ? " · " + esc(x.registrado_nome) : ""}</span>` : '<span class="selo warn">a receber</span>'}</td>
+                <td class="acoes-celula">${x.recebido_em ? `<button class="btn btn-ghost btn-sm" data-desreceber="${x.id}">Desfazer</button>` : `<button class="btn btn-primary btn-sm" data-receber="${x.id}">Registrar recebimento</button>`}</td></tr>`).join("")}</tbody></table></div>` : '<p class="vazio">Nenhuma parcela de contrato cadastrada.</p>'; })()}
+        </section>
+        <section class="painel"><h2>Outras receitas</h2>
+          <p class="hint">Só o que <b>não</b> é parcela de contrato cadastrado (ex.: contrato antigo, serviço avulso). Entra na receita do mês junto com as parcelas recebidas.</p>
           <form id="t-rec" class="form-grid" novalidate>
             <div class="field"><label for="rc-mes">Mês</label><input class="input" id="rc-mes" type="month" value="${Fin.mesDe(hojeISO())}"></div>
             <div class="field"><label for="rc-val">Receita bruta (R$)</label><input class="input" id="rc-val" inputmode="decimal"></div>
             <div class="full"><button class="btn btn-primary" id="rc-btn" type="submit">Salvar receita do mês</button></div>
           </form>
         </section>`;
+      corpo.addEventListener("click", async (ev) => {
+        const br = ev.target.closest("[data-receber]"), bdr = ev.target.closest("[data-desreceber]");
+        if (bdr) { if (!(await confirmar("Desfazer o registro do recebimento?", "Desfazer"))) return; if (await acao(bdr, () => API.proj.salvarParcela({ id: bdr.dataset.desreceber, recebido_em: null, valor_recebido: null, nota_fiscal: null }), "Recebimento desfeito.")) recarregar(); return; }
+        if (!br) return;
+        const x = (base.parcelas || []).find((y) => y.id === br.dataset.receber);
+        const m = UI.modal(`<h2>Registrar recebimento</h2><p>${esc(x.descricao)}: ${moeda(x.valor)} previstos.</p>
+          <div class="form-grid"><div class="field"><label for="rp-d">Recebido em</label><input class="input" id="rp-d" type="date" value="${hojeISO()}" max="${hojeISO()}"></div>
+          <div class="field"><label for="rp-v">Valor recebido (R$)</label><input class="input" id="rp-v" inputmode="decimal" value="${brl(x.valor)}"><span class="hint">Se o órgão reteve impostos, informe o valor que caiu na conta.</span></div>
+          <div class="field"><label for="rp-nf">Nota fiscal</label><input class="input" id="rp-nf" maxlength="40"></div></div>
+          <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="rp-ok">Registrar</button></div>`);
+        $("#rp-ok", m.el).onclick = async (e2) => { const dt = $("#rp-d", m.el).value; const v = lerValor($("#rp-v", m.el).value); if (!dt || !(v > 0)) return toast("Informe a data e o valor.", "err");
+          if (await acao(e2.currentTarget, () => API.proj.salvarParcela({ id: x.id, recebido_em: dt, valor_recebido: v, nota_fiscal: $("#rp-nf", m.el).value.trim() || null }), "Recebimento registrado.")) { m.fechar(); recarregar(); } };
+      });
       corpo.onclick = async (ev) => {
         const bp = ev.target.closest("[data-preparar]"), bv = ev.target.closest("[data-verprest]"), bu = ev.target.closest("[data-publicar]");
         if (bp) {

@@ -281,7 +281,7 @@ select.mini { padding: 0.4rem 0.5rem; font-size: 0.85rem; width: auto; }
 /* Modo leitura do Conselho Fiscal no Financeiro */
 .so-leitura :is([data-confirmar], [data-recusar], [data-pagar], [data-recret], [data-desfazer], [data-delsal], [data-delguia], [data-val],
   [data-ed-desp], [data-ex-desp], [data-ed-pag], [data-ex-pag], [data-ed-coop], [data-preparar], [data-publicar],
-  #t-nova-desp, #t-novo-coop, #t-novo-pag, #fm-puxar) { display: none !important; }
+  #t-nova-desp, #t-novo-coop, #t-novo-pag, #fm-puxar, [data-receber], [data-desreceber]) { display: none !important; }
 .so-leitura #t-corpo form :is(button[type="submit"], .btn-primary) { display: none !important; }
 .so-leitura :is(#t-sal, #t-guia, #t-rec) { display: none !important; }
 .so-leitura #t-corpo form :is(input, select, textarea) { pointer-events: none; opacity: .6; }
@@ -337,3 +337,14 @@ select.mini { padding: 0.4rem 0.5rem; font-size: 0.85rem; width: auto; }
   .asm-votacao { position: fixed; left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); max-height: 45vh; overflow: auto; }
   .asm-sala:has(.asm-votacao:not([hidden])) { padding-bottom: 12rem; }
 }
+
+/* Projetos: chamadas, apontamentos, BEP */
+.chamada { border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.1rem; margin-bottom: 1rem; }
+.chamada h3, .apont h3 { margin: 0; font-size: 1rem; }
+.chamada h3 .sub { display: inline; margin-left: .4rem; }
+.apont { border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: 8px; padding: .9rem 1.1rem; margin-bottom: .9rem; }
+.apont.imped { border-left-color: var(--err); }
+.bep-lista { display: grid; gap: .9rem; margin: 0; }
+.bep-lista dt { font-family: var(--mono); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+.bep-lista dd { margin: .2rem 0 0; line-height: 1.55; }
+form.aval { border-top: 1px solid var(--line); padding-top: .8rem; margin-top: .8rem; }

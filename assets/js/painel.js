@@ -32,6 +32,7 @@
           <div class="pag-cab"><div><p class="eyebrow">${esc(nomeMes)}</p><h1>Olá, ${esc((ctx.sessao.perfil.nome || "").split(" ")[0] || "cooperado")}</h1></div>
             <a class="btn btn-primary" href="#horas">Lançar horas</a></div>
           ${await window.Assembleias.anuncio()}
+          ${window.Projetos ? await window.Projetos.anuncio(ctx) : ""}
           <div class="kpis">
             <div class="kpi"><span class="rot">Produção técnica ${iTipo("produtiva")}</span><span class="val">${horas(t.produtiva)}</span><span class="det">Base do cálculo das sobras</span></div>
             <div class="kpi"><span class="rot">Formação integrada ${iTipo("formacao")}</span><span class="val">${horas(t.formacao)}</span><span class="det">${seloFti(t.fti)} · limite 10%</span></div>
@@ -43,6 +44,12 @@
               : '<p class="vazio">Nenhum comunicado publicado ainda.</p>'}
           </section>`;
       }
+    },
+
+    projetos: {
+      titulo: "Projetos",
+      async contador(ctx) { return window.Projetos.contador(ctx); },
+      async render(el, ctx) { return window.Projetos.renderPainel(el, ctx); }
     },
 
     assembleias: {
@@ -76,6 +83,7 @@
               <div class="field"><label for="h-data">Data</label><input class="input" id="h-data" type="date" value="${hoje()}" max="${hoje()}"></div>
               <div class="field"><label for="h-horas">Horas</label><input class="input" id="h-horas" type="number" min="0.25" max="12" step="0.25" inputmode="decimal" placeholder="Ex.: 6"></div>
               <div class="field full"><label for="h-desc">O que foi feito</label><input class="input" id="h-desc" maxlength="300" placeholder="Ex.: Compatibilização arquitetura x estrutura do bloco A"></div>
+              <p class="hint full">Horas de <b>produção técnica</b> são lançadas no projeto de cuja equipe você faz parte e só viram crédito depois de aprovadas pelo coordenador do projeto. Se forem devolvidas, corrija aqui e elas voltam para aprovação.</p>
               <p class="hint full" id="h-tipo-desc">${esc(DESC[Object.keys(TIPOS)[0]] || "")}</p>
               <div class="full"><button class="btn btn-primary" id="h-btn" type="submit">Lançar</button></div>
             </form>
@@ -96,12 +104,13 @@
               ${Object.entries(TIPOS).map(([k, v]) => `<div class="kpi"><span class="rot">${esc(v.split(" (")[0])} ${iTipo(k)}</span><span class="val">${horas(t[k])}</span></div>`).join("")}
             </div>
             <div class="tabela-wrap"><table class="tabela">
-              <thead><tr><th>Data</th><th>Projeto</th><th>Tipo</th><th class="num">Horas</th><th><span class="sr-only">Ações</span></th></tr></thead>
+              <thead><tr><th>Data</th><th>Projeto</th><th>Tipo</th><th class="num">Horas</th><th>Aprovação</th><th><span class="sr-only">Ações</span></th></tr></thead>
               <tbody>${doMes.map((h) => `<tr>
                 <td class="num" style="text-align:left">${data(h.data)}</td>
                 <td>${esc(h.projeto_nome || "Atividade interna")}<span class="sub">${esc(h.descricao || "")}</span></td>
                 <td>${esc(TIPOS[h.tipo] || h.tipo)}</td>
                 <td class="num">${horas(h.horas)}</td>
+                <td>${h.tipo !== "produtiva" ? '<span class="sub">não precisa</span>' : h.aprovacao === "pendente" ? '<span class="selo warn">aguardando</span>' : h.aprovacao === "devolvida" ? `<span class="selo err">devolvida</span><span class="sub">${esc(h.aprov_motivo || "")}</span>` : `<span class="selo ok">aprovada</span>${h.aprovado_nome ? `<span class="sub">${esc(h.aprovado_nome)}</span>` : ""}`}</td>
                 <td class="acoes-celula"><button class="btn btn-ghost btn-sm" data-edit="${h.id}">Editar</button> <button class="btn btn-danger btn-sm" data-del="${h.id}">Excluir</button></td></tr>`).join("")}</tbody>
             </table></div>`;
         };

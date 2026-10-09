@@ -471,6 +471,9 @@
   function cooperativa(base, calc) {
     const par = params(base.parametros || {});
     const rec = {}; (base.receitas || []).forEach((r) => { rec[mesDe(r.mes)] = Number(r.receita_bruta || 0); });
+    /* parcelas de contratos recebidas entram sozinhas na receita do mês (a receita manual fica para o que não é de contrato cadastrado) */
+    const recC = {}; (base.parcelas || []).filter((x) => x.recebido_em).forEach((x) => { const m = mesDe(x.recebido_em); recC[m] = (recC[m] || 0) + Number(x.valor_recebido != null ? x.valor_recebido : x.valor); });
+    Object.keys(recC).forEach((m) => { rec[m] = centavos((rec[m] || 0) + recC[m]); });
     const meses = new Set(Object.keys(rec));
     Object.values(calc).forEach((p) => p.detalhes.mensal.forEach((x) => meses.add(x.mes)));
     const linhas = [...meses].sort().map((m) => {

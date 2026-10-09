@@ -15,7 +15,9 @@
     ociosidade_estrategica: "Ociosidade estratégica (pendência externa)",
     ociosidade_operacional: "Ociosidade operacional"
   };
-  const STATUS_PROJETO = ["Prospecção", "Proposta", "Em execução", "Concluído", "Suspenso"];
+  const STATUS_PROJETO = ["Prospecção", "Proposta", "Contratado", "Em execução", "Concluído", "Suspenso"];
+  /* Projetos simultâneos por função (Plano Quinquenal, Células de Produção). Carga de cada participação = 1/limite. */
+  const LIMITES_PADRAO = { coordenacao: [5, 3], supervisao: [5, 5], projeto: [2, 1], orcamento: [2, 1], modelagem: [1, 1], campo: [1, 1], outra: [2, 1] };
   const MODALIDADES = ["Acordo de cooperação técnica", "Convênio", "Licitação", "Contratação direta", "Mercado privado"];
   const CATEGORIAS_DOC = ["Estatuto e atas", "Regimentos e manuais", "Contratos e convênios", "Modelos técnicos", "Outros"];
   /* Frentes de atuação dos cooperados, a partir dos CNAEs da cooperativa */
@@ -174,6 +176,16 @@
         observacao: m.tipo === "pix" ? "Pix BIMC" + m.codigo : "Abatimento com aportes feito no site", origem: m.tipo === "pix" ? "pix" : "abatimento", movimento_id: m.id, criado_nome: m.decidido_nome }));
       m.lancado = true;
     };
+    /* hora que gera crédito: aprovada e, se de projeto, de contrato remunerado (ou projeto antigo) */
+    const geraCredito = (s, h) => {
+      if (h.tipo !== "produtiva") return true;
+      if ((h.aprovacao || "aprovada") !== "aprovada") return false;
+      if (!h.projeto_id) return true;
+      const p = s.projetos.find((x) => x.id === h.projeto_id); if (!p) return true;
+      if (p.exige_contrato === false || p.exige_contrato == null) return true;
+      const c = (s.contratos || []).find((x) => x.id === p.contrato_id); return !!(c && c.remunerado);
+    };
+    const UI_hoje = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
     const nomeProjeto = (s, id) => (s.projetos.find((p) => p.id === id) || {}).nome || "—";
     const nomePessoa = (s, id) => (s.perfis.find((p) => p.id === id) || {}).nome || "—";
 
@@ -268,6 +280,15 @@
         }
       },
       producao: {
+        _aprov(s, h) {
+          if (h.tipo !== "produtiva") return { aprovacao: "aprovada", aprovado_nome: null, aprovado_em: null, aprov_motivo: null };
+          if (!h.projeto_id) falha("Hora de produção técnica precisa estar ligada a um projeto.");
+          const p = s.projetos.find((x) => x.id === h.projeto_id); const ads = s.projeto_adesoes || [];
+          const equipe = p.coordenador_id || ads.some((a) => a.projeto_id === p.id && a.status === "confirmada");
+          const membro = p.coordenador_id === h.cooperado_id || ads.some((a) => a.projeto_id === p.id && a.perfil_id === h.cooperado_id && ["confirmada", "encerrada"].includes(a.status));
+          if (equipe && !membro) falha("Você não está na equipe deste projeto. Manifeste adesão a uma das chamadas abertas.");
+          return { aprovacao: "pendente", aprovado_nome: null, aprovado_em: null, aprov_motivo: null };
+        },
         async minhas() {
           const s = ler(); const u = exigir(s);
           return espera(s.producao.filter((h) => h.cooperado_id === u.id).map((h) => ({ ...h, projeto_nome: nomeProjeto(s, h.projeto_id) })).sort((a, b) => b.data.localeCompare(a.data)));
@@ -279,7 +300,7 @@
         async lancar(h) {
           const s = ler(); const u = exigir(s);
           if (u.status !== "ativo") falha("permission denied");
-          s.producao.push({ ...h, id: novoId(), cooperado_id: u.id }); gravar(s); return espera(true);
+          s.producao.push({ ...h, id: novoId(), cooperado_id: u.id, ...this._aprov(s, { ...h, cooperado_id: u.id }) }); gravar(s); return espera(true);
         },
         async excluir(id) {
           const s = ler(); const u = exigir(s);
@@ -293,7 +314,8 @@
           const s = ler(); const u = exigir(s);
           const h = s.producao.find((x) => x.id === id);
           if (!h || (h.cooperado_id !== u.id && u.papel !== "coordenacao")) falha("permission denied");
-          const antes = { ...h }; Object.assign(h, d);
+          const antes = { ...h }; const mudou = ["horas", "data", "tipo", "projeto_id"].some((k) => k in d && String(d[k] || "") !== String(h[k] || ""));
+          Object.assign(h, d); if (mudou) Object.assign(h, this._aprov(s, h));
           s.producao_historico = s.producao_historico || [];
           s.producao_historico.push({ id: novoId(), producao_id: h.id, cooperado_id: h.cooperado_id, acao: "editado", antes, depois: { ...h }, por_id: u.id, por_nome: u.nome, em: new Date().toISOString() });
           gravar(s); return espera(true);
@@ -577,7 +599,7 @@
           const s = ler(); const u = exigir(s); const valida = u.papel === "coordenacao" || u.tesouraria || u.conselho_fiscal || u.conselho_adm;
           const out = {};
           s.fin.cooperados.filter((c) => valida || c.perfil_id === u.id).forEach((c) => {
-            (s.producao || []).filter((h) => c.perfil_id && h.cooperado_id === c.perfil_id && (h.tipo === "produtiva" || h.tipo === "formacao")).forEach((h) => {
+            (s.producao || []).filter((h) => c.perfil_id && h.cooperado_id === c.perfil_id && (h.tipo === "produtiva" || h.tipo === "formacao") && (h.aprovacao || "aprovada") === "aprovada").forEach((h) => {
               const k = c.id + "|" + String(h.data).slice(0, 7); out[k] = out[k] || { fin_cooperado_id: c.id, mes: String(h.data).slice(0, 7) + "-01", horas: 0, origem: "lancado" }; out[k].horas += Number(h.horas);
             });
             (s.fin.folha || []).filter((f) => f.fin_cooperado_id === c.id).forEach((f) => { out[c.id + "|" + String(f.mes).slice(0, 7)] = { fin_cooperado_id: c.id, mes: f.mes, horas: Number(f.horas_produtivas || 0) + Number(f.horas_formacao || 0), origem: "fechamento" }; });
@@ -611,7 +633,7 @@
         _horasMes(s, coopIds) {
           const out = {};
           s.fin.cooperados.filter((c) => c.perfil_id && (!coopIds || coopIds.includes(c.id))).forEach((c) => {
-            s.producao.filter((h) => h.cooperado_id === c.perfil_id && ["produtiva", "formacao", "administrativa"].includes(h.tipo)).forEach((h) => {
+            s.producao.filter((h) => h.cooperado_id === c.perfil_id && ["produtiva", "formacao", "administrativa"].includes(h.tipo) && geraCredito(s, h)).forEach((h) => {
               const k = c.id + "|" + String(h.data).slice(0, 7);
               const o = out[k] = out[k] || { fin_cooperado_id: c.id, mes: String(h.data).slice(0, 7) + "-01", produtivas: 0, formacao: 0, administrativas: 0, _dias: new Set() };
               o[{ produtiva: "produtivas", formacao: "formacao", administrativa: "administrativas" }[h.tipo]] += Number(h.horas); o._dias.add(h.data);
@@ -672,7 +694,7 @@
         async tudo() {
           const s = ler(); exigir(s, "ver"); s.fin.folha = s.fin.folha || []; s.fin.receitas = s.fin.receitas || []; s.fin.retiradas = s.fin.retiradas || [];
           const horas_total = s.producao.filter((h) => h.tipo === "produtiva" || h.tipo === "formacao").reduce((t, h) => t + Number(h.horas), 0);
-          return espera(JSON.parse(JSON.stringify({ ...s.fin, saldos: s.fin.saldos || [], vigencias: s.fin.vigencias || [], sobras: s.fin.sobras || [], sobras_cotas: s.fin.sobras_cotas || [], fundos_mov: s.fin.fundos_mov || [], horas_mes: this._horasMes(s), horas_total, caixa: this._caixa(s) })));
+          return espera(JSON.parse(JSON.stringify({ ...s.fin, saldos: s.fin.saldos || [], vigencias: s.fin.vigencias || [], sobras: s.fin.sobras || [], sobras_cotas: s.fin.sobras_cotas || [], fundos_mov: s.fin.fundos_mov || [], parcelas: s.contrato_parcelas || [], contratos: s.contratos || [], horas_mes: this._horasMes(s), horas_total, caixa: this._caixa(s) })));
         },
         async horasLancadas(mes) {
           const s = ler(); exigir(s, "tes"); const m = String(mes).slice(0, 7);
@@ -715,6 +737,132 @@
           if (tabela === "cooperados") s.fin.pagamentos = s.fin.pagamentos.filter((p) => p.fin_cooperado_id !== id);
           gravar(s); return espera(true);
         }
+      },
+      proj: {
+        _st(s) { ["contratos", "contrato_parcelas", "projeto_funcoes", "projeto_adesoes", "projeto_marcos", "projeto_apontamentos", "projeto_avaliacoes"].forEach((k) => { s[k] = s[k] || []; });
+          if (!s.projeto_limites) s.projeto_limites = Object.entries(LIMITES_PADRAO).map(([funcao, [padrao, complexo]]) => ({ funcao, padrao, complexo })); },
+        _gere(s, u, pid) { const p = s.projetos.find((x) => x.id === pid); return u.papel === "coordenacao" || !!u.conselho_adm || (p && p.coordenador_id === u.id); },
+        _membro(s, pid, uid) { const p = s.projetos.find((x) => x.id === pid); return (p && p.coordenador_id === uid) || s.projeto_adesoes.some((a) => a.projeto_id === pid && a.perfil_id === uid && ["confirmada", "encerrada"].includes(a.status)); },
+        _carga(s, uid, excl) {
+          return s.projeto_adesoes.filter((a) => a.perfil_id === uid && a.status === "confirmada" && a.id !== excl).reduce((t, a) => {
+            const f = s.projeto_funcoes.find((x) => x.id === a.funcao_id), p = s.projetos.find((x) => x.id === a.projeto_id); if (!f || !p || !["Contratado", "Em execução"].includes(p.status)) return t;
+            const l = s.projeto_limites.find((x) => x.funcao === f.funcao); return t + 1 / (p.complexidade === "complexo" ? l.complexo : l.padrao);
+          }, 0);
+        },
+        async carregar() {
+          const s = ler(); exigir(s); this._st(s); gravar(s);
+          return espera(JSON.parse(JSON.stringify({ contratos: s.contratos, parcelas: s.contrato_parcelas, projetos: s.projetos, funcoes: s.projeto_funcoes, adesoes: s.projeto_adesoes, marcos: s.projeto_marcos, apontamentos: s.projeto_apontamentos, limites: s.projeto_limites })));
+        },
+        async pessoas() { const s = ler(); exigir(s); return espera(s.perfis.filter((p) => p.status === "ativo").map((p) => ({ id: p.id, nome: p.nome, especialidade: p.especialidade })).sort((a, b) => a.nome.localeCompare(b.nome))); },
+        async salvarContrato(d) {
+          const s = ler(); const u = exigir(s); this._st(s); if (!(u.papel === "coordenacao" || u.conselho_adm)) falha("permission denied");
+          if (d.id) Object.assign(s.contratos.find((x) => x.id === d.id), d); else { d = { ...d, id: novoId(), criado_nome: u.nome, criado_em: new Date().toISOString() }; s.contratos.push(d); }
+          gravar(s); return espera(d.id);
+        },
+        async excluirContrato(id) { const s = ler(); const u = exigir(s); this._st(s); if (!(u.papel === "coordenacao" || u.conselho_adm)) falha("permission denied"); s.contratos = s.contratos.filter((x) => x.id !== id); s.contrato_parcelas = s.contrato_parcelas.filter((x) => x.contrato_id !== id); s.projetos.forEach((p) => { if (p.contrato_id === id) p.contrato_id = null; }); gravar(s); return espera(true); },
+        async salvarParcela(d) {
+          const s = ler(); const u = exigir(s); this._st(s); if (!(u.papel === "coordenacao" || u.conselho_adm || u.tesouraria)) falha("permission denied");
+          if (d.id) Object.assign(s.contrato_parcelas.find((x) => x.id === d.id), d, d.recebido_em ? { registrado_nome: u.nome } : {}); else s.contrato_parcelas.push({ ...d, id: novoId(), criado_em: new Date().toISOString() });
+          gravar(s); return espera(true);
+        },
+        async excluirParcela(id) { const s = ler(); exigir(s); this._st(s); s.contrato_parcelas = s.contrato_parcelas.filter((x) => x.id !== id); gravar(s); return espera(true); },
+        async salvarProjeto(d) {
+          const s = ler(); const u = exigir(s); this._st(s);
+          if (d.id) { const p = s.projetos.find((x) => x.id === d.id); if (!this._gere(s, u, p.id)) falha("permission denied");
+            if (!(u.papel === "coordenacao" || u.conselho_adm)) ["nome", "orgao", "municipio", "modalidade", "valor", "contrato_id", "exige_contrato"].forEach((k) => delete d[k]);
+            Object.assign(p, d, { atualizado_em: new Date().toISOString() }); }
+          else { if (!(u.papel === "coordenacao" || u.conselho_adm)) falha("permission denied"); d = { complexidade: "padrao", bep: {}, exige_contrato: true, ...d, id: novoId(), criado_em: new Date().toISOString() }; s.projetos.push(d); }
+          gravar(s); return espera(d.id);
+        },
+        async designarCoordenador(pid, perfil, ato) {
+          const s = ler(); const u = exigir(s); this._st(s); if (!(u.papel === "coordenacao" || u.conselho_adm)) falha("Só a coordenação ou o Conselho de Administração designa o coordenador do projeto.");
+          if (!String(ato || "").trim()) falha("Informe o ato da designação (ex.: ata da reunião interna de dd/mm).");
+          const pe = s.perfis.find((x) => x.id === perfil); const p = s.projetos.find((x) => x.id === pid);
+          let f = s.projeto_funcoes.find((x) => x.projeto_id === pid && x.funcao === "coordenacao");
+          if (!f) { f = { id: novoId(), projeto_id: pid, funcao: "coordenacao", disciplina: "compatibilizacao", vagas: 1, status: "fechada", conselhos: [], horas_previstas: 0, atribuicoes: "Verificar compatibilização, interferências, padronização e conformidade com o BEP, e informar à equipe as falhas encontradas.", criado_em: new Date().toISOString() }; s.projeto_funcoes.push(f); }
+          s.projeto_adesoes.filter((a) => a.funcao_id === f.id && a.status === "confirmada" && a.perfil_id !== perfil).forEach((a) => { a.status = "encerrada"; a.motivo = "Coordenação passada a " + pe.nome; });
+          const lim = s.projeto_limites.find((x) => x.funcao === "coordenacao"); const c = this._carga(s, perfil) + 1 / (p.complexidade === "complexo" ? lim.complexo : lim.padrao);
+          if (c > 1.0001) falha(`Com este projeto, a dedicação de ${pe.nome} passaria de 100% (${Math.round(c * 100)}%).`);
+          let a = s.projeto_adesoes.find((x) => x.funcao_id === f.id && x.perfil_id === perfil);
+          if (a) Object.assign(a, { status: "confirmada", decidido_nome: u.nome, decidido_em: new Date().toISOString() });
+          else s.projeto_adesoes.push({ id: novoId(), funcao_id: f.id, projeto_id: pid, perfil_id: perfil, nome: pe.nome, status: "confirmada", mensagem: "Designado(a) em reunião interna: " + ato, decidido_nome: u.nome, decidido_em: new Date().toISOString(), criado_em: new Date().toISOString() });
+          Object.assign(p, { coordenador_id: perfil, coordenador_nome: pe.nome, coordenador_ato: ato }); gravar(s); return espera(true);
+        },
+        async salvarFuncao(d) {
+          const s = ler(); const u = exigir(s); this._st(s); if (!this._gere(s, u, d.projeto_id)) falha("permission denied");
+          if (d.id) Object.assign(s.projeto_funcoes.find((x) => x.id === d.id), d); else s.projeto_funcoes.push({ status: "aberta", conselhos: [], ...d, id: novoId(), criado_em: new Date().toISOString() });
+          gravar(s); return espera(true);
+        },
+        async excluirFuncao(id) { const s = ler(); const u = exigir(s); this._st(s); const f = s.projeto_funcoes.find((x) => x.id === id); if (!this._gere(s, u, f.projeto_id)) falha("permission denied"); s.projeto_funcoes = s.projeto_funcoes.filter((x) => x !== f); s.projeto_adesoes = s.projeto_adesoes.filter((a) => a.funcao_id !== id); gravar(s); return espera(true); },
+        async aderir(funcao_id, d) {
+          const s = ler(); const u = exigir(s); this._st(s); const f = s.projeto_funcoes.find((x) => x.id === funcao_id);
+          if (!f || f.status !== "aberta") falha("Esta chamada não está aberta."); if (f.prazo_adesao && UI_hoje() > f.prazo_adesao) falha("O prazo para manifestar adesão terminou.");
+          const ja = s.projeto_adesoes.find((a) => a.funcao_id === funcao_id && a.perfil_id === u.id);
+          if (ja && ja.status !== "desistiu") falha("Você já manifestou adesão a esta função.");
+          if (ja) Object.assign(ja, { status: "manifestada", mensagem: d.mensagem, categoria: d.categoria, conselho: d.conselho, motivo: null });
+          else s.projeto_adesoes.push({ id: novoId(), funcao_id, projeto_id: f.projeto_id, perfil_id: u.id, nome: u.nome, mensagem: d.mensagem, categoria: d.categoria, conselho: d.conselho, status: "manifestada", criado_em: new Date().toISOString() });
+          gravar(s); return espera(true);
+        },
+        async decidirAdesao(id, status, motivo) {
+          const s = ler(); const u = exigir(s); this._st(s); const a = s.projeto_adesoes.find((x) => x.id === id); const f = s.projeto_funcoes.find((x) => x.id === a.funcao_id); const p = s.projetos.find((x) => x.id === a.projeto_id);
+          if (status === "desistiu") { if (a.perfil_id !== u.id) falha("permission denied"); a.status = "desistiu"; a.decidido_em = new Date().toISOString(); gravar(s); return espera(true); }
+          if (!this._gere(s, u, a.projeto_id)) falha("Só quem coordena o projeto confirma a equipe.");
+          if (status === "nao_selecionada" && !String(motivo || "").trim()) falha("Diga o motivo de não selecionar (fica visível para o cooperado, por transparência).");
+          if (status === "confirmada") {
+            if (s.projeto_adesoes.filter((x) => x.funcao_id === f.id && x.status === "confirmada" && x.id !== id).length >= f.vagas) falha(`As ${f.vagas} vaga(s) desta função já estão preenchidas.`);
+            const l = s.projeto_limites.find((x) => x.funcao === f.funcao); const lim = p.complexidade === "complexo" ? l.complexo : l.padrao; const c = this._carga(s, a.perfil_id, id) + 1 / lim;
+            if (c > 1.0001) falha(`Com este projeto, a dedicação de ${a.nome} passaria de 100% (${Math.round(c * 100)}%). Nesta função, cada um participa de até ${lim} projeto(s) ${p.complexidade === "complexo" ? "complexo(s)" : "padrão"}.`);
+          }
+          Object.assign(a, { status, motivo: motivo || null, decidido_nome: u.nome, decidido_em: new Date().toISOString() }); gravar(s); return espera(true);
+        },
+        async salvarMarco(d) {
+          const s = ler(); const u = exigir(s); this._st(s); if (!this._gere(s, u, d.projeto_id)) falha("permission denied");
+          if (d.conformidade) { d.conformidade_nome = u.nome; d.conformidade_em = new Date().toISOString(); delete d.conformidade; }
+          if (d.id) Object.assign(s.projeto_marcos.find((x) => x.id === d.id), d); else s.projeto_marcos.push({ ...d, id: novoId(), criado_em: new Date().toISOString() });
+          gravar(s); return espera(true);
+        },
+        async excluirMarco(id) { const s = ler(); exigir(s); this._st(s); s.projeto_marcos = s.projeto_marcos.filter((x) => x.id !== id); gravar(s); return espera(true); },
+        async apontar(d) {
+          const s = ler(); const u = exigir(s); this._st(s); if (!(this._membro(s, d.projeto_id, u.id) || this._gere(s, u, d.projeto_id))) falha("Só quem está na equipe do projeto registra apontamentos.");
+          const dest = d.destinatario_id ? s.perfis.find((x) => x.id === d.destinatario_id) : null;
+          s.projeto_apontamentos.push({ ...d, id: novoId(), autor_id: u.id, autor_nome: u.nome, destinatario_nome: dest ? dest.nome : null, status: "aberto", criado_em: new Date().toISOString() });
+          gravar(s); return espera(true);
+        },
+        async atualizarApontamento(id, d) {
+          const s = ler(); const u = exigir(s); this._st(s); const a = s.projeto_apontamentos.find((x) => x.id === id); const de = a.status, para = d.status;
+          if (de === "aberto" && ["corrigido", "contestado"].includes(para)) { if (a.destinatario_id ? a.destinatario_id !== u.id : u.id === a.autor_id) falha("Só quem recebeu o apontamento responde."); if (!String(d.resposta || "").trim()) falha("Escreva a resposta (o que foi corrigido ou o motivo técnico da contestação)."); }
+          else if ((de === "corrigido" && ["resolvido", "aberto"].includes(para)) || (de === "aberto" && para === "cancelado")) { if (u.id !== a.autor_id) falha("Só quem fez o apontamento confere a correção ou cancela."); }
+          else if (de === "contestado" && ["aberto", "cancelado"].includes(para)) { if (!u.conselho_adm || u.id === a.autor_id || u.id === a.destinatario_id) falha("A contestação é decidida pelo Conselho de Administração, por um conselheiro que não seja parte."); if (!String(d.decisao || "").trim()) falha("Escreva a decisão e o fundamento."); d.decidido_nome = u.nome; d.decidido_em = new Date().toISOString(); }
+          else falha("Mudança de situação não permitida.");
+          Object.assign(a, d, { atualizado_em: new Date().toISOString() }); gravar(s); return espera(true);
+        },
+        async horasProjeto(pid) {
+          const s = ler(); exigir(s); return espera(s.producao.filter((h) => h.projeto_id === pid).map((h) => ({ ...h, cooperado_nome: nomePessoa(s, h.cooperado_id) })).sort((a, b) => b.data.localeCompare(a.data)));
+        },
+        async aprovarHoras(ids, decisao, motivo) {
+          const s = ler(); const u = exigir(s); this._st(s);
+          if (decisao === "devolvida" && !String(motivo || "").trim()) falha("Diga o que precisa ser ajustado para o cooperado corrigir.");
+          ids.forEach((id) => { const h = s.producao.find((x) => x.id === id); const p = s.projetos.find((x) => x.id === h.projeto_id);
+            if (h.cooperado_id === u.id) falha("Ninguém aprova as próprias horas.");
+            if (!((p.coordenador_id === u.id && h.cooperado_id !== p.coordenador_id) || u.conselho_adm)) falha("Só o coordenador do projeto (ou o Conselho de Administração, para as horas do próprio coordenador) aprova estas horas.");
+            Object.assign(h, { aprovacao: decisao, aprovado_nome: u.nome, aprovado_em: new Date().toISOString(), aprov_motivo: motivo || null }); });
+          gravar(s); return espera(ids.length);
+        },
+        async avaliar(d) {
+          const s = ler(); const u = exigir(s); this._st(s); const p = s.projetos.find((x) => x.id === d.projeto_id);
+          if (p.status !== "Concluído") falha("A avaliação entre pares abre quando o projeto é concluído.");
+          if (d.avaliado_id === u.id || !this._membro(s, p.id, u.id) || !this._membro(s, p.id, d.avaliado_id)) falha("permission denied");
+          if (s.projeto_avaliacoes.some((x) => x.projeto_id === p.id && x.avaliador_id === u.id && x.avaliado_id === d.avaliado_id)) falha("Você já avaliou esta pessoa neste projeto.");
+          s.projeto_avaliacoes.push({ ...d, id: novoId(), avaliador_id: u.id, criado_em: new Date().toISOString() }); gravar(s); return espera(true);
+        },
+        async minhasAvaliacoes(pid) { const s = ler(); const u = exigir(s); this._st(s); return espera(s.projeto_avaliacoes.filter((x) => x.projeto_id === pid && x.avaliador_id === u.id)); },
+        async resumoAvaliacoes(pid) {
+          const s = ler(); const u = exigir(s); this._st(s); const ve = this._gere(s, u, pid) || u.conselho_fiscal; const g = {};
+          s.projeto_avaliacoes.filter((x) => x.projeto_id === pid && (ve || x.avaliado_id === u.id)).forEach((x) => { const o = g[x.avaliado_id] = g[x.avaliado_id] || { avaliado_id: x.avaliado_id, nome: nomePessoa(s, x.avaliado_id), n: 0, qualidade: 0, prazos: 0, colaboracao: 0, conformidade: 0, comentarios: [] };
+            o.n++; ["qualidade", "prazos", "colaboracao", "conformidade"].forEach((k) => { o[k] += x[k]; }); if (x.comentario) o.comentarios.push(x.comentario); });
+          return espera(Object.values(g).map((o) => ({ ...o, qualidade: +(o.qualidade / o.n).toFixed(1), prazos: +(o.prazos / o.n).toFixed(1), colaboracao: +(o.colaboracao / o.n).toFixed(1), conformidade: +(o.conformidade / o.n).toFixed(1) })));
+        },
+        async salvarLimites(rows) { const s = ler(); const u = exigir(s); this._st(s); if (!(u.papel === "coordenacao" || u.conselho_adm)) falha("permission denied"); rows.forEach((r) => Object.assign(s.projeto_limites.find((x) => x.funcao === r.funcao), r)); gravar(s); return espera(true); }
       },
       sobras: {
         _st(s) { s.fin.sobras = s.fin.sobras || []; s.fin.sobras_cotas = s.fin.sobras_cotas || []; s.fin.fundos_mov = s.fin.fundos_mov || []; },
@@ -1174,7 +1322,7 @@
           ok(await sb.from("fin_receitas").upsert({ ...receita, atualizado_nome: eu.nome, atualizado_em: new Date().toISOString() }, { onConflict: "mes" })); return true;
         },
         async tudo() {
-          const [par, coo, desp, pag, fol, rec, hab, exps, hm, rt, ht, sal, vg, cx, sc] = await Promise.all([
+          const [par, coo, desp, pag, fol, rec, hab, exps, hm, rt, ht, sal, vg, cx, sc, pcl, ctr] = await Promise.all([
             sb.from("fin_parametros").select("*").eq("id", 1).single(),
             sb.from("fin_cooperados").select("*").order("nome"),
             sb.from("fin_despesas").select("*").order("data", { ascending: false, nullsFirst: false }),
@@ -1189,11 +1337,13 @@
             sb.from("fin_saldos").select("*").order("data", { ascending: false }),
             sb.from("fin_vigencias").select("*").order("vigencia"),
             sb.rpc("caixa_retiradas"),
-            sb.from("fin_sobras_cotas").select("*")
+            sb.from("fin_sobras_cotas").select("*"),
+            sb.from("contrato_parcelas").select("*"),
+            sb.from("contratos").select("*")
           ]);
           return { parametros: ok(par), cooperados: ok(coo), despesas: ok(desp), pagamentos: ok(pag), folha: fol.error ? [] : fol.data, receitas: rec.error ? [] : rec.data, habilitacoes: hab.error ? [] : hab.data, experiencias: exps.error ? [] : exps.data,
             horas_mes: hm.error ? [] : hm.data, retiradas: rt.error ? [] : rt.data, horas_total: ht.error ? null : Number(ht.data),
-            saldos: sal.error ? [] : sal.data, vigencias: vg.error ? [] : vg.data, caixa: cx.error ? null : cx.data, sobras_cotas: sc.error ? [] : sc.data };
+            saldos: sal.error ? [] : sal.data, vigencias: vg.error ? [] : vg.data, caixa: cx.error ? null : cx.data, sobras_cotas: sc.error ? [] : sc.data, parcelas: pcl.error ? [] : pcl.data, contratos: ctr.error ? [] : ctr.data };
         },
         async horasLancadas(mes) { return ok(await sb.rpc("horas_lancadas", { p_mes: mes })); },
         async salvarFolha(linhas, receita) {
@@ -1226,6 +1376,64 @@
           if (r.error && /foreign key|violates/i.test(r.error.message || "")) falha("Esta despesa tem pagamentos lançados. Apague os pagamentos dela antes.");
           ok(r); return true;
         }
+      },
+      proj: {
+        async carregar() {
+          const q = (t, o) => sb.from(t).select("*").order(o || "criado_em");
+          const [c, pa, p, f, a, m, ap, l] = await Promise.all([q("contratos"), q("contrato_parcelas", "previsto_em"), sb.from("projetos").select("*").order("criado_em", { ascending: false }), q("projeto_funcoes"), q("projeto_adesoes"), q("projeto_marcos", "previsto"), sb.from("projeto_apontamentos").select("*").order("criado_em", { ascending: false }), sb.from("projeto_limites").select("*")]);
+          return { contratos: ok(c), parcelas: ok(pa), projetos: ok(p), funcoes: ok(f), adesoes: ok(a), marcos: ok(m), apontamentos: ok(ap), limites: ok(l) };
+        },
+        async pessoas() { return ok(await sb.rpc("pessoas_ativas")); },
+        async salvarContrato(d) {
+          const x = { ...d }; delete x.id; delete x.criado_nome; delete x.criado_em;
+          if (d.id) { ok(await sb.from("contratos").update(x).eq("id", d.id)); return d.id; }
+          return ok(await sb.from("contratos").insert(x).select("id").single()).id;
+        },
+        async excluirContrato(id) { ok(await sb.from("contratos").delete().eq("id", id)); return true; },
+        async salvarParcela(d) {
+          const x = { ...d }; delete x.id; delete x.criado_em;
+          if (d.recebido_em) { const uid = await meuId(); const eu = ok(await sb.from("perfis").select("nome").eq("id", uid).single()); x.registrado_nome = eu.nome; }
+          if (d.id) ok(await sb.from("contrato_parcelas").update(x).eq("id", d.id)); else ok(await sb.from("contrato_parcelas").insert(x)); return true;
+        },
+        async excluirParcela(id) { ok(await sb.from("contrato_parcelas").delete().eq("id", id)); return true; },
+        async salvarProjeto(d) {
+          const x = { ...d }; delete x.id; delete x.criado_em; delete x.coordenador_id; delete x.coordenador_nome; delete x.coordenador_ato; delete x.atualizado_em;
+          Object.keys(x).forEach((k) => { if (x[k] === "") x[k] = null; });
+          if (d.id) { ok(await sb.from("projetos").update(x).eq("id", d.id)); return d.id; }
+          return ok(await sb.from("projetos").insert(x).select("id").single()).id;
+        },
+        async designarCoordenador(pid, perfil, ato) { ok(await sb.rpc("designar_coordenador", { p_projeto: pid, p_perfil: perfil, p_ato: ato })); return true; },
+        async salvarFuncao(d) { const x = { ...d }; delete x.id; delete x.criado_em; if (d.id) ok(await sb.from("projeto_funcoes").update(x).eq("id", d.id)); else ok(await sb.from("projeto_funcoes").insert(x)); return true; },
+        async excluirFuncao(id) { ok(await sb.from("projeto_funcoes").delete().eq("id", id)); return true; },
+        async aderir(funcao_id, d) {
+          const uid = await meuId();
+          const ja = await sb.from("projeto_adesoes").select("id,status").eq("funcao_id", funcao_id).eq("perfil_id", uid).maybeSingle();
+          if (ja.data && ja.data.status !== "desistiu") falha("Você já manifestou adesão a esta função.");
+          if (ja.data) { ok(await sb.from("projeto_adesoes").delete().eq("id", ja.data.id)); }
+          ok(await sb.from("projeto_adesoes").insert({ funcao_id, perfil_id: uid, projeto_id: d.projeto_id, mensagem: d.mensagem || null, categoria: d.categoria || null, conselho: d.conselho || null }));
+          return true;
+        },
+        async decidirAdesao(id, status, motivo) { ok(await sb.from("projeto_adesoes").update({ status, motivo: motivo || null }).eq("id", id)); return true; },
+        async salvarMarco(d) {
+          const x = { ...d }; delete x.id; delete x.criado_em;
+          if (x.conformidade) { const uid = await meuId(); const eu = ok(await sb.from("perfis").select("nome").eq("id", uid).single()); x.conformidade_nome = eu.nome; x.conformidade_em = new Date().toISOString(); }
+          delete x.conformidade;
+          if (d.id) ok(await sb.from("projeto_marcos").update(x).eq("id", d.id)); else ok(await sb.from("projeto_marcos").insert(x)); return true;
+        },
+        async excluirMarco(id) { ok(await sb.from("projeto_marcos").delete().eq("id", id)); return true; },
+        async apontar(d) { ok(await sb.from("projeto_apontamentos").insert(d)); return true; },
+        async atualizarApontamento(id, d) { ok(await sb.from("projeto_apontamentos").update(d).eq("id", id)); return true; },
+        async horasProjeto(pid) {
+          const rows = ok(await sb.from("producao").select("*").eq("projeto_id", pid).order("data", { ascending: false }));
+          const ids = [...new Set(rows.map((r) => r.cooperado_id))]; const ps = ids.length ? await sb.rpc("pessoas_ativas") : { data: [] };
+          const nm = {}; (ps.data || []).forEach((p) => { nm[p.id] = p.nome; });
+          return rows.map((r) => ({ ...r, cooperado_nome: nm[r.cooperado_id] || "—" }));
+        },
+        async aprovarHoras(ids, decisao, motivo) { return ok(await sb.rpc("aprovar_horas", { p_ids: ids, p_decisao: decisao, p_motivo: motivo || null })); },
+        async avaliar(d) { ok(await sb.from("projeto_avaliacoes").insert(d)); return true; },
+        async minhasAvaliacoes(pid) { return ok(await sb.from("projeto_avaliacoes").select("*").eq("projeto_id", pid)); },
+        async resumoAvaliacoes(pid) { const r = await sb.rpc("avaliacoes_projeto", { p_projeto: pid }); return r.error ? [] : r.data; },
+        async salvarLimites(rows) { for (const r of rows) ok(await sb.from("projeto_limites").update({ padrao: r.padrao, complexo: r.complexo }).eq("funcao", r.funcao)); return true; }
       },
       sobras: {
         async publico() {
@@ -1262,6 +1470,7 @@
     ociosidade_operacional: "Tempo disponível sem tarefa por motivo interno, como projeto parado ou espera de outra disciplina da equipe. Não é remunerada; serve para a coordenação ver a capacidade livre e redistribuir o trabalho."
   };
   api.STATUS_PROJETO = STATUS_PROJETO;
+  api.LIMITES_PADRAO = LIMITES_PADRAO;
   api.MODALIDADES = MODALIDADES;
   api.CATEGORIAS_DOC = CATEGORIAS_DOC;
   api.AREAS = AREAS;

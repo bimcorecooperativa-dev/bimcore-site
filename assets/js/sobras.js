@@ -148,6 +148,9 @@
         ${lancada ? `<div class="notice ok">Lançada por ${esc(reg.lancado_nome || "")} em ${dataHora(reg.lancado_em)}. Aprovada na Assembleia Geral de ${data(reg.aprovado_em)}${reg.ata ? ` (${esc(reg.ata)})` : ""}.
             ${reg.rateio_pago_em ? `<br>Rateio pago em ${data(reg.rateio_pago_em)} por ${esc(reg.rateio_pago_nome || "")}.` : Number(reg.rateio) > 0 ? "<br>Rateio ainda não pago aos cooperados." : ""}</div>` : ""}
         <form id="sb-f" class="form-grid" novalidate${lancada ? ' style="display:none"' : ""}>
+          ${(() => { const ctr = {}; (base.contratos || []).forEach((c) => { ctr[c.id] = c; }); const r = { mercado: 0, parceria: 0 };
+            (base.parcelas || []).filter((x) => x.recebido_em && String(x.recebido_em).startsWith(String(ex))).forEach((x) => { const c = ctr[x.contrato_id]; if (c) r[c.natureza] = (r[c.natureza] || 0) + Number(x.valor_recebido != null ? x.valor_recebido : x.valor); });
+            return r.mercado || r.parceria ? `<p class="hint full">Recebido de contratos em ${ex}: <b>${moeda(r.mercado)}</b> de mercado e licitações e <b>${moeda(r.parceria)}</b> de parcerias com o Poder Público. Use essa proporção, com a contadora, para separar as sobras.</p>` : ""; })()}
           <div class="field"><label for="sb-m">Sobras de mercado e licitações (R$)</label><input class="input" id="sb-m" inputmode="decimal" value="${brl(d0.mercado)}"></div>
           <div class="field"><label for="sb-p">Sobras de parcerias públicas (R$)</label><input class="input" id="sb-p" inputmode="decimal" value="${brl(d0.publicas)}"></div>
           <div class="field"><label for="sb-r">Fundo de Reserva (%)</label><input class="input" id="sb-r" inputmode="decimal" value="${pctTxt(d0.reserva_pct)}"><span class="hint">Mínimo 10%.</span></div>

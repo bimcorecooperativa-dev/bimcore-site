@@ -155,72 +155,8 @@
     },
 
     projetos: {
-      titulo: "Projetos",
-      async render(el) {
-        const [projetos, prod] = await Promise.all([API.projetos.listar(), API.producao.todas()]);
-        const execPor = produtivasPorProjeto(prod);
-        el.innerHTML = `
-          <div class="pag-cab"><div><p class="eyebrow">Carteira</p><h1>Projetos</h1></div><button class="btn btn-primary" id="novo-proj">Novo projeto</button></div>
-          <section class="painel" id="form-proj-box" hidden>
-            <h2 id="form-proj-tit">Novo projeto</h2>
-            <form id="f-proj" class="form-grid" novalidate>
-              <input type="hidden" id="pj-id">
-              <div class="field full"><label for="pj-nome">Nome do projeto</label><input class="input" id="pj-nome" maxlength="160" placeholder="Ex.: Escola Municipal – projeto executivo"></div>
-              <div class="field"><label for="pj-orgao">Órgão contratante</label><input class="input" id="pj-orgao" maxlength="160"></div>
-              <div class="field"><label for="pj-mun">Município ou região</label><input class="input" id="pj-mun" maxlength="120"></div>
-              <div class="field"><label for="pj-mod">Modalidade</label><select class="input" id="pj-mod">${opcoes(API.MODALIDADES)}</select></div>
-              <div class="field"><label for="pj-status">Status</label><select class="input" id="pj-status">${opcoes(API.STATUS_PROJETO)}</select></div>
-              <div class="field"><label for="pj-horas">Horas orçadas</label><input class="input" id="pj-horas" type="number" min="0" step="1" inputmode="numeric"></div>
-              <div class="field"><label for="pj-lod">Nível de desenvolvimento</label><input class="input" id="pj-lod" maxlength="40" placeholder="LOD 400"></div>
-              <div class="field"><label for="pj-valor">Valor (R$)</label><input class="input" id="pj-valor" type="number" min="0" step="0.01" inputmode="decimal"></div>
-              <div class="field"><label for="pj-ini">Início</label><input class="input" id="pj-ini" type="date"></div>
-              <div class="field"><label for="pj-fim">Término previsto</label><input class="input" id="pj-fim" type="date"></div>
-              <div class="full" style="display:flex;gap:.6rem;flex-wrap:wrap"><button class="btn btn-primary" id="pj-btn" type="submit">Salvar projeto</button><button class="btn btn-ghost" id="pj-cancelar" type="button">Cancelar</button></div>
-            </form>
-          </section>
-          ${projetos.length ? `<div class="tabela-wrap"><table class="tabela">
-            <thead><tr><th>Projeto</th><th>Modalidade</th><th>Status</th><th class="num">Valor</th><th class="num">Horas</th><th>Eficiência</th><th><span class="sr-only">Ações</span></th></tr></thead>
-            <tbody>${projetos.map((p) => `<tr>
-              <td><b>${esc(p.nome)}</b><span class="sub">${esc([p.orgao, p.municipio].filter(Boolean).join(" · "))}${p.lod ? " · " + esc(p.lod) : ""}</span></td>
-              <td>${esc(p.modalidade || "—")}</td><td>${seloStatus(p.status)}</td>
-              <td class="num">${moeda(p.valor)}</td>
-              <td class="num">${horas(execPor[p.id] || 0)}<span class="sub">de ${horas(p.horas_orcadas)}</span></td>
-              <td>${seloIeo(p, execPor[p.id] || 0)}</td>
-              <td class="acoes-celula"><button class="btn btn-ghost btn-sm" data-editar="${p.id}">Editar</button> <button class="btn btn-danger btn-sm" data-excluir="${p.id}">Excluir</button></td></tr>`).join("")}</tbody>
-          </table></div>
-          <p class="hint">Eficiência: durante a execução mostra quanto das horas orçadas já foi consumido. Ao concluir, mostra o IEO (horas orçadas ÷ executadas): faixa de controle entre 0,95 e 1,05; abaixo de 0,80 aciona o Conselho Fiscal.</p>`
-          : '<p class="vazio">Nenhum projeto cadastrado. Use "Novo projeto" para começar.</p>'}`;
-
-        const box = $("#form-proj-box");
-        const campos = { id: "#pj-id", nome: "#pj-nome", orgao: "#pj-orgao", municipio: "#pj-mun", modalidade: "#pj-mod", status: "#pj-status", horas_orcadas: "#pj-horas", lod: "#pj-lod", valor: "#pj-valor", inicio: "#pj-ini", fim: "#pj-fim" };
-        const abrir = (p) => {
-          Object.entries(campos).forEach(([k, s]) => { $(s).value = p && p[k] != null ? p[k] : (k === "lod" ? "LOD 400" : k === "status" ? "Prospecção" : k === "modalidade" ? API.MODALIDADES[0] : ""); });
-          $("#form-proj-tit").textContent = p ? "Editar projeto" : "Novo projeto";
-          box.hidden = false; $("#pj-nome").focus(); box.scrollIntoView({ block: "start", behavior: "smooth" });
-        };
-        $("#novo-proj").onclick = () => abrir(null);
-        $("#pj-cancelar").onclick = () => { box.hidden = true; };
-        $("#f-proj").addEventListener("submit", async (e) => {
-          e.preventDefault();
-          const p = {}; Object.entries(campos).forEach(([k, s]) => { p[k] = $(s).value.trim(); });
-          if (!p.nome) return toast("Informe o nome do projeto.", "err");
-          p.horas_orcadas = p.horas_orcadas ? Number(p.horas_orcadas) : 0;
-          p.valor = p.valor ? Number(p.valor) : null;
-          if (!p.id) delete p.id;
-          const ok = await acao($("#pj-btn"), () => API.projetos.salvar(p), "Projeto salvo.");
-          if (ok) paginas.projetos.render(el);
-        });
-        el.onclick = async (e) => {
-          const ed = e.target.closest("[data-editar]");
-          if (ed) return abrir(projetos.find((p) => p.id === ed.dataset.editar));
-          const ex = e.target.closest("[data-excluir]");
-          if (ex) {
-            if (!(await confirmar("Excluir este projeto? Esta ação não pode ser desfeita.", "Excluir"))) return;
-            const ok = await acao(ex, () => API.projetos.excluir(ex.dataset.excluir), "Projeto excluído.");
-            if (ok) paginas.projetos.render(el);
-          }
-        };
-      }
+      titulo: "Contratos e projetos",
+      async render(el, ctx) { return window.Projetos.renderInterno(el, ctx); }
     },
 
     producao: {
@@ -659,6 +595,7 @@
     filtrar: (todas, { coord, tes, fiscal, ca }) => {
       if (coord) return todas;
       const out = {};
+      if (ca) out.projetos = { ...todas.projetos, separador: false };
       if (ca) out.enquadramento = { ...todas.enquadramento, separador: false };
       if (tes || fiscal) out.financeiro = { ...todas.financeiro, separador: false };
       if (fiscal) out.conselho = { ...todas.conselho, separador: false };
