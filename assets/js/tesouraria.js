@@ -402,7 +402,7 @@
           <p class="hint">Só gera débito o que for <b>cobrado dos cooperados</b> (chamada aprovada, art. 9º, I). Despesa não cobrada: quem pagar fica com crédito de aporte, devolvido só no desligamento. Quem pagou cada despesa é lançado em <b>Pagamentos e aportes</b>.</p>
           ${base.despesas.length ? `<div class="tabela-wrap"><table class="tabela">
             <thead><tr><th>Data</th><th>Descrição</th><th class="num">Valor</th><th>Cobrança</th><th class="num">Pago por cooperados</th><th></th></tr></thead>
-            <tbody>${base.despesas.map((d) => `<tr><td>${d.data ? data(d.data) : '<span class="selo warn">sem data</span>'}</td>
+            <tbody>${base.despesas.slice().sort((a, b) => (a.data ? 0 : 1) - (b.data ? 0 : 1) || String(a.data || "").localeCompare(String(b.data || "")) || String(a.criado_em || "").localeCompare(String(b.criado_em || ""))).map((d) => `<tr><td>${d.data ? data(d.data) : '<span class="selo warn">sem data</span>'}</td>
               <td>${esc(d.descricao)}<span class="sub">${esc(d.categoria || "")}${d.observacao ? " · " + esc(d.observacao) : ""}</span></td>
               <td class="num">${moeda(d.valor)}</td>
               <td>${d.cobrar ? `Cobrada de ${d.participantes.length}<span class="sub">${moeda(Fin.centavos(d.valor / Math.max(1, d.participantes.length)))} cada</span>` : "Não cobrada<span class=\"sub\">quem pagou fica com aporte</span>"}</td>
