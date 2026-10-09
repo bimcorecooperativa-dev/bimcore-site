@@ -52,7 +52,17 @@
     const fundosTot = c2(Object.values(sf).reduce((t, v) => t + Math.max(0, v), 0));
     const vc = Fin.cooperativa(base, calc);
     const pagos = (pagar || []).filter((x) => x.status === "paga").reduce((t, x) => t + Number(x.valor_pago != null ? x.valor_pago : x.valor), 0);
-    const saldo20 = c2(Math.max(0, vc.linhas.reduce((t, l) => t + l.custo_op - l.admin_cog, 0) - pagos));
+    /* Os 20% (Custo de Operação e Gestão) pagam as despesas administrativas e as retiradas de quem trabalha na administração.
+       Do que entrou de 20%: sai o que já foi pago de despesas e de retiradas de administração; os créditos de administração
+       ainda não retirados ficam reservados aqui (com o INSS patronal); o resto é o saldo dos 20% para despesas. */
+    const pat1 = 1 + pr.patronal_pct;
+    const entrou20 = vc.linhas.reduce((t, l) => t + l.custo_op, 0);
+    const adm = ps.map((p) => Fin.creditoAdmin(p));
+    const admPend = c2(adm.reduce((t, a) => t + a.pendente, 0) * pat1), admUsado = adm.reduce((t, a) => t + a.usado, 0) * pat1;
+    const pool20 = entrou20 - pagos - admUsado;
+    const admRes = c2(Math.min(admPend, Math.max(0, pool20)));
+    const coberturaAdmin = admPend > 0.009 ? Math.round(admRes / admPend * 10000) / 10000 : 1;
+    const saldo20 = c2(Math.max(0, pool20 - admRes));
     const autos = automaticos(base, calc, guias);
     const lim30 = somaDias(hoje, 30);
     const abertas = (pagar || []).filter((x) => x.status === "aberta");
@@ -63,8 +73,8 @@
       sobras: sobrasPagar
     };
     const curtoTot = c2(Object.values(curto).reduce((t, v) => t + v, 0));
-    const guardado = { fic, fundos: fundosTot, provisoes, saldo20 };
-    const guardadoTot = c2(fic + fundosTot + provisoes + saldo20);
+    const guardado = { fic, fundos: fundosTot, provisoes, saldo20: c2(saldo20 + admRes) };
+    const guardadoTot = c2(fic + fundosTot + provisoes + saldo20 + admRes);
     const livre = c2(total - curtoTot - guardadoTot);
     /* Camadas de cada conta: o saldo informado é repartido pelo destino de cada parte, e a soma das camadas dá o saldo.
        FIC e fundos/provisões ficam nas contas próprias; o que ainda não foi transferido para elas fica reservado na conta movimento.
@@ -73,22 +83,25 @@
     const mov = {
       guias: curto.guias, contas: curto.contas, sobras: curto.sobras,
       saldo20: c2(Math.max(0, saldo20 - porTipo.custo_op)),
+      admin: admRes,
       fic_a_transferir: c2(Math.max(0, fic - porTipo.fic)),
       a_aplicar: c2(Math.max(0, fundosProv - porTipo.aplicacao)),
       retiradas: curto.retiradas
     };
-    const reservadoMov = c2(mov.guias + mov.contas + mov.sobras + mov.saldo20 + mov.fic_a_transferir + mov.a_aplicar);
+    const reservadoMov = c2(mov.guias + mov.contas + mov.sobras + mov.saldo20 + mov.admin + mov.fic_a_transferir + mov.a_aplicar);
     mov.livre = c2(porTipo.movimento - reservadoMov - mov.retiradas);
     const camadas = {
       movimento: mov,
       fic: { devido: fic, diferenca: c2(porTipo.fic - fic) },
       aplicacao: { devido: fundosProv, diferenca: c2(porTipo.aplicacao - fundosProv) },
-      custo_op: { devido: saldo20, diferenca: c2(porTipo.custo_op - saldo20) }
+      custo_op: { devido: saldo20, diferenca: c2(porTipo.custo_op - saldo20) },
+      admin: { pendente: admPend, reservado: admRes, falta: c2(admPend - admRes), entrou20: c2(entrou20) }
     };
     // de onde vieram os 20% (parcelas de contrato recebidas)
     const nomeCt = {}; (base.contratos || []).forEach((c) => { nomeCt[c.id] = [c.numero, c.contratante].filter(Boolean).join(" · ") || c.objeto; });
     const origem20 = {}; (base.parcelas || []).filter((x) => x.recebido_em).forEach((x) => { const k = nomeCt[x.contrato_id] || "Contrato"; origem20[k] = c2((origem20[k] || 0) + Number(x.valor_recebido != null ? x.valor_recebido : x.valor) * pr.custo_op_pct); });
     const alertas = [];
+    if (admPend - admRes > 0.009) alertas.push(["warn", `Os créditos de administração ainda não retirados somam ${moeda(admPend)} (com o patronal), e os 20% disponíveis cobrem ${moeda(admRes)}. A diferença só pode ser retirada quando entrarem mais recursos de contratos.`]);
     if (!ativas.length) alertas.push(["warn", "Cadastre as contas da cooperativa (conta movimento, conta do FIC e aplicação) e informe os saldos."]);
     ativas.forEach((c) => { const u = ult[c.id]; if (!u) alertas.push(["warn", `Informe o saldo de "${c.nome}".`]); else if (somaDias(u.data, 7) < hoje) alertas.push(["warn", `Saldo de "${c.nome}" desatualizado (informado em ${data(u.data)}).`]); });
     const temFic = ativas.some((c) => c.tipo === "fic"), temApl = ativas.some((c) => c.tipo === "aplicacao");
@@ -100,7 +113,7 @@
     else if (livre > 0.009 && aplicar <= 0.009) alertas.push(["ok", `Há ${moeda(livre)} livres. Podem pagar despesas da cooperativa ou ser aplicados sem prender dinheiro de ninguém.`]);
     if (livre < -0.009) alertas.push(["err", `O dinheiro em conta não cobre o que está comprometido e guardado: faltam ${moeda(-livre)}.`]);
     const venc = abertas.filter((x) => x.vencimento < hoje); if (venc.length) alertas.push(["err", `${venc.length} conta(s) vencida(s): ${venc.map((x) => x.descricao).join(", ")}.`]);
-    return { data: hoje, total, porTipo, linhasContas, curto, curtoTot, guardado, guardadoTot, livre, sf, capital, aportes, alertas, autos, camadas, reservado_mov: reservadoMov, origem20 };
+    return { data: hoje, total, porTipo, linhasContas, curto, curtoTot, guardado, guardadoTot, livre, sf, capital, aportes, alertas, autos, camadas, reservado_mov: reservadoMov, cobertura_admin: coberturaAdmin, origem20 };
   }
 
   function htmlMapa(m, publico) {
@@ -125,7 +138,7 @@
           ${linha("FIC dos cooperados", m.guardado.fic, "de cada cooperado; conta segregada")}
           ${linha("Fundos coletivos", m.guardado.fundos, "Reserva, FATES, Soberania, FEI, Apoio, Aposentadoria")}
           ${linha("Provisões de 13º e férias", m.guardado.provisoes)}
-          ${linha("Saldo dos 20% ainda não gasto", m.guardado.saldo20, "despesas administrativas (art. 23, §8º)")}
+          ${linha("Os 20% ainda não usados", m.guardado.saldo20, "despesas e retiradas da administração (art. 23, §§7º e 8º)")}
           </tbody><tfoot><tr><td>Livre</td><td class="num">${moeda(m.livre)}</td></tr></tfoot></table></div></div>
       </div>
       ${m.camadas ? htmlCamadas(m) : ""}
@@ -146,11 +159,12 @@
           ${l("Guias de INSS e IR a recolher", mv.guias)}
           ${l("Contas a pagar em 30 dias", mv.contas)}
           ${l("Sobras a pagar aos cooperados", mv.sobras)}
-          ${l("Os 20% ainda não gastos", mv.saldo20, "Custo de Operação e Gestão, contabilizado à parte (art. 23, §8º)" + (orig.length ? " · entrou: " + orig.map(([n, v]) => n + " " + moeda(v)).join(", ") : ""))}
+          ${l("Os 20%: retiradas da administração a pagar", mv.admin, "créditos de horas administrativas ainda não retirados, com o patronal" + (k.admin && k.admin.falta > 0.009 ? ` · faltam ${moeda(k.admin.falta)} para cobrir todos` : ""))}
+          ${l("Os 20%: saldo para despesas administrativas", mv.saldo20, "Custo de Operação e Gestão, contabilizado à parte (art. 23, §8º)" + (orig.length ? " · entrou de 20%: " + orig.map(([n, v]) => n + " " + moeda(v)).join(", ") : ""))}
           ${mv.fic_a_transferir > 0.009 ? l("FIC ainda não transferido", mv.fic_a_transferir, "transferir para a conta do FIC") : ""}
           ${mv.a_aplicar > 0.009 ? l("Fundos e provisões ainda não aplicados", mv.a_aplicar, "aplicar no Tesouro Selic") : ""}
           ${l("Retiradas pedidas", mv.retiradas, "com o INSS patronal")}
-          ${l("Livre para novas retiradas", mv.livre, mv.livre < 0 ? "faltam recursos" : "o que o site libera para pedidos", true)}
+          ${l("Livre para retiradas de produção", mv.livre, mv.livre < 0 ? "faltam recursos" : "os 80% dos contratos e o que mais estiver livre", true)}
         </tbody></table></div></div>
         <div><div class="tabela-wrap"><table class="tabela"><thead><tr><th>Demais contas</th><th class="num">Saldo</th></tr></thead><tbody>
           ${l("Conta do FIC", m.porTipo.fic, `FIC dos cooperados: ${moeda(k.fic.devido)} · ${dif(k.fic.diferenca)}`)}

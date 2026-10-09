@@ -230,10 +230,12 @@
         const hojeIso = hoje();
         const prazoNovo = Fin.prazoRetirada(hojeIso, par);
         const cxl = sistema ? Fin.caixaLivre(ext && ext.caixa) : null;
-        const maxPed = cr ? Math.min(cr.saldo, cxl ? cxl.maxRetirada : 0) : 0;
+        // produção sai do livre da conta movimento; horas administrativas, da reserva dos 20% para a administração
+        const maxPed = cr ? Math.min(cr.saldo, Fin.maxRetiradaCooperado(p.credito ? p : bruta, cxl, ext && ext.caixa ? ext.caixa.cobertura_admin : 1)) : 0;
         const podePedir = cr && maxPed > 0.005 && maxPed + 0.005 >= parR.retirada_minima;
         const motivoNao = !cr ? "" : cr.saldo + 0.005 < Math.max(parR.retirada_minima, 0.01) ? (cr.saldo > 0.005 ? `Seu saldo ainda não chegou ao mínimo de ${moeda(parR.retirada_minima)} para pedir retirada.` : "Sem crédito disponível no momento.")
           : !cxl || !cxl.informado ? "Retiradas ainda não liberadas: a tesouraria não informou o saldo da conta da cooperativa."
+          : Fin.creditoAdmin(p.credito ? p : bruta).share > 0.5 ? "Seu crédito é de horas administrativas, pagas com os 20% dos contratos (Custo de Operação e Gestão). Os 20% recebidos até agora ainda não cobrem esse valor. Seu crédito continua guardado; assim que entrar recurso de contrato, o pedido é liberado."
           : "No momento o caixa da cooperativa não comporta novas retiradas. Seu crédito continua guardado; assim que entrar recurso de contrato, o pedido é liberado.";
         const STR = { solicitada: '<span class="selo warn">aguardando transferência</span>', paga: '<span class="selo ok">paga</span>', cancelada: '<span class="selo">cancelada</span>' };
         const INFO = {

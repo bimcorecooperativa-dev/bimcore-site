@@ -496,6 +496,22 @@
     const livre = Number(cx.saldo) - Number(cx.reserva || 0) - (Number(cx.pedidos || 0) + Number(cx.pagas_depois || 0)) * pat;
     return { informado: true, data: cx.data, saldo: Number(cx.saldo), livre: centavos(livre), maxRetirada: Math.max(0, Math.floor(livre / pat * 100) / 100) };
   }
+  /* Parte de administração do crédito de um cooperado (horas administrativas são pagas com os 20%, art. 23, §7º):
+     a proporção entre crédito de administração e crédito total, aplicada ao que ainda não foi retirado */
+  function creditoAdmin(p) {
+    const cr = (p && p.credito) || {}; const mens = ((p && p.detalhes) || {}).mensal || [];
+    const adm = mens.reduce((t, x) => t + Number(x.credito_admin || 0), 0), ger = Number(cr.gerado || 0);
+    const share = ger > 0 ? Math.min(1, adm / ger) : 0;
+    return { gerado: centavos(adm), share, pendente: centavos(Number(cr.saldo || 0) * share), usado: centavos(adm - Number(cr.saldo || 0) * share) };
+  }
+  /* Quanto um cooperado pode pedir: a parte de produção sai do livre da conta movimento; a parte de administração,
+     da reserva dos 20% para a administração (na proporção em que os 20% recebidos cobrem os créditos de administração) */
+  function maxRetiradaCooperado(p, cxl, cobertura) {
+    const cr = (p && p.credito) || {}; const a = creditoAdmin(p);
+    const prod = Math.min(Number(cr.saldo || 0) - a.pendente, cxl ? cxl.maxRetirada : 0);
+    const adm = a.pendente * (cobertura == null ? 1 : Math.max(0, Math.min(1, Number(cobertura))));
+    return Math.max(0, Math.floor((Math.max(0, prod) + adm) * 100) / 100);
+  }
   function calcular(base) {
     const out = {};
     (base.cooperados || []).forEach((c) => { out[c.id] = calcularCooperado(c, base); });
@@ -616,5 +632,5 @@
     return Array.from(a, (b) => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[b % 32]).join("");
   }
 
-  window.Fin = { atrasadas, minimoQuitar, PISO_CONSELHO, irMensal, irDetalhe, parametrosDoMes, VIG_KEYS, caixaLivre, retiradaMinima, prazoRetirada, descontosRetirada, experienciaInterna, diasUteis, feriadosDoAno, sinalExperiencia, enquadramento, diasDeExperiencia, habilitacaoUsada, valorHoraDe, NIVEIS, calcular, calcularCooperado, cooperativa, tabelaSalarial, valorHora, params, PADRAO, CATEGORIAS_SAL, CONSELHOS, TIPOS_PAG, mesFechamento, mesDe, somaMes, PIX, ABA_LANC, centavos, nomeMes, componentes, alocar, proxima, descreverItem, ajustada, pixCopiaECola, crc16, qrSvg, planilhaComLancamentos, lerLancamentos, novoCodigo, vale };
+  window.Fin = { creditoAdmin, maxRetiradaCooperado, atrasadas, minimoQuitar, PISO_CONSELHO, irMensal, irDetalhe, parametrosDoMes, VIG_KEYS, caixaLivre, retiradaMinima, prazoRetirada, descontosRetirada, experienciaInterna, diasUteis, feriadosDoAno, sinalExperiencia, enquadramento, diasDeExperiencia, habilitacaoUsada, valorHoraDe, NIVEIS, calcular, calcularCooperado, cooperativa, tabelaSalarial, valorHora, params, PADRAO, CATEGORIAS_SAL, CONSELHOS, TIPOS_PAG, mesFechamento, mesDe, somaMes, PIX, ABA_LANC, centavos, nomeMes, componentes, alocar, proxima, descreverItem, ajustada, pixCopiaECola, crc16, qrSvg, planilhaComLancamentos, lerLancamentos, novoCodigo, vale };
 })();
