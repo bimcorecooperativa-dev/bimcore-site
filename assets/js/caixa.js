@@ -88,8 +88,19 @@
       a_aplicar: c2(Math.max(0, fundosProv - porTipo.aplicacao)),
       retiradas: curto.retiradas
     };
-    const reservadoMov = c2(mov.guias + mov.contas + mov.sobras + mov.saldo20 + mov.admin + mov.fic_a_transferir + mov.a_aplicar);
-    mov.livre = c2(porTipo.movimento - reservadoMov - mov.retiradas);
+    const reservado1 = c2(mov.guias + mov.contas + mov.sobras + mov.saldo20 + mov.admin + mov.fic_a_transferir + mov.a_aplicar);
+    const restante = c2(porTipo.movimento - reservado1 - mov.retiradas);
+    /* Os 80% dos contratos pagam as retiradas de produção. Do que entrou de 80% sai o custo das retiradas de produção já
+       pagas ou pedidas (bruto + INSS patronal + FIC da cooperativa + provisões de 13º e férias). Capital, aportes e outras
+       entradas ficam separados durante o ano e só entram na destinação do fechamento (fundos, sobras, investimentos). */
+    const entrou80 = c2(vc.linhas.reduce((t, l) => t + Number(l.receita || 0), 0) - entrou20);
+    const fatorProd = 1 + pr.patronal_pct + pr.fic_coop_pct + 2 / 12;
+    const prodUsado = ps.reduce((t, p, i) => t + Number((p.credito || {}).retirado || 0) + Number((p.credito || {}).solicitado || 0) - adm[i].usado, 0);
+    const pool80 = c2(entrou80 - Math.max(0, prodUsado) * fatorProd);
+    const livreProd = c2(Math.min(restante, Math.max(0, pool80)));
+    mov.capital = c2(Math.max(0, restante - livreProd));
+    mov.livre = restante < 0 ? restante : livreProd;
+    const reservadoMov = c2(porTipo.movimento - mov.retiradas - mov.livre);
     const camadas = {
       movimento: mov,
       fic: { devido: fic, diferenca: c2(porTipo.fic - fic) },
@@ -163,8 +174,9 @@
           ${l("Os 20%: saldo para despesas administrativas", mv.saldo20, "Custo de Operação e Gestão, contabilizado à parte (art. 23, §8º)" + (orig.length ? " · entrou de 20%: " + orig.map(([n, v]) => n + " " + moeda(v)).join(", ") : ""))}
           ${mv.fic_a_transferir > 0.009 ? l("FIC ainda não transferido", mv.fic_a_transferir, "transferir para a conta do FIC") : ""}
           ${mv.a_aplicar > 0.009 ? l("Fundos e provisões ainda não aplicados", mv.a_aplicar, "aplicar no Tesouro Selic") : ""}
+          ${mv.capital != null ? l("Capital, aportes e outras entradas", mv.capital, "separados durante o ano; vão para a destinação do fechamento (fundos, sobras, investimentos)") : ""}
           ${l("Retiradas pedidas", mv.retiradas, "com o INSS patronal")}
-          ${l("Livre para retiradas de produção", mv.livre, mv.livre < 0 ? "faltam recursos" : "os 80% dos contratos e o que mais estiver livre", true)}
+          ${l("Livre para retiradas de produção", mv.livre, mv.livre < 0 ? "faltam recursos" : "o que resta dos 80% dos contratos, já descontado o custo das retiradas de produção", true)}
         </tbody></table></div></div>
         <div><div class="tabela-wrap"><table class="tabela"><thead><tr><th>Demais contas</th><th class="num">Saldo</th></tr></thead><tbody>
           ${l("Conta do FIC", m.porTipo.fic, `FIC dos cooperados: ${moeda(k.fic.devido)} · ${dif(k.fic.diferenca)}`)}
