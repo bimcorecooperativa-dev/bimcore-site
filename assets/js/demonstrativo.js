@@ -21,8 +21,9 @@
     const pagas = (base.retiradas || []).filter((r) => r.fin_cooperado_id === c.id && r.status === "paga" && r.pago_em && Fin.mesDe(r.pago_em) === m)
       .sort((a, b) => String(a.pago_em).localeCompare(String(b.pago_em)));
     const soma = (k) => Fin.centavos(pagas.reduce((t, r) => t + Number(r[k] || 0), 0));
-    const bruto = soma("valor"), inss = soma("inss"), ir = soma("ir"), contribuicao = soma("contribuicao"), fic_vol = soma("fic_vol");
-    const liquido = Fin.centavos(bruto - inss - ir - contribuicao - fic_vol);
+    const bruto = soma("valor"), inss = soma("inss"), ir = soma("ir"), contribuicao = soma("contribuicao"), fic_vol = soma("fic_vol"), quitar = soma("quitar_valor");
+    const quitar_meses = pagas.flatMap((r) => (r.quitar_meses || []).map((q) => q.mes)).sort();
+    const liquido = Fin.centavos(bruto - inss - ir - contribuicao - fic_vol - quitar);
     const enq = Fin.enquadramento(c, base, m) || {};
     const irDet = Fin.irDetalhe(bruto, inss, c.dependentes_ir, P);
     const gerado = (calc.detalhes.mensal || []).filter((x) => x.mes <= m).reduce((t, x) => t + Number(x.credito || 0), 0);
@@ -30,7 +31,7 @@
     const saldoDepois = Fin.centavos(Math.max(0, gerado - pagoAte));
     return {
       mes: m, cooperado: c, enquadramento: enq, valor_hora: linha.valor_hora || 0, P,
-      pagas, bruto, inss, ir, contribuicao, fic_vol, liquido,
+      pagas, bruto, inss, ir, contribuicao, fic_vol, quitar, quitar_meses, liquido,
       base_inss: Fin.centavos(Math.min(bruto, P.inss_teto)), ir_detalhe: irDet, ir_ajustado: Math.abs(irDet.ir - ir) > 0.01,
       credito: { gerado: Fin.centavos(gerado), antes: Fin.centavos(saldoDepois + bruto), depois: saldoDepois },
       horas: { produtivas: linha.horas_produtivas || 0, formacao: linha.horas_formacao || 0, formacao_credito: linha.horas_formacao_credito || 0, admin: linha.horas_admin || 0, credito: linha.credito || 0 },
@@ -51,6 +52,7 @@
       ["Contribuição ao capital social", pct(P.contrib_pct), d.contribuicao]
     ];
     if (d.fic_vol) desc.push(["FIC — aporte voluntário", pct(Number(c.fic_voluntario || 0)), d.fic_vol]);
+    if (d.quitar) desc.push([`Contribuições mensais em atraso quitadas (${d.quitar_meses.map(Fin.nomeMes).join(", ")})`, d.quitar_meses.length + (d.quitar_meses.length > 1 ? " cotas" : " cota"), d.quitar]);
     const totDesc = Fin.centavos(desc.reduce((t, x) => t + x[2], 0));
     return `
       <div class="dem">

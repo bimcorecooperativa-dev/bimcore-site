@@ -645,7 +645,7 @@
         async solicitarRetirada(d) {
           const s = ler(); const u = exigir(s); const c = s.fin.cooperados.find((x) => x.perfil_id === u.id); if (!c) falha("Cadastro financeiro não ligado.");
           s.fin.retiradas = s.fin.retiradas || [];
-          s.fin.retiradas.push({ id: novoId(), fin_cooperado_id: c.id, valor: d.valor, prazo: d.prazo, status: "solicitada", solicitado_em: new Date().toISOString(), solicitado_nome: u.nome });
+          s.fin.retiradas.push({ id: novoId(), fin_cooperado_id: c.id, valor: d.valor, prazo: d.prazo, quitar_meses: d.quitar_meses || null, quitar_valor: d.quitar_valor || null, status: "solicitada", solicitado_em: new Date().toISOString(), solicitado_nome: u.nome });
           gravar(s); return espera(true);
         },
         async cancelarRetirada(id, motivo) {
@@ -656,11 +656,16 @@
         },
         async pagarRetirada(id, d) {
           const s = ler(); const u = exigir(s, "tes"); const r = (s.fin.retiradas || []).find((x) => x.id === id); if (!r) falha("Solicitação não encontrada.");
-          Object.assign(r, d, { status: "paga", pago_nome: u.nome, atualizado_em: new Date().toISOString() }); gravar(s); return espera(true);
+          Object.assign(r, d, { status: "paga", pago_nome: u.nome, atualizado_em: new Date().toISOString() });
+          // cotas atrasadas quitadas com a retirada viram pagamentos de contribuição (no banco, um gatilho faz isso)
+          s.fin.pagamentos = s.fin.pagamentos.filter((p) => p.retirada_id !== r.id);
+          (r.quitar_meses || []).forEach((q) => { if (Number(q.valor) > 0) s.fin.pagamentos.push({ id: novoId(), data: r.pago_em, fin_cooperado_id: r.fin_cooperado_id, tipo: "contribuicao", mes_ref: q.mes + "-01", valor: Number(q.valor), observacao: "Descontado da retirada", origem: "tesouraria", retirada_id: r.id, criado_nome: u.nome, criado_em: new Date().toISOString() }); });
+          gravar(s); return espera(true);
         },
         async desfazerPagamento(id) {
           const s = ler(); exigir(s, "tes"); const r = (s.fin.retiradas || []).find((x) => x.id === id); if (!r) falha("Solicitação não encontrada.");
-          Object.assign(r, { status: "solicitada", pago_em: null, pago_nome: null, inss: null, contribuicao: null, fic_vol: null, liquido: null }); gravar(s); return espera(true);
+          Object.assign(r, { status: "solicitada", pago_em: null, pago_nome: null, inss: null, contribuicao: null, fic_vol: null, liquido: null });
+          s.fin.pagamentos = s.fin.pagamentos.filter((p) => p.retirada_id !== r.id); gravar(s); return espera(true);
         },
         _caixa(s) {
           const sal = (s.fin.saldos || []).slice().sort((a, b) => String(b.data).localeCompare(String(a.data)) || String(b.criado_em).localeCompare(String(a.criado_em)))[0];
@@ -1411,7 +1416,8 @@
         async solicitarRetirada(d) {
           const uid = await meuId(); const eu = ok(await sb.from("perfis").select("nome").eq("id", uid).single());
           const c = ok(await sb.from("fin_cooperados").select("id").eq("perfil_id", uid).single());
-          ok(await sb.from("fin_retiradas").insert({ fin_cooperado_id: c.id, valor: d.valor, prazo: d.prazo, solicitado_nome: eu.nome })); return true;
+          const q = d.quitar_meses && d.quitar_meses.length ? { quitar_meses: d.quitar_meses, quitar_valor: d.quitar_valor } : {};
+          ok(await sb.from("fin_retiradas").insert({ fin_cooperado_id: c.id, valor: d.valor, prazo: d.prazo, solicitado_nome: eu.nome, ...q })); return true;
         },
         async cancelarRetirada(id, motivo) {
           const r = await sb.from("fin_retiradas").update({ status: "cancelada", motivo: motivo || null, atualizado_em: new Date().toISOString() }).eq("id", id).eq("status", "solicitada").select("id");

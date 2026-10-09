@@ -243,6 +243,7 @@
           contrib: "1,5% da retirada vai para o seu capital social (quotas-parte). Continua sendo seu e volta no desligamento. Nos meses sem retirada, a contribuição é de 1 quota-parte, paga por Pix (Estatuto, art. 23, §4º).",
           ficvol: "Aporte voluntário que você escolheu para o seu Fundo Individual de Capitalização, até 2,5% da retirada. É seu e é resgatado no desligamento (Regimento, art. 123).",
           liquido: "O que cai na sua conta bancária.",
+          atrasadas: "Contribuições mensais de meses anteriores que ficaram em aberto. Você escolhe quantas quitar com esta retirada, das mais antigas para as mais novas. O mínimo são as que couberem em 10% do líquido; as demais você pode quitar agora, numa próxima retirada ou por Pix.",
           ficcoop: "Além disso, a cooperativa deposita no seu FIC 5,5% da retirada do mês anterior. Não sai do seu bruto (Regimento, art. 123).",
           provisoes: "A cooperativa guarda 1/12 de cada retirada para o seu 13º (pago até 20 de dezembro) e 1/12 para as suas férias (pagas no recesso). Não sai do seu bruto (Regimento, art. 124).",
           auxilios: "Auxílio-teletrabalho (9,25% do salário-mínimo por mês) e auxílio-alimentação (2,78% do salário-mínimo por dia trabalhado). São indenizatórios, não saem do seu crédito e não fazem parte da retirada (Regimento, art. 125).",
@@ -263,9 +264,9 @@
             <p class="hint">Ao pedir, a tesouraria tem até o ${parR.retirada_dia_util}º dia útil do mês seguinte para fazer a transferência. Quando ela marcar como paga, o valor vira retirada e os descontos são registrados.</p>
             ${cr.retiradas.length ? `<div class="tabela-wrap"><table class="tabela">
               <thead><tr><th>Pedido em</th><th class="num">Bruto</th><th class="num">Líquido</th><th>Prazo</th><th>Situação</th><th></th></tr></thead>
-              <tbody>${cr.retiradas.slice().reverse().map((r) => { const d = r.status === "paga" ? r : Fin.descontosRetirada(ext.cooperado, ext, Number(r.valor), Fin.mesDe(r.prazo || hojeIso)); return `<tr>
+              <tbody>${cr.retiradas.slice().reverse().map((r) => { const d = r.status === "paga" ? r : Fin.descontosRetirada(ext.cooperado, ext, Number(r.valor), Fin.mesDe(r.prazo || hojeIso), Number(r.quitar_valor || 0)); const nq = (r.quitar_meses || []).length; return `<tr>
                 <td>${dataHora(r.solicitado_em)}</td><td class="num">${moeda(r.valor)}</td>
-                <td class="num">${moeda(d.liquido)}${r.status === "paga" ? `<span class="sub">INSS ${moeda(r.inss)}${Number(r.ir) ? " · IR " + moeda(r.ir) : ""} · capital ${moeda(r.contribuicao)}${Number(r.fic_vol) ? " · FIC " + moeda(r.fic_vol) : ""}</span>` : r.status === "solicitada" ? '<span class="sub">estimado</span>' : ""}</td>
+                <td class="num">${moeda(d.liquido)}${r.status === "paga" ? `<span class="sub">INSS ${moeda(r.inss)}${Number(r.ir) ? " · IR " + moeda(r.ir) : ""} · capital ${moeda(r.contribuicao)}${Number(r.fic_vol) ? " · FIC " + moeda(r.fic_vol) : ""}${Number(r.quitar_valor) ? ` · ${nq} cota${nq > 1 ? "s" : ""} atrasada${nq > 1 ? "s" : ""} ${moeda(r.quitar_valor)}` : ""}</span>` : r.status === "solicitada" ? `<span class="sub">estimado${Number(r.quitar_valor) ? ` · quita ${nq} cota${nq > 1 ? "s" : ""} atrasada${nq > 1 ? "s" : ""}` : ""}</span>` : ""}</td>
                 <td>${r.status === "paga" ? "paga em " + data(r.pago_em) : data(r.prazo)}</td>
                 <td>${STR[r.status] || esc(r.status)}${r.motivo ? `<span class="sub">${esc(r.motivo)}</span>` : ""}</td>
                 <td class="acoes-celula">${r.status === "solicitada" ? `<button class="btn btn-ghost btn-sm" data-cancret="${r.id}">Cancelar</button>` : ""}</td></tr>`; }).join("")}</tbody>
@@ -310,6 +311,7 @@
               ${prox ? `<div class="pagar-item">
                 <span class="rot">Próxima contribuição · ${Fin.nomeMes(prox.mes)}</span>
                 <b>${moeda(prox.valor)}</b>
+                ${prox.vence ? `<span class="det">Vence em ${data(prox.vence)}${cr && cr.retiradas.some((r) => r.status === "solicitada" && Fin.mesDe(r.solicitado_em) === prox.mes) ? ". Você tem retirada pedida neste mês: se ela for paga até essa data, a contribuição passa a ser 1,5% dela e não precisa de Pix." : ". Se você pedir uma retirada neste mês e ela for paga até essa data, a contribuição passa a ser 1,5% dela."}</span>` : ""}
                 <span class="det">${prox.resta > 0.005 ? (prox.pago || prox.aguardando ? `Já pago ${moeda(prox.pago)}${prox.aguardando ? ` · aguardando ${moeda(prox.aguardando)}` : ""}. Falta ${moeda(prox.resta)}.` : "Valor definido pela tesouraria na última atualização.") : prox.aguardando ? "Pix aguardando confirmação da tesouraria." : "Já paga. Obrigado!"}</span>
                 ${prox.resta > 0.005 ? '<button class="btn btn-primary" id="bt-prox">Pagar a próxima contribuição</button>' : ""}
               </div>` : ""}
@@ -484,28 +486,49 @@
             <h2>Solicitar retirada</h2>
             <p class="muted">Disponível: <b>${moeda(maxPed)}</b>${maxPed + 0.005 < cr.saldo ? ` (seu crédito é ${moeda(cr.saldo)}, mas o caixa atual comporta até ${moeda(maxPed)})` : ""}. A tesouraria transfere até <b>${data(prazoNovo)}</b> (${parR.retirada_dia_util}º dia útil do mês seguinte).</p>
             <div class="field"><label for="rt-valor">Valor bruto a retirar (R$)</label><input class="input" id="rt-valor" inputmode="decimal" autocomplete="off" value="${brl(maxPed)}"></div>
+            <div id="rt-quitar"></div>
             <div id="rt-conta" class="pix-aloc"></div>
             <p class="hint">Estimativa. Os valores definitivos são registrados pela tesouraria quando ela fizer a transferência.</p>
             <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="rt-ok">Solicitar</button></div>`);
+          // cotas atrasadas que ainda não estão em outro pedido de retirada
+          const jaPedidas = new Set(cr.retiradas.filter((r) => r.status === "solicitada").flatMap((r) => (r.quitar_meses || []).map((q) => q.mes)));
+          const atr = Fin.atrasadas(bruta, movs).filter((x) => !jaPedidas.has(x.mes));
+          const pctAtr = Number(parR.atraso_desconto_pct != null ? parR.atraso_desconto_pct : 0.1);
+          let nQuitar = null, minQ = 0;
           const conta = () => {
-            const v = lerValor($("#rt-valor", m.el).value), box = $("#rt-conta", m.el);
+            const v = lerValor($("#rt-valor", m.el).value), box = $("#rt-conta", m.el), qb = $("#rt-quitar", m.el);
             if (!(v > 0)) { box.innerHTML = '<p class="hint">Digite um valor.</p>'; return null; }
             if (v > maxPed + 0.005) { box.innerHTML = `<p class="hint" style="color:var(--err)">Passa do máximo disponível (${moeda(maxPed)}).</p>`; return null; }
             if (v + 0.005 < parR.retirada_minima) { box.innerHTML = `<p class="hint" style="color:var(--err)">O mínimo é ${moeda(parR.retirada_minima)}.</p>`; return null; }
-            const d = Fin.descontosRetirada(ext.cooperado, ext, v, Fin.mesDe(prazoNovo));
+            const d0 = Fin.descontosRetirada(ext.cooperado, ext, v, Fin.mesDe(prazoNovo));
+            minQ = Fin.minimoQuitar(atr, d0.liquido_antes, pctAtr);
+            let maxQ = 0, acum = 0; for (const x of atr) { if (acum + x.aberto > d0.liquido_antes + 0.005) break; acum += x.aberto; maxQ++; }
+            if (nQuitar == null || nQuitar < minQ) nQuitar = minQ; if (nQuitar > maxQ) nQuitar = maxQ;
+            const sel = atr.slice(0, nQuitar), qv = Fin.centavos(sel.reduce((t, x) => t + x.aberto, 0));
+            if (atr.length) {
+              const ops = []; for (let k = minQ; k <= maxQ; k++) { const t = atr.slice(0, k).reduce((u, x) => u + x.aberto, 0); ops.push(`<option value="${k}" ${k === nQuitar ? "selected" : ""}>${k === 0 ? "Nenhuma agora" : `${k} cota${k > 1 ? "s" : ""} · ${moeda(t)}${k === atr.length ? " (todas)" : ""}`}${k === minQ && k > 0 ? " — mínimo" : ""}</option>`); }
+              qb.innerHTML = `<div class="field"><label for="rt-nq">Cotas mensais atrasadas a quitar com esta retirada ${i("atrasadas")}</label>
+                <select class="input" id="rt-nq">${ops.join("")}</select>
+                <span class="hint">Você tem ${atr.length} em aberto (${atr.map((x) => Fin.nomeMes(x.mes)).join(", ")}), ${moeda(atr.reduce((t, x) => t + x.aberto, 0))} no total. ${minQ > 0 ? `O mínimo é ${minQ}: as que cabem em ${Math.round(pctAtr * 100)}% do líquido.` : `Nenhuma cabe em ${Math.round(pctAtr * 100)}% do líquido, então quitar agora é opcional.`}</span></div>`;
+              $("#rt-nq", qb).onchange = (e) => { nQuitar = Number(e.target.value); conta(); };
+            } else qb.innerHTML = "";
+            const d = Fin.descontosRetirada(ext.cooperado, ext, v, Fin.mesDe(prazoNovo), qv);
+            d._sel = sel;
             box.innerHTML = `<ul>
               <li><span>Bruto ${i("bruto")}</span><b>${moeda(d.valor)}</b></li>
               <li><span>− INSS 11% ${i("inss")}</span><b>${moeda(d.inss)}</b></li>
               <li><span>− Imposto de renda ${i("ir")}</span><b>${moeda(d.ir)}</b></li>
               <li><span>− Contribuição de capital 1,5% ${i("contrib")}</span><b>${moeda(d.contribuicao)}</b></li>
               ${d.fic_vol ? `<li><span>− FIC voluntário ${i("ficvol")}</span><b>${moeda(d.fic_vol)}</b></li>` : ""}
+              ${d.quitar ? `<li><span>− Cotas atrasadas quitadas (${sel.length}) ${i("atrasadas")}</span><b>${moeda(d.quitar)}</b></li>` : ""}
               <li><span><b>Líquido na sua conta</b> ${i("liquido")}</span><b>${moeda(d.liquido)}</b></li></ul>`;
-            return v;
+            return { v, sel, qv };
           };
           $("#rt-valor", m.el).addEventListener("input", conta); conta();
           $("#rt-ok", m.el).onclick = async (ev) => {
-            const v = conta(); if (!v) return;
-            const ok = await acao(ev.currentTarget, () => API.fin.solicitarRetirada({ valor: v, prazo: prazoNovo }), "Retirada solicitada. A tesouraria foi avisada pelo site.");
+            const r = conta(); if (!r) return;
+            const quitar = r.sel.map((x) => ({ mes: x.mes, valor: x.aberto }));
+            const ok = await acao(ev.currentTarget, () => API.fin.solicitarRetirada({ valor: r.v, prazo: prazoNovo, quitar_meses: quitar.length ? quitar : null, quitar_valor: quitar.length ? r.qv : null }), "Retirada solicitada. A tesouraria foi avisada pelo site.");
             if (ok) { m.fechar(); recarregar(); }
           };
         };
