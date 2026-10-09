@@ -57,28 +57,48 @@
     outros_creditos: "Outros créditos (R$)",
     observacao: "Observação"
   };
-  /* Telefone no padrão (xx) xxxxx-xxxx (celular) ou (xx) xxxx-xxxx (fixo), digitado com ou sem máscara */
+  /* Telefone no padrão (xx) xxxxx-xxxx (celular) ou (xx) xxxx-xxxx (fixo), digitado com ou sem máscara.
+     Fora do Brasil: começa com + e o código do país. EUA/Canadá (+1): +1 (xxx) xxx-xxxx; demais países ficam como digitados. */
   function formatarTelefone(v) {
     if (v == null) return v;
-    let d = String(v).replace(/\D/g, "");
-    if ((d.length === 12 || d.length === 13) && d.startsWith("55")) d = d.slice(2);
+    const bruto = String(v).trim();
+    let d = bruto.replace(/\D/g, "");
+    if (!d) return bruto;
+    if (bruto.startsWith("+") || bruto.startsWith("00")) {
+      if (bruto.startsWith("00")) d = d.slice(2);
+      if (d.startsWith("55") && (d.length === 12 || d.length === 13)) d = d.slice(2); // +55 = Brasil
+      else if (d.startsWith("1") && d.length === 11) return `+1 (${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7)}`;
+      else return "+" + bruto.replace(/^(\+|00)\s*/, "").replace(/\s+/g, " "); // outros países: como digitado, com +
+    } else if ((d.length === 12 || d.length === 13) && d.startsWith("55")) d = d.slice(2);
     if (d.length === 11 && d[2] !== "0") return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
     if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
-    return String(v).trim();
+    return bruto;
   }
   // máscara enquanto digita, em todo campo de telefone do site
   function mascaraTelefone(v) {
-    const d = String(v).replace(/\D/g, "").slice(0, 11);
+    const s0 = String(v);
+    if (/^\s*(\+|00)/.test(s0)) {
+      const d = s0.replace(/\D/g, "").replace(/^00/, "");
+      if (d.startsWith("1")) { const n = d.slice(1, 11); let o = "+1"; if (n) o += " (" + n.slice(0, 3); if (n.length > 3) o += ") " + n.slice(3, 6); if (n.length > 6) o += "-" + n.slice(6); return o; }
+      if (d.startsWith("55")) return "+55 " + mascaraTelefone(d.slice(2));
+      return s0; // outros países: como digitado
+    }
+    const d = s0.replace(/\D/g, "").slice(0, 11);
     if (!d) return "";
     if (d.length <= 2) return `(${d}`;
     const meio = d.length === 11 ? 5 : 4;
     if (d.length <= 2 + meio) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
     return `(${d.slice(0, 2)}) ${d.slice(2, 2 + meio)}-${d.slice(2 + meio)}`;
   }
+  // link de WhatsApp para qualquer telefone gravado
+  function whatsTelefone(t) {
+    const d = String(t || "").replace(/\D/g, "");
+    if (!d) return null;
+    return "https://wa.me/" + (String(t).trim().startsWith("+") ? d : "55" + d.replace(/^55(?=\d{10,11}$)/, ""));
+  }
   if (typeof document !== "undefined") {
     document.addEventListener("input", (e) => {
       const el = e.target; if (!(el && el.type === "tel") || (e.inputType || "").startsWith("delete")) return;
-      if (/^\+/.test(el.value)) return; // número estrangeiro: deixa como está
       el.value = mascaraTelefone(el.value);
     });
     document.addEventListener("blur", (e) => { const el = e.target; if (el && el.type === "tel" && el.value) el.value = formatarTelefone(el.value); }, true);
@@ -1692,6 +1712,7 @@
   api.STATUS_PROJETO = STATUS_PROJETO;
   api.LIMITES_PADRAO = LIMITES_PADRAO;
   api.formatarTelefone = formatarTelefone;
+  api.whatsTelefone = whatsTelefone;
   api.MODALIDADES = MODALIDADES;
   api.CATEGORIAS_DOC = CATEGORIAS_DOC;
   api.AREAS = AREAS;

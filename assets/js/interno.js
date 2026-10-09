@@ -81,7 +81,7 @@
                 <div><dt>Formação</dt><dd>${esc(c.formacao || "—")}</dd></div>
                 <div><dt>Registro profissional</dt><dd>${esc(c.registro_profissional || "—")}</dd></div>
                 <div><dt>Cidade</dt><dd>${esc(c.cidade || "—")}</dd></div>
-                <div><dt>Telefone</dt><dd>${c.telefone ? `<a href="https://wa.me/55${esc(String(c.telefone).replace(/\D/g, "").replace(/^55/, ""))}" target="_blank" rel="noopener">${esc(c.telefone)}</a>` : "—"}</dd></div>
+                <div><dt>Telefone</dt><dd>${c.telefone ? `<a href="${esc(API.whatsTelefone(c.telefone))}" target="_blank" rel="noopener">${esc(c.telefone)}</a>` : "—"}</dd></div>
                 <div><dt>Currículo</dt><dd>${c.curriculo_url && /^https?:\/\//i.test(c.curriculo_url) ? `<a href="${esc(c.curriculo_url)}" target="_blank" rel="noopener">Abrir link</a>` : "—"}</dd></div>
               </dl>
               <div class="sol-texto"><b>Experiência</b><p>${esc(c.experiencia || "—")}</p></div>
