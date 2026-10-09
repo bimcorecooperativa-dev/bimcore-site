@@ -96,9 +96,12 @@
         if (a.dataset.k === k) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
       });
       $("#app-nav-atual").textContent = paginas[k].titulo;
-      const alvo = $("#pagina");
-      alvo.onclick = null;
+      // cada abertura de página desenha num bloco próprio: se o usuário trocar de página antes de a anterior
+      // terminar de carregar, a anterior escreve num bloco que já saiu da tela e não sobrescreve a nova
+      const pag = $("#pagina");
+      const alvo = document.createElement("div"); alvo.style.display = "contents";
       alvo.innerHTML = '<p class="carregando">Carregando…</p>';
+      pag.replaceChildren(alvo);
       document.title = paginas[k].titulo + " | BIMCORE";
       try { await paginas[k].render(alvo, ctx); }
       catch (e) { alvo.innerHTML = `<div class="notice err">Não foi possível carregar esta seção. ${esc(e.message || "")}</div>`; }

@@ -57,6 +57,32 @@
     outros_creditos: "Outros créditos (R$)",
     observacao: "Observação"
   };
+  /* Telefone no padrão (xx) xxxxx-xxxx (celular) ou (xx) xxxx-xxxx (fixo), digitado com ou sem máscara */
+  function formatarTelefone(v) {
+    if (v == null) return v;
+    let d = String(v).replace(/\D/g, "");
+    if ((d.length === 12 || d.length === 13) && d.startsWith("55")) d = d.slice(2);
+    if (d.length === 11 && d[2] !== "0") return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+    if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+    return String(v).trim();
+  }
+  // máscara enquanto digita, em todo campo de telefone do site
+  function mascaraTelefone(v) {
+    const d = String(v).replace(/\D/g, "").slice(0, 11);
+    if (!d) return "";
+    if (d.length <= 2) return `(${d}`;
+    const meio = d.length === 11 ? 5 : 4;
+    if (d.length <= 2 + meio) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+    return `(${d.slice(0, 2)}) ${d.slice(2, 2 + meio)}-${d.slice(2 + meio)}`;
+  }
+  if (typeof document !== "undefined") {
+    document.addEventListener("input", (e) => {
+      const el = e.target; if (!(el && el.type === "tel") || (e.inputType || "").startsWith("delete")) return;
+      if (/^\+/.test(el.value)) return; // número estrangeiro: deixa como está
+      el.value = mascaraTelefone(el.value);
+    });
+    document.addEventListener("blur", (e) => { const el = e.target; if (el && el.type === "tel" && el.value) el.value = formatarTelefone(el.value); }, true);
+  }
   const CAMPOS_SOLICITACAO = ["nome", "telefone", "cidade", "area_atuacao", "formacao", "registro_profissional", "curriculo_url", "experiencia", "motivacao"];
 
   const traduzErro = (msg) => {
@@ -208,7 +234,7 @@
         if (String(senha).length < 8) falha("Password should be at least 8");
         if (s.perfis.some((p) => p.email.toLowerCase() === email.toLowerCase())) falha("already registered");
         const p = { id: novoId(), email, senha, papel: "cooperado", status: "pendente", data_ingresso: null, criado_em: new Date().toISOString() };
-        CAMPOS_SOLICITACAO.forEach((k) => { p[k] = dados[k] || ""; });
+        CAMPOS_SOLICITACAO.forEach((k) => { p[k] = k === "telefone" ? formatarTelefone(dados[k] || "") : dados[k] || ""; });
         p.especialidade = p.area_atuacao;
         s.perfis.push(p);
         gravar(s);
@@ -227,7 +253,7 @@
       perfil: {
         async atualizarMeu(dados) {
           const s = ler(); const u = exigir(s);
-          ["nome", "telefone", "especialidade"].forEach((k) => { if (k in dados) u[k] = dados[k]; });
+          ["nome", "telefone", "especialidade"].forEach((k) => { if (k in dados) u[k] = k === "telefone" ? formatarTelefone(dados[k]) : dados[k]; });
           gravar(s); return espera(semSenha(u));
         }
       },
@@ -1083,7 +1109,7 @@
       },
       async signIn(email, senha) { ok(await sb.auth.signInWithPassword({ email: String(email).trim(), password: senha })); return true; },
       async signUp(dados) {
-        const meta = {}; CAMPOS_SOLICITACAO.forEach((k) => { if (dados[k]) meta[k] = String(dados[k]).trim(); });
+        const meta = {}; CAMPOS_SOLICITACAO.forEach((k) => { if (dados[k]) meta[k] = k === "telefone" ? formatarTelefone(dados[k]) : String(dados[k]).trim(); });
         const data = ok(await sb.auth.signUp({ email: String(dados.email).trim(), password: dados.senha, options: { data: meta, emailRedirectTo: base() + "entrar.html" } }));
         return { precisaConfirmar: !data.session };
       },
@@ -1095,7 +1121,7 @@
       perfil: {
         async atualizarMeu(dados) {
           const id = await meuId();
-          const limpo = {}; ["nome", "telefone", "especialidade"].forEach((k) => { if (k in dados) limpo[k] = dados[k]; });
+          const limpo = {}; ["nome", "telefone", "especialidade"].forEach((k) => { if (k in dados) limpo[k] = k === "telefone" ? formatarTelefone(dados[k]) : dados[k]; });
           return ok(await sb.from("perfis").update(limpo).eq("id", id).select().single());
         }
       },
@@ -1647,7 +1673,7 @@
         async excluirMov(id) { const r = ok(await sb.from("fin_fundos_mov").delete().eq("id", id).is("exercicio", null).select("id")); if (!r.length) falha("Movimentos da apuração só saem pelo estorno."); return true; }
       },
       contatos: {
-        async enviar(c) { ok(await sb.from("contatos").insert({ tipo: c.tipo || "contato", nome: c.nome || "Anônimo", email: c.email || null, orgao: c.orgao || null, telefone: c.telefone || null, mensagem: c.mensagem })); return true; },
+        async enviar(c) { ok(await sb.from("contatos").insert({ tipo: c.tipo || "contato", nome: c.nome || "Anônimo", email: c.email || null, orgao: c.orgao || null, telefone: c.telefone ? formatarTelefone(c.telefone) : null, mensagem: c.mensagem })); return true; },
         async listar() { return ok(await sb.from("contatos").select("*").order("criado_em", { ascending: false })); },
         async marcarLido(id, lido) { ok(await sb.from("contatos").update({ lido }).eq("id", id)); return true; }
       }
@@ -1665,6 +1691,7 @@
   };
   api.STATUS_PROJETO = STATUS_PROJETO;
   api.LIMITES_PADRAO = LIMITES_PADRAO;
+  api.formatarTelefone = formatarTelefone;
   api.MODALIDADES = MODALIDADES;
   api.CATEGORIAS_DOC = CATEGORIAS_DOC;
   api.AREAS = AREAS;

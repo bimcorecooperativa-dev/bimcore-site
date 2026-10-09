@@ -842,7 +842,7 @@
           <section class="painel"><h2>Dados</h2>
             <form id="f-perfil" class="form-grid" novalidate>
               <div class="field"><label for="p-nome">Nome completo</label><input class="input" id="p-nome" value="${esc(p.nome)}" autocomplete="name"></div>
-              <div class="field"><label for="p-tel">Telefone</label><input class="input" id="p-tel" value="${esc(p.telefone)}" type="tel" autocomplete="tel"></div>
+              <div class="field"><label for="p-tel">Telefone</label><input class="input" id="p-tel" value="${esc(API.formatarTelefone(p.telefone) || "")}" type="tel" autocomplete="tel" placeholder="(22) 90000-0000"></div>
               <div class="field full"><label for="p-esp">Especialidade</label><input class="input" id="p-esp" value="${esc(p.especialidade)}" placeholder="Ex.: Estrutural, MEP, orçamento, coordenação BIM"></div>
               <div class="field"><label>E-mail</label><input class="input" value="${esc(p.email)}" disabled></div>
               <div class="field"><label>Cooperado desde</label><input class="input" value="${data(p.data_ingresso)}" disabled></div>
