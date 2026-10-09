@@ -940,7 +940,8 @@
           const sAsm = asm.length ? Math.round(pres / asm.length * 1000) / 10 : null;
           const nCon = regs.filter((r) => r.componente === "contribuicao" && r.data >= di).reduce((t, r) => t + Number(r.quantidade), 0); const sCon = Math.min(100, nCon * 10);
           const nDisc = regs.filter((r) => r.componente === "disciplina" && r.data >= di).reduce((t, r) => t + Number(r.quantidade), 0);
-          let tot = 0, pes = 0; [[sEf, par.peso_eficiencia], [sPar, par.peso_pares], [sRet, par.peso_retrabalho], [sAsm, par.peso_assembleia], [sCon, par.peso_contrib]].forEach(([v, w]) => { if (v != null) { tot += v * w; pes += Number(w); } });
+          let tot = 0, pes = 0; [[sEf, par.peso_eficiencia], [sPar, par.peso_pares], [sRet, par.peso_retrabalho], [sAsm, par.peso_assembleia]].forEach(([v, w]) => { if (v != null) { tot += v * w; pes += Number(w); } });
+          if (pes > 0 || nCon > 0) { tot += sCon * par.peso_contrib; pes += Number(par.peso_contrib); }
           return { indice: pes ? Math.round(tot / pes * 10) / 10 : null, eficiencia: { nota: sEf, previstas: prev, realizadas: real }, pares: { nota: sPar, avaliacoes: av.length }, retrabalho: { nota: sRet, apontamentos: nRet },
             assembleias: { nota: sAsm, realizadas: asm.length, presente: pres, reunioes_disciplina: nDisc }, contribuicoes: { nota: sCon, pontos: nCon }, periodo_meses: par.meses, periodo_retrabalho: par.meses_retrabalho };
         },

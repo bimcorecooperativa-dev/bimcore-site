@@ -154,7 +154,8 @@ begin
   if s_par is not null then total := total + s_par * par.peso_pares; pesos := pesos + par.peso_pares; end if;
   if s_ret is not null then total := total + s_ret * par.peso_retrabalho; pesos := pesos + par.peso_retrabalho; end if;
   if s_asm is not null then total := total + s_asm * par.peso_assembleia; pesos := pesos + par.peso_assembleia; end if;
-  total := total + s_con * par.peso_contrib; pesos := pesos + par.peso_contrib;
+  -- sem nenhum dado ainda (novo cooperado), o índice fica em branco em vez de zero
+  if pesos > 0 or n_con > 0 then total := total + s_con * par.peso_contrib; pesos := pesos + par.peso_contrib; end if;
   return jsonb_build_object(
     'indice', case when pesos > 0 then round(total / pesos, 1) end,
     'eficiencia', jsonb_build_object('nota', s_ef, 'previstas', ef_prev, 'realizadas', ef_real),
