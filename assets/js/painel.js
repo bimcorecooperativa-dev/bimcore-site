@@ -787,6 +787,11 @@
       }
     },
 
+    indice: {
+      titulo: "Meu índice (IGCC)",
+      async render(el) { return window.IGCC.renderMeu(el); }
+    },
+
     perfil: {
       titulo: "Meu perfil",
       separador: true,

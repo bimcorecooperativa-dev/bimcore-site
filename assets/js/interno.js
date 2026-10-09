@@ -484,6 +484,11 @@
       async render(el, ctx) { return window.Enquadramento.render(el, ctx); }
     },
 
+    igcc: {
+      titulo: "Índice Global (IGCC)",
+      async render(el, ctx) { return window.IGCC.renderTodos(el, ctx); }
+    },
+
     conselho: {
       titulo: "Conselho Fiscal",
       async contador(ctx) { return window.ConselhoFiscal.contador(ctx); },
@@ -597,6 +602,7 @@
       const out = {};
       if (ca) out.projetos = { ...todas.projetos, separador: false };
       if (ca) out.enquadramento = { ...todas.enquadramento, separador: false };
+      if (ca || fiscal) out.igcc = { ...todas.igcc, separador: false };
       if (tes || fiscal) out.financeiro = { ...todas.financeiro, separador: false };
       if (fiscal) out.conselho = { ...todas.conselho, separador: false };
       return out;

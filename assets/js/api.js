@@ -854,6 +854,8 @@
           else if ((de === "corrigido" && ["resolvido", "aberto"].includes(para)) || (de === "aberto" && para === "cancelado")) { if (u.id !== a.autor_id) falha("Só quem fez o apontamento confere a correção ou cancela."); }
           else if (de === "contestado" && ["aberto", "cancelado"].includes(para)) { if (!u.conselho_adm || u.id === a.autor_id || u.id === a.destinatario_id) falha("A contestação é decidida pelo Conselho de Administração, por um conselheiro que não seja parte."); if (!String(d.decisao || "").trim()) falha("Escreva a decisão e o fundamento."); d.decidido_nome = u.nome; d.decidido_em = new Date().toISOString(); }
           else falha("Mudança de situação não permitida.");
+          if (a.destinatario_id && a.tipo !== "sugestao" && ((para === "resolvido" && de === "corrigido") || (de === "contestado" && para === "aberto"))) {
+            s.igcc_registros = s.igcc_registros || []; if (!s.igcc_registros.some((r) => r.ref === a.id)) s.igcc_registros.push({ id: novoId(), perfil_id: a.destinatario_id, data: UI_hoje(), componente: "retrabalho", quantidade: a.impeditivo ? 2 : 1, descricao: "Apontamento procedente: " + a.fundamento, projeto_id: a.projeto_id, ref: a.id, registrado_nome: "Registro do site" }); }
           Object.assign(a, d, { atualizado_em: new Date().toISOString() });
           this._sis(s, a.projeto_id, `Apontamento de ${a.autor_nome}: ${para}${d.decisao ? ". Decisão do CA: " + d.decisao : d.resposta ? ". " + d.resposta : ""}.`);
           gravar(s); return espera(true);
@@ -910,9 +912,50 @@
           const s = ler(); const u = exigir(s); this._st(s); const p = s.projetos.find((x) => x.id === pid);
           if (!this._gere(s, u, pid)) falha("Só o coordenador do projeto, a coordenação ou o CA arquiva o projeto.");
           if (p.status !== "Concluído") falha("Só um projeto concluído pode ser arquivado."); if (!String(local || "").trim()) falha("Informe onde o arquivo do projeto foi guardado.");
-          ["projeto_mensagens", "projeto_apontamentos", "projeto_marcos", "projeto_avaliacoes", "projeto_adesoes", "projeto_funcoes"].forEach((k) => { s[k] = s[k].filter((x) => x.projeto_id !== pid); });
+          s.igcc_registros = s.igcc_registros || []; const ef = {};
+          s.projeto_adesoes.filter((a) => a.projeto_id === pid && ["confirmada", "encerrada"].includes(a.status)).forEach((a) => { const f = s.projeto_funcoes.find((x) => x.id === a.funcao_id); if (f && f.horas_previstas > 0) ef[a.perfil_id] = (ef[a.perfil_id] || 0) + Number(f.horas_previstas); });
+          Object.entries(ef).forEach(([perfil, prev]) => s.igcc_registros.push({ id: novoId(), perfil_id: perfil, data: UI_hoje(), componente: "eficiencia", quantidade: 1, previstas: prev, realizadas: s.producao.filter((h) => h.projeto_id === pid && h.cooperado_id === perfil && h.tipo === "produtiva" && (h.aprovacao || "aprovada") === "aprovada").reduce((t, h) => t + Number(h.horas), 0), descricao: "Projeto arquivado: " + p.nome, projeto_id: pid, registrado_nome: "Registro do site" }));
+          ["projeto_mensagens", "projeto_apontamentos", "projeto_marcos", "projeto_adesoes", "projeto_funcoes"].forEach((k) => { s[k] = s[k].filter((x) => x.projeto_id !== pid); });
           Object.assign(p, { status: "Arquivado", bep: {}, cde_url: null, arquivado_em: new Date().toISOString(), arquivado_nome: u.nome, arquivo_local: local.trim(), resumo_arquivo: resumo }); gravar(s); return espera(true);
         }
+      },
+      igcc: {
+        _par(s) { s.igcc_parametros = s.igcc_parametros || { peso_eficiencia: 30, peso_pares: 25, peso_retrabalho: 15, peso_assembleia: 15, peso_contrib: 15, meses: 12, meses_retrabalho: 24, resolucao: null }; s.igcc_registros = s.igcc_registros || []; return s.igcc_parametros; },
+        _calc(s, pid) {
+          const par = this._par(s); const hoje = new Date(); const ini = new Date(hoje); ini.setMonth(ini.getMonth() - par.meses); const iniR = new Date(hoje); iniR.setMonth(iniR.getMonth() - par.meses_retrabalho);
+          const di = ini.toISOString().slice(0, 10), dr = iniR.toISOString().slice(0, 10); const regs = s.igcc_registros.filter((r) => r.perfil_id === pid);
+          let prev = 0, real = 0; const ads = (s.projeto_adesoes || []).filter((a) => a.perfil_id === pid && ["confirmada", "encerrada"].includes(a.status)); const porProj = {};
+          ads.forEach((a) => { const f = (s.projeto_funcoes || []).find((x) => x.id === a.funcao_id); if (f && f.horas_previstas > 0) porProj[a.projeto_id] = (porProj[a.projeto_id] || 0) + Number(f.horas_previstas); });
+          Object.entries(porProj).forEach(([pj, pv]) => { const r = s.producao.filter((h) => h.projeto_id === pj && h.cooperado_id === pid && h.tipo === "produtiva" && (h.aprovacao || "aprovada") === "aprovada").reduce((t, h) => t + Number(h.horas), 0); if (r > 0) { prev += pv; real += r; } });
+          regs.filter((r) => r.componente === "eficiencia" && r.data >= di && r.realizadas > 0).forEach((r) => { prev += Number(r.previstas); real += Number(r.realizadas); });
+          const sEf = real > 0 ? Math.min(100, Math.round(prev / real * 1000) / 10) : null;
+          const av = (s.projeto_avaliacoes || []).filter((a) => a.avaliado_id === pid && a.criado_em >= di);
+          const sPar = av.length ? Math.round(av.reduce((t, a) => t + ((a.qualidade + a.prazos + a.colaboracao + a.conformidade) / 4 - 1) / 4 * 100, 0) / av.length * 10) / 10 : null;
+          const part = s.producao.some((h) => h.cooperado_id === pid && h.tipo === "produtiva" && h.projeto_id && h.data >= dr);
+          const nRet = regs.filter((r) => r.componente === "retrabalho" && r.data >= dr).reduce((t, r) => t + Number(r.quantidade), 0);
+          const sRet = part || nRet ? Math.max(0, 100 - 10 * nRet) : null;
+          const pf = s.perfis.find((x) => x.id === pid) || {};
+          const asm = ((s.asm || {}).assembleias || []).filter((a) => ["encerrada", "sem_quorum"].includes(a.status) && a.tipo !== "pre" && a.data_hora >= di && (!pf.data_ingresso || a.data_hora.slice(0, 10) >= pf.data_ingresso));
+          const pres = asm.filter((a) => ((s.asm || {}).presencas || []).some((x) => x.assembleia_id === a.id && x.perfil_id === pid)).length;
+          const sAsm = asm.length ? Math.round(pres / asm.length * 1000) / 10 : null;
+          const nCon = regs.filter((r) => r.componente === "contribuicao" && r.data >= di).reduce((t, r) => t + Number(r.quantidade), 0); const sCon = Math.min(100, nCon * 10);
+          const nDisc = regs.filter((r) => r.componente === "disciplina" && r.data >= di).reduce((t, r) => t + Number(r.quantidade), 0);
+          let tot = 0, pes = 0; [[sEf, par.peso_eficiencia], [sPar, par.peso_pares], [sRet, par.peso_retrabalho], [sAsm, par.peso_assembleia], [sCon, par.peso_contrib]].forEach(([v, w]) => { if (v != null) { tot += v * w; pes += Number(w); } });
+          return { indice: pes ? Math.round(tot / pes * 10) / 10 : null, eficiencia: { nota: sEf, previstas: prev, realizadas: real }, pares: { nota: sPar, avaliacoes: av.length }, retrabalho: { nota: sRet, apontamentos: nRet },
+            assembleias: { nota: sAsm, realizadas: asm.length, presente: pres, reunioes_disciplina: nDisc }, contribuicoes: { nota: sCon, pontos: nCon }, periodo_meses: par.meses, periodo_retrabalho: par.meses_retrabalho };
+        },
+        async meu() { const s = ler(); const u = exigir(s); return espera(this._calc(s, u.id)); },
+        async todos() { const s = ler(); const u = exigir(s); if (!(u.conselho_adm || u.conselho_fiscal)) falha("O índice completo é visto pelo Conselho de Administração e pelo Conselho Fiscal."); return espera(s.perfis.filter((p) => p.status === "ativo").map((p) => ({ perfil_id: p.id, nome: p.nome, dados: this._calc(s, p.id) })).sort((a, b) => a.nome.localeCompare(b.nome))); },
+        async faixas(pid) {
+          const s = ler(); const u = exigir(s); const p = s.projetos.find((x) => x.id === pid); if (!(u.papel === "coordenacao" || u.conselho_adm || (p && p.coordenador_id === u.id))) falha("Só quem coordena o projeto vê as faixas.");
+          const vals = s.perfis.filter((x) => x.status === "ativo").map((x) => this._calc(s, x.id).indice).filter((v) => v != null); const media = vals.length ? vals.reduce((t, v) => t + v, 0) / vals.length : null;
+          return espera([...new Set((s.projeto_adesoes || []).filter((a) => a.projeto_id === pid).map((a) => a.perfil_id))].map((id) => { const v = this._calc(s, id).indice; return { perfil_id: id, faixa: v == null || media == null ? "sem dados" : v >= media + 10 ? "acima da média" : v <= media - 10 ? "abaixo da média" : "na média" }; }));
+        },
+        async parametros() { const s = ler(); exigir(s); return espera({ ...this._par(s) }); },
+        async salvarParametros(d) { const s = ler(); const u = exigir(s, "ca"); Object.assign(this._par(s), d, { atualizado_nome: u.nome, atualizado_em: new Date().toISOString() }); gravar(s); return espera(true); },
+        async registros(pid) { const s = ler(); const u = exigir(s); this._par(s); return espera(s.igcc_registros.filter((r) => (pid ? r.perfil_id === pid : true) && (r.perfil_id === u.id || u.conselho_adm || u.conselho_fiscal)).sort((a, b) => b.data.localeCompare(a.data))); },
+        async registrar(d) { const s = ler(); const u = exigir(s, "ca"); this._par(s); if (d.perfil_id === u.id) falha("Ninguém registra contribuição para si mesmo."); s.igcc_registros.push({ ...d, id: novoId(), registrado_nome: u.nome, criado_em: new Date().toISOString() }); gravar(s); return espera(true); },
+        async excluirRegistro(id) { const s = ler(); exigir(s, "ca"); this._par(s); s.igcc_registros = s.igcc_registros.filter((r) => !(r.id === id && ["contribuicao", "disciplina"].includes(r.componente))); gravar(s); return espera(true); }
       },
       sobras: {
         _st(s) { s.fin.sobras = s.fin.sobras || []; s.fin.sobras_cotas = s.fin.sobras_cotas || []; s.fin.fundos_mov = s.fin.fundos_mov || []; },
@@ -1518,6 +1561,16 @@
           }
           ok(await sb.rpc("arquivar_projeto", { p_projeto: pid, p_local: local, p_resumo: resumo })); return true;
         }
+      },
+      igcc: {
+        async meu() { return ok(await sb.rpc("igcc_meu")); },
+        async todos() { return ok(await sb.rpc("igcc_todos")); },
+        async faixas(pid) { const r = await sb.rpc("igcc_faixas", { p_projeto: pid }); return r.error ? [] : r.data; },
+        async parametros() { return ok(await sb.from("igcc_parametros").select("*").eq("id", 1).single()); },
+        async salvarParametros(d) { const uid = await meuId(); const eu = ok(await sb.from("perfis").select("nome").eq("id", uid).single()); ok(await sb.from("igcc_parametros").update({ ...d, atualizado_nome: eu.nome, atualizado_em: new Date().toISOString() }).eq("id", 1)); return true; },
+        async registros(pid) { let q = sb.from("igcc_registros").select("*").order("data", { ascending: false }).limit(1000); if (pid) q = q.eq("perfil_id", pid); return ok(await q); },
+        async registrar(d) { ok(await sb.from("igcc_registros").insert(d)); return true; },
+        async excluirRegistro(id) { ok(await sb.from("igcc_registros").delete().eq("id", id)); return true; }
       },
       sobras: {
         async publico() {
