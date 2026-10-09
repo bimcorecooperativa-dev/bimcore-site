@@ -59,6 +59,7 @@
     const me = ctx.sessao.perfil;
     d.me = me; d.eu = eu;
     d.novas = novasPorProjeto(await API.proj.ultimasMensagens().catch(() => []), me.id);
+    d.par = Fin.params(await API.fin.parametros().catch(() => ({})));
     d.ca = !!(me.status === "ativo" && me.conselho_adm);
     d.gestorGeral = me.papel === "coordenacao" || d.ca;
     d.gere = (p) => d.gestorGeral || p.coordenador_id === me.id;
@@ -108,6 +109,91 @@
       if (!fs.length) return "";
       return `<div class="notice ok"><b>${fs.length} chamada(s) de adesão aberta(s) compatível(is) com o seu perfil.</b> Veja o BEP e os prazos e, se quiser participar, manifeste adesão. <a href="#projetos">Ver chamadas</a></div>`;
     } catch (e) { return ""; }
+  }
+
+  /* ---------- Orçamento do projeto ----------
+     Custo de 1 hora para a cooperativa = valor-hora da categoria × (1 + INSS patronal + FIC da cooperativa
+     + 1/12 de 13º + 1/12 de férias) + auxílio-alimentação proporcional. O que sobra para a equipe =
+     valor do projeto − retenções na nota − 20% do Custo de Operação e Gestão. */
+  function orcamento(d, p, hs) {
+    const par = d.par, c = d.contratoDe(p);
+    const fator = 1 + Number(par.patronal_pct || 0) + Number(par.fic_coop_pct || 0) + 2 / 12;
+    const alimHora = Number(par.alim_pct || 0) * Number(par.sm || 0) / Number(par.horas_dia || 6);
+    const custoHora = (cat, cons) => Fin.valorHoraDe(cat || "Pleno", cons || "CREA", par) * fator + alimHora;
+    const valor = Number(p.valor != null && p.valor !== "" ? p.valor : c ? c.valor : 0) || 0;
+    const ret = c ? Number(c.retencao_pct || 0) : 0;
+    const disponivel = c && c.remunerado ? valor * (1 - ret) * (1 - Number(par.custo_op_pct || 0.2)) : 0;
+    const fs = d.funcoes.filter((f) => f.projeto_id === p.id && f.status !== "cancelada");
+    const ads = d.adesoes.filter((a) => a.projeto_id === p.id && ["confirmada", "encerrada"].includes(a.status));
+    const planejado = fs.reduce((t, f) => t + f.vagas * Number(f.horas_previstas || 0) * custoHora(f.categoria_min, (f.conselhos || [])[0]), 0);
+    const prod = (hs || []).filter((h) => h.tipo === "produtiva");
+    const pessoas = {};
+    ads.forEach((a) => { const f = d.funcoes.find((x) => x.id === a.funcao_id);
+      const o = pessoas[a.perfil_id] = pessoas[a.perfil_id] || { perfil_id: a.perfil_id, nome: a.nome, categoria: a.categoria || (f && f.categoria_min) || "Pleno", conselho: a.conselho, funcoes: [], previstas: 0, aprovadas: 0, pendentes: 0 };
+      if (f) { o.funcoes.push(nomeFuncao(f)); o.previstas += Number(f.horas_previstas || 0); } });
+    prod.forEach((h) => { const o = pessoas[h.cooperado_id] = pessoas[h.cooperado_id] || { perfil_id: h.cooperado_id, nome: h.cooperado_nome, categoria: "Pleno", funcoes: ["fora da equipe"], previstas: 0, aprovadas: 0, pendentes: 0 };
+      if (h.aprovacao === "pendente") o.pendentes += Number(h.horas); else if ((h.aprovacao || "aprovada") === "aprovada") o.aprovadas += Number(h.horas); });
+    const lista = Object.values(pessoas).map((o) => ({ ...o, custoHora: custoHora(o.categoria, o.conselho), consumido: o.aprovadas * custoHora(o.categoria, o.conselho), pendente: o.pendentes * custoHora(o.categoria, o.conselho) }));
+    const consumido = lista.reduce((t, o) => t + o.consumido, 0), pendente = lista.reduce((t, o) => t + o.pendente, 0);
+    const pcs = c ? d.parcelas.filter((x) => x.contrato_id === c.id) : [];
+    const recebido = pcs.filter((x) => x.recebido_em).reduce((t, x) => t + Number(x.valor_recebido != null ? x.valor_recebido : x.valor), 0);
+    const ms = d.marcos.filter((m) => m.projeto_id === p.id);
+    const fisico = ms.length ? ms.filter((m) => m.entregue_em).length / ms.length : null;
+    const horasAprov = prod.filter((h) => (h.aprovacao || "aprovada") === "aprovada").reduce((t, h) => t + Number(h.horas), 0);
+    return { c, valor, ret, disponivel, planejado, consumido, pendente, saldo: disponivel - consumido, lista, pcs, recebido, ms, fisico, horasAprov, custoHora, fator };
+  }
+  const pct = (a, b) => (b > 0 ? Math.round(a / b * 100) : 0);
+  function alertasOrcamento(o, p) {
+    const al = [];
+    if (!o.c) al.push(["warn", "Projeto sem contrato: as horas não geram crédito de retirada e não há orçamento para comparar."]);
+    else if (!o.c.remunerado) al.push(["warn", "Contrato gratuito: as horas contam como experiência, mas não geram crédito."]);
+    else {
+      if (o.planejado > o.disponivel + 0.5) al.push(["err", `A equipe planejada nas chamadas custa ${moeda(o.planejado)}, acima dos ${moeda(o.disponivel)} disponíveis. Reveja a equipe ou as horas previstas.`]);
+      const uso = o.consumido + o.pendente;
+      if (uso > o.disponivel + 0.5) al.push(["err", `Aprovando o que está pendente, o projeto passa do orçamento: ${moeda(uso)} de ${moeda(o.disponivel)} (${pct(uso, o.disponivel)}%).`]);
+      else if (uso > o.disponivel * 0.8) al.push(["warn", `O projeto já usa ${pct(uso, o.disponivel)}% do orçamento da equipe (contando as horas pendentes).`]);
+      if (o.fisico != null && o.disponivel > 0 && o.consumido / o.disponivel > o.fisico + 0.15) al.push(["warn", `O gasto (${pct(o.consumido, o.disponivel)}% do orçamento) está à frente do avanço físico (${Math.round(o.fisico * 100)}% das entregas feitas).`]);
+      if (p.horas_orcadas && o.horasAprov > p.horas_orcadas) al.push(["err", `As horas aprovadas (${horas(o.horasAprov)}) já passaram das orçadas (${horas(p.horas_orcadas)}).`]);
+      const hoje = UI.hoje(); const atr = o.pcs.filter((x) => !x.recebido_em && x.previsto_em && x.previsto_em < hoje);
+      if (atr.length) al.push(["err", `${atr.length} parcela(s) do contrato em atraso: ${atr.map((x) => x.descricao + " (previsto " + data(x.previsto_em) + ")").join("; ")}. A tesouraria pode cobrir as retiradas com o Fundo de Soberania.`]);
+    }
+    o.lista.filter((x) => x.previstas > 0 && x.aprovadas + x.pendentes > x.previstas).forEach((x) => al.push(["warn", `${x.nome}: ${horas(x.aprovadas + x.pendentes)} lançadas de ${horas(x.previstas)} previstas.`]));
+    return al;
+  }
+  function htmlOrcamento(d, p, o, me) {
+    const al = alertasOrcamento(o, p);
+    return `<section class="painel"><h2>Orçamento e andamento do contrato</h2>
+      ${al.map(([t, m]) => `<div class="notice ${t}">${esc(m)}</div>`).join("")}
+      <div class="kpis">
+        <div class="kpi"><span class="rot">Valor do projeto</span><span class="val">${moeda(o.valor)}</span><span class="det">${o.ret ? `retenções na nota ${Math.round(o.ret * 1000) / 10}% · ` : ""}20% para o Custo de Operação</span></div>
+        <div class="kpi"><span class="rot">Disponível para a equipe</span><span class="val">${moeda(o.disponivel)}</span><span class="det">planejado nas chamadas: ${moeda(o.planejado)}</span></div>
+        <div class="kpi"><span class="rot">Consumido (aprovado)</span><span class="val" style="color:${o.consumido > o.disponivel ? "var(--err)" : "inherit"}">${moeda(o.consumido)}</span><span class="det">${pct(o.consumido, o.disponivel)}% · pendente ${moeda(o.pendente)}</span></div>
+        <div class="kpi"><span class="rot">Saldo do orçamento</span><span class="val" style="color:${o.saldo < 0 ? "var(--err)" : "var(--ok)"}">${moeda(o.saldo)}</span><span class="det">antes das horas pendentes</span></div>
+      </div>
+      <div class="barras-fisfin">
+        <div><span>Físico (entregas feitas)</span><div class="barra"><i style="width:${o.fisico == null ? 0 : Math.round(o.fisico * 100)}%"></i></div><b>${o.fisico == null ? "sem entregas cadastradas" : Math.round(o.fisico * 100) + "%"}</b></div>
+        <div><span>Gasto com a equipe</span><div class="barra"><i style="width:${Math.min(100, pct(o.consumido, o.disponivel))}%"></i></div><b>${pct(o.consumido, o.disponivel)}%</b></div>
+        <div><span>Financeiro (recebido do contrato)</span><div class="barra"><i style="width:${Math.min(100, pct(o.recebido, o.c ? Number(o.c.valor) : 0))}%"></i></div><b>${moeda(o.recebido)}</b></div>
+      </div>
+      <h3 class="mini-tit">Equipe</h3>
+      ${o.lista.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Cooperado</th><th class="num">Previstas</th><th class="num">Aprovadas</th><th class="num">Pendentes</th><th class="num">Custo consumido</th><th>Uso</th></tr></thead>
+        <tbody>${o.lista.map((x) => { const u = x.previstas ? pct(x.aprovadas + x.pendentes, x.previstas) : null;
+          return `<tr><td>${esc(x.nome)}${x.perfil_id === me.id ? ' <span class="selo">você</span>' : ""}<span class="sub">${esc(x.funcoes.join(", "))} · ${esc(x.categoria)} · ${moeda(x.custoHora)}/h com encargos</span></td><td class="num">${horas(x.previstas)}</td><td class="num">${horas(x.aprovadas)}</td><td class="num">${horas(x.pendentes)}</td><td class="num">${moeda(x.consumido)}</td>
+            <td>${u == null ? "—" : `<span class="selo ${u > 100 ? "err" : u > 80 ? "warn" : "ok"}">${u}%</span>`}</td></tr>`; }).join("")}</tbody></table></div>` : '<p class="hint">Sem equipe ainda.</p>'}
+      <h3 class="mini-tit">Cronograma físico-financeiro</h3>
+      ${o.pcs.length || o.ms.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Entrega</th><th>Prevista</th><th>Situação</th><th>Parcela que libera</th><th>Pagamento</th></tr></thead>
+        <tbody>${o.ms.slice().sort((a, b) => String(a.previsto || "9").localeCompare(String(b.previsto || "9"))).map((m) => { const x = o.pcs.find((y) => y.id === m.parcela_id);
+          return `<tr><td>${esc(m.titulo)}</td><td>${m.previsto ? data(m.previsto) : "—"}</td><td>${m.entregue_em ? `<span class="selo ok">entregue ${data(m.entregue_em)}</span>` : m.previsto && m.previsto < UI.hoje() ? '<span class="selo err">atrasada</span>' : '<span class="selo warn">a entregar</span>'}</td>
+            <td>${x ? `${esc(x.descricao)}<span class="sub">${moeda(x.valor)}</span>` : "—"}</td><td>${x ? seloParcela(x) : ""}</td></tr>`; }).join("")}
+        ${o.pcs.filter((x) => !o.ms.some((m) => m.parcela_id === x.id)).map((x) => `<tr><td><span class="sub">sem entrega vinculada</span></td><td>—</td><td>—</td><td>${esc(x.descricao)}<span class="sub">${moeda(x.valor)}</span></td><td>${seloParcela(x)}</td></tr>`).join("")}</tbody></table></div>` : '<p class="hint">Cadastre as entregas (aba BEP e entregas) e ligue cada uma à parcela que ela libera.</p>'}
+      <p class="hint">Valores estimados pelo valor-hora da categoria de cada um, com encargos (INSS patronal ${Math.round(Number(d.par.patronal_pct) * 100)}%, FIC ${(Number(d.par.fic_coop_pct) * 100).toLocaleString("pt-BR")}%, 13º e férias) e auxílio-alimentação. O auxílio-teletrabalho é mensal por pessoa e não entra aqui.</p>
+    </section>`;
+  }
+  function seloParcela(x) {
+    if (x.recebido_em) return `<span class="selo ok">recebida ${data(x.recebido_em)}</span>`;
+    const dias = x.previsto_em ? Math.floor((new Date(UI.hoje()) - new Date(x.previsto_em)) / 864e5) : 0;
+    if (dias > 0) return `<span class="selo err">atrasada ${dias} dia(s)</span>${x.coberto_soberania ? `<span class="sub">retiradas cobertas pelo Fundo de Soberania (${moeda(x.coberto_soberania)})</span>` : ""}`;
+    return `<span class="selo warn">a receber${x.previsto_em ? " " + data(x.previsto_em) : ""}</span>`;
   }
 
   /* ---------- Área interna: contratos ---------- */
@@ -195,6 +281,7 @@
         <div class="field"><label for="ct-num">Número do contrato</label><input class="input" id="ct-num" maxlength="60" value="${esc(c.numero || "")}"></div>
         <div class="field"><label for="ct-proc">Processo</label><input class="input" id="ct-proc" maxlength="80" value="${esc(c.processo || "")}"></div>
         <div class="field"><label for="ct-val">Valor total (R$)</label><input class="input" id="ct-val" inputmode="decimal" value="${brl(c.valor)}"></div>
+        <div class="field"><label for="ct-ret">Retenções na nota (%)</label><input class="input" id="ct-ret" inputmode="decimal" value="${c.retencao_pct ? String(Math.round(c.retencao_pct * 10000) / 100).replace(".", ",") : ""}" placeholder="Ex.: 5"><span class="hint">ISS, IR e outros que o órgão retém. Confirme com a contadora.</span></div>
         <label class="ciente"><input type="checkbox" id="ct-rem" ${c.remunerado ? "checked" : ""}> <span>Contrato remunerado (gera crédito de retirada)</span></label>
         <div class="field"><label for="ct-ass">Assinatura</label><input class="input" id="ct-ass" type="date" value="${c.assinatura || ""}"></div>
         <div class="field"><label for="ct-fim">Fim da vigência</label><input class="input" id="ct-fim" type="date" value="${c.vigencia_fim || ""}"></div>
@@ -208,7 +295,7 @@
     $("#ct-ok", m.el).onclick = async (ev) => {
       const x = { id: c.id, objeto: $("#ct-obj", m.el).value.trim(), contratante: $("#ct-cli", m.el).value.trim(), municipio: $("#ct-mun", m.el).value.trim() || null, tipo: $("#ct-tipo", m.el).value, natureza: $("#ct-nat", m.el).value,
         numero: $("#ct-num", m.el).value.trim() || null, processo: $("#ct-proc", m.el).value.trim() || null, valor: lerValor($("#ct-val", m.el).value), remunerado: $("#ct-rem", m.el).checked,
-        assinatura: $("#ct-ass", m.el).value || null, vigencia_fim: $("#ct-fim", m.el).value || null, observacao: $("#ct-obs", m.el).value.trim() || null };
+        retencao_pct: Math.min(0.99, lerValor($("#ct-ret", m.el).value) / 100), assinatura: $("#ct-ass", m.el).value || null, vigencia_fim: $("#ct-fim", m.el).value || null, observacao: $("#ct-obs", m.el).value.trim() || null };
       if (x.objeto.length < 3 || !x.contratante) return toast("Informe o objeto e o contratante.", "err");
       if (x.remunerado && !x.valor) return toast("Informe o valor do contrato (ou desmarque 'remunerado').", "err");
       if (await acao(ev.currentTarget, () => API.proj.salvarContrato(x), "Contrato salvo.")) { m.fechar(); depois(); }
@@ -361,10 +448,12 @@
         <section class="painel"><h2>Entregas e prazos</h2>
           <p class="hint">Nenhuma entrega sai sem o relatório de conformidade do coordenador (Plano Quinquenal, Protocolo de Auditoria) e sem apontamentos impeditivos em aberto.</p>
           ${ms.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Entrega</th><th>Previsto</th><th>Situação</th>${gere ? "<th></th>" : ""}</tr></thead>
-            <tbody>${ms.map((x) => `<tr><td>${esc(x.titulo)}${x.observacao ? `<span class="sub">${esc(x.observacao)}</span>` : ""}</td><td>${x.previsto ? data(x.previsto) : "—"}</td>
+            <tbody>${ms.map((x) => `<tr><td>${esc(x.titulo)}${x.observacao ? `<span class="sub">${esc(x.observacao)}</span>` : ""}${x.parcela_id && d.parcelas.find((y) => y.id === x.parcela_id) ? `<span class="sub">libera: ${esc(d.parcelas.find((y) => y.id === x.parcela_id).descricao)}</span>` : ""}</td><td>${x.previsto ? data(x.previsto) : "—"}</td>
               <td>${x.entregue_em ? `<span class="selo ok">entregue ${data(x.entregue_em)}</span><span class="sub">conformidade: ${esc(x.conformidade_nome || "")}</span>` : x.previsto && x.previsto < UI.hoje() ? '<span class="selo err">atrasada</span>' : '<span class="selo warn">a entregar</span>'}</td>
               ${gere ? `<td class="acoes-celula">${x.entregue_em ? "" : `<button class="btn btn-primary btn-sm" data-entregar="${x.id}">Registrar entrega</button> `}<button class="btn btn-ghost btn-sm" data-delmarco="${x.id}">Apagar</button></td>` : ""}</tr>`).join("")}</tbody></table></div>` : '<p class="hint">Nenhuma entrega cadastrada.</p>'}
-          ${gere ? `<form class="form-grid" id="mc-f" novalidate><div class="field"><label for="mc-t">Entrega</label><input class="input" id="mc-t" maxlength="160" placeholder="Ex.: Anteprojeto de arquitetura"></div><div class="field"><label for="mc-d">Previsto para</label><input class="input" id="mc-d" type="date"></div><div class="field"><label>&nbsp;</label><button class="btn btn-ghost" type="submit">Adicionar entrega</button></div></form>` : ""}
+          ${gere ? `<form class="form-grid" id="mc-f" novalidate><div class="field"><label for="mc-t">Entrega</label><input class="input" id="mc-t" maxlength="160" placeholder="Ex.: Anteprojeto de arquitetura"></div><div class="field"><label for="mc-d">Previsto para</label><input class="input" id="mc-d" type="date"></div>
+            <div class="field"><label for="mc-p">Parcela que esta entrega libera</label><select class="input" id="mc-p"><option value="">Nenhuma</option>${(c ? d.parcelas.filter((x) => x.contrato_id === c.id && !ms.some((m) => m.parcela_id === x.id)) : []).map((x) => `<option value="${x.id}">${esc(x.descricao)} · ${moeda(x.valor)}</option>`).join("")}</select></div>
+            <div class="field"><label>&nbsp;</label><button class="btn btn-ghost" type="submit">Adicionar entrega</button></div></form>` : ""}
         </section>`;
       if ($("#bep-ed")) $("#bep-ed").onclick = () => {
         const m = UI.modal(`<h2>BEP — ${esc(p.nome)}</h2><div class="form-grid">
@@ -377,7 +466,7 @@
           if (await acao(ev.currentTarget, () => API.proj.salvarProjeto({ id: p.id, bep: nb, cde_url: url || null }), "BEP salvo.")) { m.fechar(); recarregar(); }
         };
       };
-      if ($("#mc-f")) $("#mc-f").addEventListener("submit", async (ev) => { ev.preventDefault(); const t = $("#mc-t").value.trim(); if (!t) return toast("Descreva a entrega.", "err"); if (await acao(ev.submitter, () => API.proj.salvarMarco({ projeto_id: pid, titulo: t, previsto: $("#mc-d").value || null }), "Entrega adicionada.")) recarregar(); });
+      if ($("#mc-f")) $("#mc-f").addEventListener("submit", async (ev) => { ev.preventDefault(); const t = $("#mc-t").value.trim(); if (!t) return toast("Descreva a entrega.", "err"); if (await acao(ev.submitter, () => API.proj.salvarMarco({ projeto_id: pid, titulo: t, previsto: $("#mc-d").value || null, parcela_id: $("#mc-p").value || null }), "Entrega adicionada.")) recarregar(); });
       corpo.onclick = async (e) => {
         const be = e.target.closest("[data-entregar]"), bd = e.target.closest("[data-delmarco]");
         if (bd) { if (await acao(bd, () => API.proj.excluirMarco(bd.dataset.delmarco), "Entrega apagada.")) recarregar(); return; }
@@ -421,6 +510,7 @@
             </div>`; }).join("") : '<p class="vazio">Nenhuma chamada aberta ainda.</p>'}
         </section>`;
       API.proj.horasProjeto(pid).then((hs) => { corpo.querySelectorAll("[data-hap]").forEach((td) => { td.textContent = horas(hs.filter((h) => h.cooperado_id === td.dataset.hap && h.tipo === "produtiva" && (h.aprovacao || "aprovada") === "aprovada").reduce((t, h) => t + Number(h.horas), 0)); }); }).catch(() => corpo.querySelectorAll("[data-hap]").forEach((td) => { td.textContent = "—"; }));
+      ctxOrc = orcamento(d, p, []);
       if ($("#fn-nova")) $("#fn-nova").onclick = () => modalFuncao(p, null, recarregar);
       corpo.onclick = async (e) => {
         const b = e.target.closest("button"); if (!b) return;
@@ -460,11 +550,13 @@
       const pend = visiveis.filter((h) => h.tipo === "produtiva" && h.aprovacao === "pendente" && aprovador(h));
       const exec = hs.filter((h) => h.tipo === "produtiva" && (h.aprovacao || "aprovada") === "aprovada").reduce((t, h) => t + Number(h.horas), 0);
       const ieo = p.horas_orcadas && exec ? p.horas_orcadas / exec : null;
+      const orc = gere || d.ca || me.conselho_fiscal ? orcamento(d, p, hs) : null;
       const selo = (h) => h.tipo !== "produtiva" ? "" : h.aprovacao === "pendente" ? '<span class="selo warn">aguardando aprovação</span>' : h.aprovacao === "devolvida" ? `<span class="selo err">devolvida</span><span class="sub">${esc(h.aprov_motivo || "")}</span>` : `<span class="selo ok">aprovada</span>${h.aprovado_nome ? `<span class="sub">${esc(h.aprovado_nome)}</span>` : ""}`;
       corpo.innerHTML = `
         <div class="kpis"><div class="kpi"><span class="rot">Horas orçadas</span><span class="val">${horas(p.horas_orcadas || 0)}</span></div>
           <div class="kpi"><span class="rot">Horas aprovadas</span><span class="val">${horas(exec)}</span><span class="det">${p.horas_orcadas ? Math.round(exec / p.horas_orcadas * 100) + "% do orçado" : ""}</span></div>
           <div class="kpi"><span class="rot">IEO ${p.status === "Concluído" ? "" : "(parcial)"}</span><span class="val">${ieo ? ieo.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—"}</span><span class="det">orçadas ÷ executadas · faixa 0,95 a 1,05</span></div></div>
+        ${orc ? htmlOrcamento(d, p, orc, me) : ""}
         <section class="painel"><h2>${gere || d.ca ? "Horas da equipe" : "Suas horas neste projeto"}</h2>
           <p class="hint">Horas de produção técnica só viram crédito depois de aprovadas: pelo coordenador do projeto ou, no caso das horas do próprio coordenador, por um membro do Conselho de Administração. Ninguém aprova as próprias horas. Se a hora for devolvida, corrija em "Minhas horas"; ela volta para aprovação.</p>
           ${pend.length ? `<div class="sol-acoes" style="margin-bottom:.8rem"><button class="btn btn-primary btn-sm" id="hr-apr">Aprovar selecionadas</button> <button class="btn btn-ghost btn-sm" id="hr-dev">Devolver selecionadas</button></div>` : ""}
@@ -474,7 +566,15 @@
         </section>`;
       const marcadas = () => [...corpo.querySelectorAll("[data-hsel]:checked")].map((x) => x.dataset.hsel);
       if ($("#hr-todas")) $("#hr-todas").onchange = (e) => corpo.querySelectorAll("[data-hsel]").forEach((x) => { x.checked = e.target.checked; });
-      if ($("#hr-apr")) $("#hr-apr").onclick = async (ev) => { const ids = marcadas(); if (!ids.length) return toast("Marque as horas.", "err"); if (await acao(ev.currentTarget, () => API.proj.aprovarHoras(ids, "aprovada"), "Horas aprovadas.")) recarregar(); };
+      if ($("#hr-apr")) $("#hr-apr").onclick = async (ev) => {
+        const ids = marcadas(); if (!ids.length) return toast("Marque as horas.", "err");
+        if (orc && orc.c && orc.c.remunerado) {
+          const extra = hs.filter((h) => ids.includes(h.id)).reduce((t, h) => { const o = orc.lista.find((x) => x.perfil_id === h.cooperado_id); return t + Number(h.horas) * (o ? o.custoHora : orc.custoHora("Pleno")); }, 0);
+          const depois = orc.consumido + extra;
+          if (depois > orc.disponivel + 0.5 && !(await confirmar(`Com estas horas, o projeto passa do orçamento: ${moeda(depois)} de ${moeda(orc.disponivel)} disponíveis (${pct(depois, orc.disponivel)}%). As horas viram crédito dos cooperados mesmo assim. Avise o Conselho de Administração no chat do projeto. Aprovar?`, "Aprovar mesmo assim"))) return;
+        }
+        if (await acao(ev.currentTarget, () => API.proj.aprovarHoras(ids, "aprovada"), "Horas aprovadas.")) recarregar();
+      };
       if ($("#hr-dev")) $("#hr-dev").onclick = () => {
         const ids = marcadas(); if (!ids.length) return toast("Marque as horas.", "err");
         const m = UI.modal(`<h2>Devolver horas</h2><div class="field"><label for="dv-m">O que precisa ser ajustado (o cooperado vê)</label><input class="input" id="dv-m" maxlength="300" placeholder="Ex.: descrever a atividade; lançar no projeto certo; horas acima do previsto para a etapa"></div>
@@ -574,6 +674,7 @@
     }
   }
 
+  let ctxOrc = null;
   function modalFuncao(p, f, depois) {
     f = f || { funcao: "projeto", disciplina: "arquitetura", vagas: 1, horas_previstas: 0, conselhos: [], status: "aberta", categoria_min: "Pleno" };
     const m = UI.modal(`<h2>${f.id ? "Editar chamada" : "Abrir chamada de adesão"}</h2>
@@ -587,11 +688,16 @@
         <div class="field"><label for="fn-h">Horas previstas por pessoa</label><input class="input" id="fn-h" type="number" min="0" step="1" value="${f.horas_previstas || ""}"></div>
         <div class="field"><label for="fn-pr">Prazo para manifestar adesão</label><input class="input" id="fn-pr" type="date" value="${f.prazo_adesao || ""}"></div>
         <div class="field"><label for="fn-s">Situação</label><select class="input" id="fn-s"><option value="aberta"${f.status === "aberta" ? " selected" : ""}>Aberta</option><option value="fechada"${f.status === "fechada" ? " selected" : ""}>Fechada (equipe completa)</option><option value="cancelada"${f.status === "cancelada" ? " selected" : ""}>Cancelada</option></select></div>
+        <p class="hint full" id="fn-custo"></p>
         <div class="field full"><label for="fn-a">Atribuições nesta função (o que o BEP pede)</label><textarea class="input" id="fn-a" rows="3" maxlength="1500">${esc(f.atribuicoes || "")}</textarea><span class="hint" id="fn-dica"></span></div>
       </div>
       <div class="modal-acoes">${f.id ? '<button class="btn btn-danger btn-sm" id="fn-del">Apagar</button>' : ""}<button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="fn-ok">Salvar</button></div>`);
     const dica = () => { const F = FUNCOES[$("#fn-f", m.el).value]; $("#fn-dica", m.el).textContent = F.texto ? "Sugestão: " + F.texto : ""; if (!f.id && F.cat) $("#fn-c", m.el).value = F.cat; };
-    $("#fn-f", m.el).onchange = dica; dica();
+    $("#fn-f", m.el).onchange = () => { dica(); custo(); }; dica();
+    const custo = () => { if (!ctxOrc) return; const o = ctxOrc; const cat = $("#fn-c", m.el).value || "Pleno"; const cons = (m.el.querySelector("[data-cons]:checked") || {}).dataset; const ch = o.custoHora(cat, cons ? cons.cons : "CREA");
+      const esta = (Number($("#fn-v", m.el).value) || 1) * (Number($("#fn-h", m.el).value) || 0) * ch; const antes = o.planejado - (f.id ? f.vagas * Number(f.horas_previstas || 0) * o.custoHora(f.categoria_min, (f.conselhos || [])[0]) : 0);
+      $("#fn-custo", m.el).innerHTML = o.disponivel ? `Custo estimado desta função: <b>${moeda(esta)}</b> (${moeda(ch)}/h com encargos). Equipe planejada passa a <b>${moeda(antes + esta)}</b> de ${moeda(o.disponivel)} disponíveis${antes + esta > o.disponivel ? ' — <span style="color:var(--err)">acima do orçamento</span>' : ""}.` : ""; };
+    m.el.querySelectorAll("#fn-c, #fn-v, #fn-h, [data-cons]").forEach((x) => { x.addEventListener("input", custo); x.addEventListener("change", custo); }); custo();
     if (f.id) $("#fn-del", m.el).onclick = async (ev) => { if (!(await confirmar("Apagar a chamada? As adesões a ela também saem.", "Apagar"))) return; if (await acao(ev.currentTarget, () => API.proj.excluirFuncao(f.id), "Chamada apagada.")) { m.fechar(); depois(); } };
     $("#fn-ok", m.el).onclick = async (ev) => {
       const x = { id: f.id, projeto_id: p.id, funcao: $("#fn-f", m.el).value, disciplina: $("#fn-d", m.el).value, categoria_min: $("#fn-c", m.el).value || null,

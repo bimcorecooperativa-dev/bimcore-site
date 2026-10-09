@@ -96,6 +96,9 @@
           <div class="kpi"><span class="rot">Aportes dos cooperados</span><span class="val">${moeda(soma("outros_creditos"))}</span><span class="det">Devolvidos só no desligamento</span></div>
           <div class="kpi"><span class="rot">Pix aguardando</span><span class="val">${aguardando.length}</span><span class="det">${aguardando.length ? moeda(aguardando.reduce((t, m) => t + Number(m.valor), 0)) : "Nada para conferir"}</span></div>
         </div>
+        ${(() => { const atr = (base.parcelas || []).filter((x) => !x.recebido_em && x.previsto_em && x.previsto_em < hojeISO()); const fat = (base.parcelas || []).filter((x) => !x.recebido_em && (base.marcos || []).some((m) => m.parcela_id === x.id && m.entregue_em));
+          return (atr.length ? `<div class="notice err"><b>${atr.length} parcela(s) de contrato em atraso.</b> Veja em Cooperativa → Parcelas dos contratos; se faltar caixa para as retiradas, cubra com o Fundo de Soberania.</div>` : "")
+            + (fat.length ? `<div class="notice ok"><b>${fat.length} parcela(s) liberada(s) por entrega concluída</b>: ${fat.map((x) => esc(x.descricao)).join(", ")}. Emita a nota fiscal e acompanhe o pagamento.</div>` : ""); })()}
         ${semCadastro.length ? `<div class="notice warn">${semCadastro.length} Pix confirmado(s) de quem ainda não tem cadastro financeiro ligado à conta do site. Ligue a conta em <b>Cadastro</b> e eles entram sozinhos.</div>` : ""}
         ${aguardando.length ? `<section class="painel acerto">
           <div class="painel-cab"><h2>Pix aguardando confirmação</h2><span class="selo warn">${aguardando.length}</span></div>
@@ -299,8 +302,10 @@
           ${(() => { const pcs = (base.parcelas || []).slice().sort((a, b) => (!!a.recebido_em - !!b.recebido_em) || String(a.previsto_em || "9").localeCompare(String(b.previsto_em || "9"))); const ctr = {}; (base.contratos || []).forEach((c) => { ctr[c.id] = c; });
             return pcs.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Contrato</th><th>Parcela</th><th>Previsto</th><th class="num">Valor</th><th>Recebimento</th><th></th></tr></thead>
               <tbody>${pcs.map((x) => `<tr><td>${esc((ctr[x.contrato_id] || {}).objeto || "—")}<span class="sub">${esc((ctr[x.contrato_id] || {}).contratante || "")}</span></td><td>${esc(x.descricao)}</td><td>${x.previsto_em ? data(x.previsto_em) : "—"}</td><td class="num">${moeda(x.valor)}</td>
-                <td>${x.recebido_em ? `<span class="selo ok">${data(x.recebido_em)}</span><span class="sub">${moeda(x.valor_recebido != null ? x.valor_recebido : x.valor)}${x.nota_fiscal ? " · NF " + esc(x.nota_fiscal) : ""}${x.registrado_nome ? " · " + esc(x.registrado_nome) : ""}</span>` : '<span class="selo warn">a receber</span>'}</td>
-                <td class="acoes-celula">${x.recebido_em ? `<button class="btn btn-ghost btn-sm" data-desreceber="${x.id}">Desfazer</button>` : `<button class="btn btn-primary btn-sm" data-receber="${x.id}">Registrar recebimento</button>`}</td></tr>`).join("")}</tbody></table></div>` : '<p class="vazio">Nenhuma parcela de contrato cadastrada.</p>'; })()}
+                <td>${x.recebido_em ? `<span class="selo ok">${data(x.recebido_em)}</span><span class="sub">${moeda(x.valor_recebido != null ? x.valor_recebido : x.valor)}${x.nota_fiscal ? " · NF " + esc(x.nota_fiscal) : ""}${x.registrado_nome ? " · " + esc(x.registrado_nome) : ""}${x.recomposto_em ? " · Soberania recomposta" : ""}</span>`
+                  : x.previsto_em && x.previsto_em < hojeISO() ? `<span class="selo err">atrasada desde ${data(x.previsto_em)}</span>${x.coberto_soberania ? `<span class="sub">retiradas cobertas pelo Fundo de Soberania: ${moeda(x.coberto_soberania)}</span>` : ""}`
+                  : '<span class="selo warn">a receber</span>'}${(() => { const mk = (base.marcos || []).find((m) => m.parcela_id === x.id); return mk ? `<span class="sub">entrega: ${esc(mk.titulo)} ${mk.entregue_em ? "— <b>feita em " + data(mk.entregue_em) + ", pode faturar</b>" : "— ainda não entregue"}</span>` : ""; })()}</td>
+                <td class="acoes-celula">${x.recebido_em ? `<button class="btn btn-ghost btn-sm" data-desreceber="${x.id}">Desfazer</button>` : `<button class="btn btn-primary btn-sm" data-receber="${x.id}">Registrar recebimento</button>${x.previsto_em && x.previsto_em < hojeISO() && !x.coberto_soberania ? ` <button class="btn btn-ghost btn-sm" data-cobrir="${x.id}">Cobrir com o Fundo de Soberania</button>` : ""}`}</td></tr>`).join("")}</tbody></table></div>` : '<p class="vazio">Nenhuma parcela de contrato cadastrada.</p>'; })()}
         </section>
         <section class="painel"><h2>Outras receitas</h2>
           <p class="hint">Só o que <b>não</b> é parcela de contrato cadastrado (ex.: contrato antigo, serviço avulso). Entra na receita do mês junto com as parcelas recebidas.</p>
@@ -311,7 +316,19 @@
           </form>
         </section>`;
       corpo.addEventListener("click", async (ev) => {
-        const br = ev.target.closest("[data-receber]"), bdr = ev.target.closest("[data-desreceber]");
+        const br = ev.target.closest("[data-receber]"), bdr = ev.target.closest("[data-desreceber]"), bc = ev.target.closest("[data-cobrir]");
+        if (bc) {
+          const x = (base.parcelas || []).find((y) => y.id === bc.dataset.cobrir); const ct = (base.contratos || []).find((c) => c.id === x.contrato_id) || {};
+          const pub = await API.sobras.publico().catch(() => ({ movimentos: [] })); const saldoS = Fin.centavos(pub.movimentos.filter((m) => m.fundo === "soberania").reduce((t, m) => t + Number(m.valor), 0));
+          const sugerido = Math.min(saldoS, Fin.centavos(Number(x.valor) * (1 - Number(ct.retencao_pct || 0)) * (1 - Fin.params(base.parametros).custo_op_pct)));
+          const m = UI.modal(`<h2>Cobrir retiradas com o Fundo de Soberania</h2><p>A parcela <b>${esc(x.descricao)}</b> de ${esc(ct.contratante || "")} está atrasada. O Regimento (art. 120) usa o Fundo de Soberania para manter as retiradas enquanto o pagamento não chega; ele é recomposto sozinho quando você registrar o recebimento.</p>
+            <dl class="sol-dados"><div><dt>Saldo do fundo</dt><dd>${moeda(saldoS)}</dd></div><div><dt>Parcela</dt><dd>${moeda(x.valor)}</dd></div></dl>
+            ${saldoS <= 0 ? '<div class="notice warn">O Fundo de Soberania ainda não tem saldo. Ele se forma com as sobras do exercício (Regimento, arts. 116 e 120). Enquanto isso, as retiradas dependem do caixa livre.</div>' : ""}
+            <div class="field"><label for="cb-v">Valor a usar (R$)</label><input class="input" id="cb-v" inputmode="decimal" value="${brl(sugerido)}"><span class="hint">Sugestão: o que a parcela pagaria à equipe (sem retenções e sem os 20%). Depois, transfira esse valor da aplicação do fundo para a conta e atualize o saldo em Retiradas.</span></div>
+            <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="cb-ok">Registrar cobertura</button></div>`);
+          $("#cb-ok", m.el).onclick = async (e2) => { const v = lerValor($("#cb-v", m.el).value); if (!(v > 0)) return toast("Informe o valor.", "err"); if (await acao(e2.currentTarget, () => API.proj.cobrirSoberania(x.id, v), "Cobertura registrada no Fundo de Soberania.")) { m.fechar(); recarregar(); } };
+          return;
+        }
         if (bdr) { if (!(await confirmar("Desfazer o registro do recebimento?", "Desfazer"))) return; if (await acao(bdr, () => API.proj.salvarParcela({ id: bdr.dataset.desreceber, recebido_em: null, valor_recebido: null, nota_fiscal: null }), "Recebimento desfeito.")) recarregar(); return; }
         if (!br) return;
         const x = (base.parcelas || []).find((y) => y.id === br.dataset.receber);

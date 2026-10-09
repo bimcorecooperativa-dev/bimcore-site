@@ -281,7 +281,7 @@ select.mini { padding: 0.4rem 0.5rem; font-size: 0.85rem; width: auto; }
 /* Modo leitura do Conselho Fiscal no Financeiro */
 .so-leitura :is([data-confirmar], [data-recusar], [data-pagar], [data-recret], [data-desfazer], [data-delsal], [data-delguia], [data-val],
   [data-ed-desp], [data-ex-desp], [data-ed-pag], [data-ex-pag], [data-ed-coop], [data-preparar], [data-publicar],
-  #t-nova-desp, #t-novo-coop, #t-novo-pag, #fm-puxar, [data-receber], [data-desreceber]) { display: none !important; }
+  #t-nova-desp, #t-novo-coop, #t-novo-pag, #fm-puxar, [data-receber], [data-desreceber], [data-cobrir]) { display: none !important; }
 .so-leitura #t-corpo form :is(button[type="submit"], .btn-primary) { display: none !important; }
 .so-leitura :is(#t-sal, #t-guia, #t-rec) { display: none !important; }
 .so-leitura #t-corpo form :is(input, select, textarea) { pointer-events: none; opacity: .6; }
@@ -363,3 +363,8 @@ form.aval { border-top: 1px solid var(--line); padding-top: .8rem; margin-top: .
 .pchat-anexo { cursor: pointer; }
 .asm-passo-lista { padding-left: 1.2rem; display: grid; gap: .4rem; }
 @media (max-width: 640px) { .pchat-msg { max-width: 100%; } }
+
+.barras-fisfin { display: grid; gap: .5rem; margin: 1rem 0; }
+.barras-fisfin > div { display: grid; grid-template-columns: 14rem 1fr 9rem; gap: .8rem; align-items: center; font-size: .9rem; }
+.barras-fisfin b { text-align: right; font-weight: 600; }
+@media (max-width: 640px) { .barras-fisfin > div { grid-template-columns: 1fr auto; } .barras-fisfin .barra { grid-column: 1 / -1; grid-row: 2; } }

@@ -694,7 +694,7 @@
         async tudo() {
           const s = ler(); exigir(s, "ver"); s.fin.folha = s.fin.folha || []; s.fin.receitas = s.fin.receitas || []; s.fin.retiradas = s.fin.retiradas || [];
           const horas_total = s.producao.filter((h) => h.tipo === "produtiva" || h.tipo === "formacao").reduce((t, h) => t + Number(h.horas), 0);
-          return espera(JSON.parse(JSON.stringify({ ...s.fin, saldos: s.fin.saldos || [], vigencias: s.fin.vigencias || [], sobras: s.fin.sobras || [], sobras_cotas: s.fin.sobras_cotas || [], fundos_mov: s.fin.fundos_mov || [], parcelas: s.contrato_parcelas || [], contratos: s.contratos || [], horas_mes: this._horasMes(s), horas_total, caixa: this._caixa(s) })));
+          return espera(JSON.parse(JSON.stringify({ ...s.fin, saldos: s.fin.saldos || [], vigencias: s.fin.vigencias || [], sobras: s.fin.sobras || [], sobras_cotas: s.fin.sobras_cotas || [], fundos_mov: s.fin.fundos_mov || [], parcelas: s.contrato_parcelas || [], contratos: s.contratos || [], marcos: s.projeto_marcos || [], horas_mes: this._horasMes(s), horas_total, caixa: this._caixa(s) })));
         },
         async horasLancadas(mes) {
           const s = ler(); exigir(s, "tes"); const m = String(mes).slice(0, 7);
@@ -763,8 +763,21 @@
         async excluirContrato(id) { const s = ler(); const u = exigir(s); this._st(s); if (!(u.papel === "coordenacao" || u.conselho_adm)) falha("permission denied"); s.contratos = s.contratos.filter((x) => x.id !== id); s.contrato_parcelas = s.contrato_parcelas.filter((x) => x.contrato_id !== id); s.projetos.forEach((p) => { if (p.contrato_id === id) p.contrato_id = null; }); gravar(s); return espera(true); },
         async salvarParcela(d) {
           const s = ler(); const u = exigir(s); this._st(s); if (!(u.papel === "coordenacao" || u.conselho_adm || u.tesouraria)) falha("permission denied");
-          if (d.id) Object.assign(s.contrato_parcelas.find((x) => x.id === d.id), d, d.recebido_em ? { registrado_nome: u.nome } : {}); else s.contrato_parcelas.push({ ...d, id: novoId(), criado_em: new Date().toISOString() });
+          if (d.id) { const x = s.contrato_parcelas.find((y) => y.id === d.id);
+            if (!d.recebido_em && x.recebido_em && x.recomposto_em && "recebido_em" in d) falha("Esta parcela recompôs o Fundo de Soberania. Para desfazer, registre a saída correspondente no fundo e peça ajuda à coordenação.");
+            if (d.recebido_em && !x.recebido_em && x.coberto_soberania && !x.recomposto_em) { s.fin.fundos_mov = s.fin.fundos_mov || []; s.fin.fundos_mov.push({ id: novoId(), fundo: "soberania", data: d.recebido_em, valor: Number(x.coberto_soberania), descricao: `Recomposição: parcela "${x.descricao}" recebida`, exercicio: null, registrado_nome: "Registro do site", criado_em: new Date().toISOString() }); d.recomposto_em = d.recebido_em; }
+            if (d.recebido_em && !x.recebido_em) s.projetos.filter((p) => p.contrato_id === x.contrato_id && p.coordenador_id).forEach((p) => this._sis(s, p.id, `Parcela recebida pela cooperativa: ${x.descricao}.`));
+            delete d.coberto_soberania; delete d.coberto_em; Object.assign(x, d, d.recebido_em ? { registrado_nome: u.nome } : {}); }
+          else s.contrato_parcelas.push({ ...d, id: novoId(), criado_em: new Date().toISOString() });
           gravar(s); return espera(true);
+        },
+        async cobrirSoberania(id, valor) {
+          const s = ler(); const u = exigir(s, "tes"); this._st(s); const x = s.contrato_parcelas.find((y) => y.id === id); const ct = s.contratos.find((c) => c.id === x.contrato_id);
+          if (x.recebido_em) falha("Esta parcela já foi recebida."); if (x.coberto_soberania) falha("Esta parcela já está coberta pelo Fundo de Soberania."); if (!(valor > 0)) falha("Informe o valor.");
+          s.fin.fundos_mov = s.fin.fundos_mov || []; const saldo = s.fin.fundos_mov.filter((m) => m.fundo === "soberania").reduce((t, m) => t + Number(m.valor), 0);
+          if (valor > saldo + 0.005) falha(`O Fundo de Soberania tem ${saldo.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} disponíveis.`);
+          s.fin.fundos_mov.push({ id: novoId(), fundo: "soberania", data: UI_hoje(), valor: -valor, descricao: `Cobertura de retiradas: atraso da parcela "${x.descricao}" de ${ct.contratante}`, exercicio: null, registrado_nome: u.nome, criado_em: new Date().toISOString() });
+          Object.assign(x, { coberto_soberania: valor, coberto_em: UI_hoje() }); gravar(s); return espera(true);
         },
         async excluirParcela(id) { const s = ler(); exigir(s); this._st(s); s.contrato_parcelas = s.contrato_parcelas.filter((x) => x.id !== id); gravar(s); return espera(true); },
         async salvarProjeto(d) {
@@ -786,7 +799,7 @@
           if (c > 1.0001) falha(`Com este projeto, a dedicação de ${pe.nome} passaria de 100% (${Math.round(c * 100)}%).`);
           let a = s.projeto_adesoes.find((x) => x.funcao_id === f.id && x.perfil_id === perfil);
           if (a) Object.assign(a, { status: "confirmada", decidido_nome: u.nome, decidido_em: new Date().toISOString() });
-          else s.projeto_adesoes.push({ id: novoId(), funcao_id: f.id, projeto_id: pid, perfil_id: perfil, nome: pe.nome, status: "confirmada", mensagem: "Designado(a) em reunião interna: " + ato, decidido_nome: u.nome, decidido_em: new Date().toISOString(), criado_em: new Date().toISOString() });
+          else s.projeto_adesoes.push({ id: novoId(), funcao_id: f.id, projeto_id: pid, perfil_id: perfil, nome: pe.nome, status: "confirmada", categoria: (s.fin.cooperados.find((c) => c.perfil_id === perfil) || {}).categoria || null, conselho: (s.fin.cooperados.find((c) => c.perfil_id === perfil) || {}).conselho || null, mensagem: "Designado(a) em reunião interna: " + ato, decidido_nome: u.nome, decidido_em: new Date().toISOString(), criado_em: new Date().toISOString() });
           this._sis(s, pid, (p.coordenador_id ? "" : "Chat do projeto aberto. ") + "Coordenador do projeto: " + pe.nome + " (" + ato + ").");
           Object.assign(p, { coordenador_id: perfil, coordenador_nome: pe.nome, coordenador_ato: ato }); gravar(s); return espera(true);
         },
@@ -1359,7 +1372,7 @@
           ok(await sb.from("fin_receitas").upsert({ ...receita, atualizado_nome: eu.nome, atualizado_em: new Date().toISOString() }, { onConflict: "mes" })); return true;
         },
         async tudo() {
-          const [par, coo, desp, pag, fol, rec, hab, exps, hm, rt, ht, sal, vg, cx, sc, pcl, ctr] = await Promise.all([
+          const [par, coo, desp, pag, fol, rec, hab, exps, hm, rt, ht, sal, vg, cx, sc, pcl, ctr, mrc] = await Promise.all([
             sb.from("fin_parametros").select("*").eq("id", 1).single(),
             sb.from("fin_cooperados").select("*").order("nome"),
             sb.from("fin_despesas").select("*").order("data", { ascending: false, nullsFirst: false }),
@@ -1376,11 +1389,12 @@
             sb.rpc("caixa_retiradas"),
             sb.from("fin_sobras_cotas").select("*"),
             sb.from("contrato_parcelas").select("*"),
-            sb.from("contratos").select("*")
+            sb.from("contratos").select("*"),
+            sb.from("projeto_marcos").select("id,projeto_id,titulo,previsto,entregue_em,parcela_id")
           ]);
           return { parametros: ok(par), cooperados: ok(coo), despesas: ok(desp), pagamentos: ok(pag), folha: fol.error ? [] : fol.data, receitas: rec.error ? [] : rec.data, habilitacoes: hab.error ? [] : hab.data, experiencias: exps.error ? [] : exps.data,
             horas_mes: hm.error ? [] : hm.data, retiradas: rt.error ? [] : rt.data, horas_total: ht.error ? null : Number(ht.data),
-            saldos: sal.error ? [] : sal.data, vigencias: vg.error ? [] : vg.data, caixa: cx.error ? null : cx.data, sobras_cotas: sc.error ? [] : sc.data, parcelas: pcl.error ? [] : pcl.data, contratos: ctr.error ? [] : ctr.data };
+            saldos: sal.error ? [] : sal.data, vigencias: vg.error ? [] : vg.data, caixa: cx.error ? null : cx.data, sobras_cotas: sc.error ? [] : sc.data, parcelas: pcl.error ? [] : pcl.data, contratos: ctr.error ? [] : ctr.data, marcos: mrc.error ? [] : mrc.data };
         },
         async horasLancadas(mes) { return ok(await sb.rpc("horas_lancadas", { p_mes: mes })); },
         async salvarFolha(linhas, receita) {
@@ -1433,6 +1447,7 @@
           if (d.id) ok(await sb.from("contrato_parcelas").update(x).eq("id", d.id)); else ok(await sb.from("contrato_parcelas").insert(x)); return true;
         },
         async excluirParcela(id) { ok(await sb.from("contrato_parcelas").delete().eq("id", id)); return true; },
+        async cobrirSoberania(id, valor) { ok(await sb.rpc("cobrir_com_soberania", { p_parcela: id, p_valor: valor })); return true; },
         async salvarProjeto(d) {
           const x = { ...d }; delete x.id; delete x.criado_em; delete x.coordenador_id; delete x.coordenador_nome; delete x.coordenador_ato; delete x.atualizado_em;
           Object.keys(x).forEach((k) => { if (x[k] === "") x[k] = null; });
