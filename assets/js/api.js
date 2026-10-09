@@ -659,13 +659,20 @@
           Object.assign(r, d, { status: "paga", pago_nome: u.nome, atualizado_em: new Date().toISOString() });
           // cotas atrasadas quitadas com a retirada viram pagamentos de contribuição (no banco, um gatilho faz isso)
           s.fin.pagamentos = s.fin.pagamentos.filter((p) => p.retirada_id !== r.id);
+          s.fin.notificacoes = s.fin.notificacoes || [];
+          const nPagas = s.fin.retiradas.filter((x) => x.fin_cooperado_id === r.fin_cooperado_id && x.status === "paga").length;
+          if (nPagas >= 2 && !(Number(r.quitar_valor) > 0) && Number(r.atrasadas_valor) > 0) {
+            const num = s.fin.notificacoes.filter((x) => x.fin_cooperado_id === r.fin_cooperado_id).reduce((m, x) => Math.max(m, x.numero), 0) + 1;
+            s.fin.notificacoes.push({ id: novoId(), fin_cooperado_id: r.fin_cooperado_id, cooperado_nome: (s.fin.cooperados.find((x) => x.id === r.fin_cooperado_id) || {}).nome, retirada_id: r.id, tipo: "cotas_atrasadas", numero: num, meses: r.atrasadas_meses || [], valor: Number(r.atrasadas_valor), retiradas_pagas: nPagas, status: "aberta", criado_em: new Date().toISOString() });
+          }
           (r.quitar_meses || []).forEach((q) => { if (Number(q.valor) > 0) s.fin.pagamentos.push({ id: novoId(), data: r.pago_em, fin_cooperado_id: r.fin_cooperado_id, tipo: "contribuicao", mes_ref: q.mes + "-01", valor: Number(q.valor), observacao: "Descontado da retirada", origem: "tesouraria", retirada_id: r.id, criado_nome: u.nome, criado_em: new Date().toISOString() }); });
           gravar(s); return espera(true);
         },
         async desfazerPagamento(id) {
           const s = ler(); exigir(s, "tes"); const r = (s.fin.retiradas || []).find((x) => x.id === id); if (!r) falha("Solicitação não encontrada.");
           Object.assign(r, { status: "solicitada", pago_em: null, pago_nome: null, inss: null, contribuicao: null, fic_vol: null, liquido: null });
-          s.fin.pagamentos = s.fin.pagamentos.filter((p) => p.retirada_id !== r.id); gravar(s); return espera(true);
+          s.fin.pagamentos = s.fin.pagamentos.filter((p) => p.retirada_id !== r.id);
+          s.fin.notificacoes = (s.fin.notificacoes || []).filter((n) => !(n.retirada_id === r.id && n.status === "aberta")); gravar(s); return espera(true);
         },
         _caixa(s) {
           const sal = (s.fin.saldos || []).slice().sort((a, b) => String(b.data).localeCompare(String(a.data)) || String(b.criado_em).localeCompare(String(a.criado_em)))[0];
@@ -962,6 +969,14 @@
         async registros(pid) { const s = ler(); const u = exigir(s); this._par(s); return espera(s.igcc_registros.filter((r) => (pid ? r.perfil_id === pid : true) && (r.perfil_id === u.id || u.conselho_adm || u.conselho_fiscal)).sort((a, b) => b.data.localeCompare(a.data))); },
         async registrar(d) { const s = ler(); const u = exigir(s, "ca"); this._par(s); if (d.perfil_id === u.id) falha("Ninguém registra contribuição para si mesmo."); s.igcc_registros.push({ ...d, id: novoId(), registrado_nome: u.nome, criado_em: new Date().toISOString() }); gravar(s); return espera(true); },
         async excluirRegistro(id) { const s = ler(); exigir(s, "ca"); this._par(s); s.igcc_registros = s.igcc_registros.filter((r) => !(r.id === id && ["contribuicao", "disciplina"].includes(r.componente))); gravar(s); return espera(true); }
+      },
+      notif: {
+        async listar() { const s = ler(); const u = exigir(s); const c = s.fin.cooperados.find((x) => x.perfil_id === u.id);
+          const todos = u.papel === "coordenacao" || u.conselho_adm || u.conselho_fiscal || u.tesouraria;
+          return espera(JSON.parse(JSON.stringify((s.fin.notificacoes || []).filter((n) => todos || (c && n.fin_cooperado_id === c.id)).sort((a, b) => b.criado_em.localeCompare(a.criado_em))))); },
+        async decidir(id, d) { const s = ler(); const u = exigir(s); if (!(u.papel === "coordenacao" || u.conselho_adm)) falha("Só o Conselho de Administração trata as notificações.");
+          const n = (s.fin.notificacoes || []).find((x) => x.id === id); if (!n) falha("Notificação não encontrada.");
+          Object.assign(n, { status: d.status, providencia: d.providencia || null, decidido_nome: u.nome, decidido_em: new Date().toISOString() }); gravar(s); return espera(true); }
       },
       caixa: {
         _st(s) { s.fin.contas = s.fin.contas || []; s.fin.contas_saldos = s.fin.contas_saldos || []; s.fin.contas_pagar = s.fin.contas_pagar || []; s.fin.mapa = s.fin.mapa || []; },
@@ -1596,6 +1611,10 @@
         async registros(pid) { let q = sb.from("igcc_registros").select("*").order("data", { ascending: false }).limit(1000); if (pid) q = q.eq("perfil_id", pid); return ok(await q); },
         async registrar(d) { ok(await sb.from("igcc_registros").insert(d)); return true; },
         async excluirRegistro(id) { ok(await sb.from("igcc_registros").delete().eq("id", id)); return true; }
+      },
+      notif: {
+        async listar() { const r = await sb.from("fin_notificacoes").select("*").order("criado_em", { ascending: false }).limit(500); return r.error ? [] : r.data; },
+        async decidir(id, d) { ok(await sb.from("fin_notificacoes").update({ status: d.status, providencia: d.providencia || null }).eq("id", id)); return true; }
       },
       caixa: {
         async dados() {

@@ -250,23 +250,22 @@
             <div id="pg-quitar"></div>
             <p class="hint" id="pg-liq"></p>
             <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="pg-ok">Confirmar pagamento</button></div>`);
-          // cotas atrasadas: vale a escolha do cooperado, sem as que já foram pagas, e nunca abaixo do mínimo de X% do líquido
+          // cotas atrasadas: vale a escolha do cooperado (opcional), sem as que já foram pagas por outro meio
           const outras = new Set(rets.filter((x) => x.id !== r.id && x.status === "solicitada" && x.fin_cooperado_id === r.fin_cooperado_id).flatMap((x) => (x.quitar_meses || []).map((q) => q.mes)));
-          const abertas = Fin.atrasadas(calc[c.id], []).filter((x) => !outras.has(x.mes));
+          const todasAbertas = Fin.atrasadas(calc[c.id], []);
+          const abertas = todasAbertas.filter((x) => !outras.has(x.mes));
+          const pagasAntes = rets.filter((x) => x.fin_cooperado_id === r.fin_cooperado_id && x.status === "paga").length;
           const pedidas = new Set((r.quitar_meses || []).map((q) => q.mes));
-          const pctAtr = Number(Fin.params(base.parametros).atraso_desconto_pct != null ? Fin.params(base.parametros).atraso_desconto_pct : 0.1);
           let quitar = [];
           const montarQuitar = (liqAntes) => {
             quitar = abertas.filter((x) => pedidas.has(x.mes));
-            const minK = Fin.minimoQuitar(abertas, liqAntes, pctAtr), minV = abertas.slice(0, minK).reduce((t, x) => t + x.aberto, 0);
-            let subiu = false;
-            for (const x of abertas) { if (quitar.reduce((t, y) => t + y.aberto, 0) + 0.005 >= minV) break; if (!quitar.includes(x)) { quitar.push(x); subiu = true; } }
-            quitar.sort((a, b) => a.mes.localeCompare(b.mes));
+            let soma = 0; quitar = quitar.filter((x) => { if (soma + x.aberto > liqAntes + 0.005) return false; soma += x.aberto; return true; });
             const tot = Fin.centavos(quitar.reduce((t, x) => t + x.aberto, 0));
             const nPed = (r.quitar_meses || []).length;
             $("#pg-quitar", m.el).innerHTML = quitar.length ? `<div class="notice">Cotas mensais atrasadas quitadas com esta retirada: <b>${quitar.map((x) => Fin.nomeMes(x.mes)).join(", ")}</b> · <b>${moeda(tot)}</b>.
-              ${subiu ? ` Incluímos ${nPed ? "mais cotas além das escolhidas" : "as cotas mínimas"} para chegar ao mínimo de ${Math.round(pctAtr * 100)}% do líquido.` : nPed && nPed !== quitar.length ? " Algumas cotas escolhidas já foram pagas por outro meio e saíram da conta." : " Escolha do cooperado."}
-              Ao confirmar, cada cota vira um pagamento de contribuição do mês dela.</div>` : nPed ? '<div class="notice">As cotas atrasadas escolhidas pelo cooperado já foram pagas por outro meio. Nada a descontar.</div>' : "";
+              ${nPed && nPed !== quitar.length ? " Algumas cotas escolhidas já foram pagas por outro meio e saíram da conta." : " Escolha do cooperado."}
+              Ao confirmar, cada cota vira um pagamento de contribuição do mês dela.</div>` : nPed ? '<div class="notice">As cotas atrasadas escolhidas pelo cooperado já foram pagas por outro meio. Nada a descontar.</div>'
+              : todasAbertas.length && pagasAntes >= 1 ? `<div class="notice warn">${esc(c.nome)} tem ${todasAbertas.length} cota(s) atrasada(s) (${moeda(todasAbertas.reduce((t, x) => t + x.aberto, 0))}) e não escolheu quitar nenhuma. Como esta é a ${pagasAntes + 1}ª retirada, ao confirmar o site registra uma notificação de inadimplência para o CA e o CF.</div>` : "";
             return tot;
           };
           let qv = 0;
@@ -278,7 +277,8 @@
             const dt = $("#pg-data", m.el).value; if (!dt) return toast("Informe a data da transferência.", "err");
             const l = liq(); if (l < 0) return toast("Os descontos passam do bruto.", "err");
             const ok = await acao(e2.currentTarget, () => API.fin.pagarRetirada(r.id, { pago_em: dt, inss: num($("#pg-inss", m.el).value), ir: num($("#pg-ir", m.el).value), contribuicao: num($("#pg-cap", m.el).value), fic_vol: num($("#pg-fic", m.el).value), liquido: l,
-              quitar_meses: quitar.length ? quitar.map((x) => ({ mes: x.mes, valor: x.aberto })) : null, quitar_valor: quitar.length ? qv : null }), "Retirada registrada como paga.");
+              quitar_meses: quitar.length ? quitar.map((x) => ({ mes: x.mes, valor: x.aberto })) : null, quitar_valor: quitar.length ? qv : null,
+              atrasadas_valor: Fin.centavos(todasAbertas.reduce((t, x) => t + x.aberto, 0)), atrasadas_meses: todasAbertas.map((x) => x.mes) }), "Retirada registrada como paga.");
             if (ok) { m.fechar(); recarregar(); }
           };
         }
@@ -491,7 +491,7 @@
           ${campoP("cp-cop", "Custo de Operação e Gestão (%)", pct(pr.custo_op_pct), "Art. 23, §7º.")}
           ${campoP("cp-rmin", "Valor mínimo para pedir retirada (R$)", brl(pr.retirada_minima), `0 = automático: 1 quota ÷ 1,5% = ${moeda(Fin.retiradaMinima({ ...base.parametros, retirada_minima: 0 }).valor)}, que acompanha o reajuste da quota. Abaixo do mínimo, o crédito fica acumulando.`)}
           ${campoP("cp-rdia", "Prazo da transferência (dia útil do mês seguinte)", pr.retirada_dia_util, "Ex.: 5 = até o 5º dia útil.")}
-          ${campoP("cp-atr", "Cotas atrasadas: mínimo a quitar na retirada (% do líquido)", pct(pr.atraso_desconto_pct), "As cotas mensais atrasadas que couberem nesse percentual do líquido são descontadas obrigatoriamente; acima disso, o cooperado escolhe.")}
+          ${campoP("cp-atr", "Cotas atrasadas: sugestão de quitação na retirada (% do líquido)", pct(pr.atraso_desconto_pct), "O pedido de retirada já vem com as cotas que cabem nesse percentual; o cooperado pode mudar. Quitar é opcional.")}
           ${campoP("cp-res", "Fundo de Reserva (%)", pct(pr.reserva_pct), "Mínimo legal; a Assembleia define (art. 71, §3º).")}
           ${campoP("cp-fates", "FATES (%)", pct(pr.fates_pct), "Mínimo legal; a Assembleia define.")}
         </div></section>

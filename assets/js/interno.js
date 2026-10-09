@@ -484,6 +484,12 @@
       async render(el, ctx) { return window.Enquadramento.render(el, ctx); }
     },
 
+    notificacoes: {
+      titulo: "Notificações de inadimplência",
+      async contador(ctx) { return window.Notificacoes.contador(ctx); },
+      async render(el, ctx) { return window.Notificacoes.render(el, ctx); }
+    },
+
     igcc: {
       titulo: "Índice Global (IGCC)",
       async render(el, ctx) { return window.IGCC.renderTodos(el, ctx); }
@@ -603,6 +609,7 @@
       if (ca) out.projetos = { ...todas.projetos, separador: false };
       if (ca) out.enquadramento = { ...todas.enquadramento, separador: false };
       if (ca || fiscal) out.igcc = { ...todas.igcc, separador: false };
+      if (ca || fiscal) out.notificacoes = { ...todas.notificacoes, separador: false };
       if (tes || fiscal) out.financeiro = { ...todas.financeiro, separador: false };
       if (fiscal) out.conselho = { ...todas.conselho, separador: false };
       return out;

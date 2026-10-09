@@ -204,6 +204,7 @@
           return;
         }
         const bruta = pos[0];
+        const minhasNotif = sistema ? await API.notif.listar().catch(() => []) : [];
         const p = Fin.ajustada(bruta, movs);
         const disp = Fin.componentes(bruta, movs);
         const aguardando = movs.filter((m) => m.status === "aguardando");
@@ -243,7 +244,7 @@
           contrib: "1,5% da retirada vai para o seu capital social (quotas-parte). Continua sendo seu e volta no desligamento. Nos meses sem retirada, a contribuição é de 1 quota-parte, paga por Pix (Estatuto, art. 23, §4º).",
           ficvol: "Aporte voluntário que você escolheu para o seu Fundo Individual de Capitalização, até 2,5% da retirada. É seu e é resgatado no desligamento (Regimento, art. 123).",
           liquido: "O que cai na sua conta bancária.",
-          atrasadas: "Contribuições mensais de meses anteriores que ficaram em aberto. Você escolhe quantas quitar com esta retirada, das mais antigas para as mais novas. O mínimo são as que couberem em 10% do líquido; as demais você pode quitar agora, numa próxima retirada ou por Pix.",
+          atrasadas: "Contribuições mensais de meses anteriores que ficaram em aberto. Você escolhe quantas quitar com esta retirada, das mais antigas para as mais novas, ou paga por Pix. A partir da 2ª retirada, não quitar nenhuma gera notificação de inadimplência ao CA e ao CF.",
           ficcoop: "Além disso, a cooperativa deposita no seu FIC 5,5% da retirada do mês anterior. Não sai do seu bruto (Regimento, art. 123).",
           provisoes: "A cooperativa guarda 1/12 de cada retirada para o seu 13º (pago até 20 de dezembro) e 1/12 para as suas férias (pagas no recesso). Não sai do seu bruto (Regimento, art. 124).",
           auxilios: "Auxílio-teletrabalho (9,25% do salário-mínimo por mês) e auxílio-alimentação (2,78% do salário-mínimo por dia trabalhado). São indenizatórios, não saem do seu crédito e não fazem parte da retirada (Regimento, art. 125).",
@@ -296,6 +297,13 @@
             <div class="kpi"><span class="rot">Aportes à cooperativa</span><span class="val">${moeda(aportes)}</span><span class="det">Devolvidos só no desligamento</span></div>
           </div>
 
+          ${minhasNotif.length ? `<section class="painel">
+            <h2>Notificações de inadimplência</h2>
+            <p class="muted">Registradas pelo site quando uma retirada sua, a partir da 2ª, foi paga sem quitar nenhuma cota mensal atrasada. O Conselho de Administração e o Conselho Fiscal acompanham. A notificação não é advertência: qualquer sanção depende de processo disciplinar, com direito de defesa (Estatuto, arts. 15 e 16). Para regularizar, quite as cotas na próxima retirada ou por Pix.</p>
+            <div class="tabela-wrap"><table class="tabela"><thead><tr><th>Data</th><th>Cotas em aberto</th><th class="num">Valor</th><th>Situação</th><th>Providência do CA</th></tr></thead>
+              <tbody>${minhasNotif.map((n) => `<tr><td>${dataHora(n.criado_em)}<span class="sub">${n.numero}ª notificação</span></td><td>${esc(window.Notificacoes.meses(n))}</td><td class="num">${moeda(n.valor)}</td><td>${window.Notificacoes.selo(n.status)}</td><td>${n.providencia ? esc(n.providencia) : "—"}</td></tr>`).join("")}</tbody>
+            </table></div>
+          </section>` : ""}
           ${blocoCredito}
 
           <section class="painel acerto">
@@ -494,22 +502,26 @@
           const jaPedidas = new Set(cr.retiradas.filter((r) => r.status === "solicitada").flatMap((r) => (r.quitar_meses || []).map((q) => q.mes)));
           const atr = Fin.atrasadas(bruta, movs).filter((x) => !jaPedidas.has(x.mes));
           const pctAtr = Number(parR.atraso_desconto_pct != null ? parR.atraso_desconto_pct : 0.1);
-          let nQuitar = null, minQ = 0;
+          const jaPagas = cr.retiradas.filter((r) => r.status === "paga").length;
+          let nQuitar = null, sugQ = 0;
           const conta = () => {
             const v = lerValor($("#rt-valor", m.el).value), box = $("#rt-conta", m.el), qb = $("#rt-quitar", m.el);
             if (!(v > 0)) { box.innerHTML = '<p class="hint">Digite um valor.</p>'; return null; }
             if (v > maxPed + 0.005) { box.innerHTML = `<p class="hint" style="color:var(--err)">Passa do máximo disponível (${moeda(maxPed)}).</p>`; return null; }
             if (v + 0.005 < parR.retirada_minima) { box.innerHTML = `<p class="hint" style="color:var(--err)">O mínimo é ${moeda(parR.retirada_minima)}.</p>`; return null; }
             const d0 = Fin.descontosRetirada(ext.cooperado, ext, v, Fin.mesDe(prazoNovo));
-            minQ = Fin.minimoQuitar(atr, d0.liquido_antes, pctAtr);
+            sugQ = Fin.minimoQuitar(atr, d0.liquido_antes, pctAtr);
             let maxQ = 0, acum = 0; for (const x of atr) { if (acum + x.aberto > d0.liquido_antes + 0.005) break; acum += x.aberto; maxQ++; }
-            if (nQuitar == null || nQuitar < minQ) nQuitar = minQ; if (nQuitar > maxQ) nQuitar = maxQ;
+            if (nQuitar == null) nQuitar = sugQ; if (nQuitar > maxQ) nQuitar = maxQ;
             const sel = atr.slice(0, nQuitar), qv = Fin.centavos(sel.reduce((t, x) => t + x.aberto, 0));
             if (atr.length) {
-              const ops = []; for (let k = minQ; k <= maxQ; k++) { const t = atr.slice(0, k).reduce((u, x) => u + x.aberto, 0); ops.push(`<option value="${k}" ${k === nQuitar ? "selected" : ""}>${k === 0 ? "Nenhuma agora" : `${k} cota${k > 1 ? "s" : ""} · ${moeda(t)}${k === atr.length ? " (todas)" : ""}`}${k === minQ && k > 0 ? " — mínimo" : ""}</option>`); }
+              const ops = []; for (let k = 0; k <= maxQ; k++) { const t = atr.slice(0, k).reduce((u, x) => u + x.aberto, 0); ops.push(`<option value="${k}" ${k === nQuitar ? "selected" : ""}>${k === 0 ? "Nenhuma agora" : `${k} cota${k > 1 ? "s" : ""} · ${moeda(t)}${k === atr.length ? " (todas)" : ""}`}${k === sugQ && k > 0 ? " — sugerido" : ""}</option>`); }
               qb.innerHTML = `<div class="field"><label for="rt-nq">Cotas mensais atrasadas a quitar com esta retirada ${i("atrasadas")}</label>
                 <select class="input" id="rt-nq">${ops.join("")}</select>
-                <span class="hint">Você tem ${atr.length} em aberto (${atr.map((x) => Fin.nomeMes(x.mes)).join(", ")}), ${moeda(atr.reduce((t, x) => t + x.aberto, 0))} no total. ${minQ > 0 ? `O mínimo é ${minQ}: as que cabem em ${Math.round(pctAtr * 100)}% do líquido.` : `Nenhuma cabe em ${Math.round(pctAtr * 100)}% do líquido, então quitar agora é opcional.`}</span></div>`;
+                <span class="hint">Você tem ${atr.length} em aberto (${atr.map((x) => Fin.nomeMes(x.mes)).join(", ")}), ${moeda(atr.reduce((t, x) => t + x.aberto, 0))} no total. Quitar é opcional; a sugestão são as que cabem em ${Math.round(pctAtr * 100)}% do líquido.</span></div>
+                <div class="notice ${jaPagas >= 1 && nQuitar === 0 ? "warn" : ""}" style="margin-top:.5rem">${jaPagas >= 1
+                  ? (nQuitar === 0 ? "<b>Atenção:</b> esta será a sua " + (jaPagas + 1) + "ª retirada. Se ela for paga sem quitar nenhuma cota atrasada, o site registra uma notificação de inadimplência, que o Conselho de Administração e o Conselho Fiscal acompanham. Cumprir as contribuições é dever do cooperado (Estatuto, art. 9º)." : "Obrigado por regularizar. A partir da 2ª retirada, quem não quita nenhuma cota atrasada recebe uma notificação de inadimplência.")
+                  : "Na primeira retirada, quitar é totalmente livre. A partir da 2ª, se a retirada for paga sem quitar nenhuma cota atrasada, o site registra uma notificação de inadimplência para o Conselho de Administração e o Conselho Fiscal."}</div>`;
               $("#rt-nq", qb).onchange = (e) => { nQuitar = Number(e.target.value); conta(); };
             } else qb.innerHTML = "";
             const d = Fin.descontosRetirada(ext.cooperado, ext, v, Fin.mesDe(prazoNovo), qv);
