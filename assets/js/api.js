@@ -958,6 +958,24 @@
         async registrar(d) { const s = ler(); const u = exigir(s, "ca"); this._par(s); if (d.perfil_id === u.id) falha("Ninguém registra contribuição para si mesmo."); s.igcc_registros.push({ ...d, id: novoId(), registrado_nome: u.nome, criado_em: new Date().toISOString() }); gravar(s); return espera(true); },
         async excluirRegistro(id) { const s = ler(); exigir(s, "ca"); this._par(s); s.igcc_registros = s.igcc_registros.filter((r) => !(r.id === id && ["contribuicao", "disciplina"].includes(r.componente))); gravar(s); return espera(true); }
       },
+      caixa: {
+        _st(s) { s.fin.contas = s.fin.contas || []; s.fin.contas_saldos = s.fin.contas_saldos || []; s.fin.contas_pagar = s.fin.contas_pagar || []; s.fin.mapa = s.fin.mapa || []; },
+        async dados() { const s = ler(); const u = exigir(s); this._st(s); const ve = u.papel === "coordenacao" || u.tesouraria || u.conselho_fiscal;
+          return espera(JSON.parse(JSON.stringify({ contas: s.fin.contas, saldos: ve ? s.fin.contas_saldos : [], pagar: ve ? s.fin.contas_pagar : [] }))); },
+        async salvarConta(d) { const s = ler(); exigir(s, "tes"); this._st(s); if (d.id) Object.assign(s.fin.contas.find((x) => x.id === d.id), d); else s.fin.contas.push({ ativa: true, ordem: s.fin.contas.length, ...d, id: novoId(), criado_em: new Date().toISOString() }); gravar(s); return espera(true); },
+        async registrarSaldo(d) {
+          const s = ler(); const u = exigir(s, "tes"); this._st(s); s.fin.contas_saldos.push({ ...d, id: novoId(), registrado_nome: u.nome, criado_em: new Date().toISOString() });
+          const c = s.fin.contas.find((x) => x.id === d.conta_id);
+          if (c && c.tipo === "movimento") { const tot = s.fin.contas.filter((x) => x.tipo === "movimento" && x.ativa !== false).reduce((t, x) => { const ul = s.fin.contas_saldos.filter((y) => y.conta_id === x.id && y.data <= d.data).sort((a, b) => b.data.localeCompare(a.data) || String(b.criado_em).localeCompare(String(a.criado_em)))[0]; return t + (ul ? Number(ul.saldo) : 0); }, 0);
+            s.fin.saldos = s.fin.saldos || []; s.fin.saldos.push({ id: novoId(), data: d.data, saldo: tot, observacao: "Registrado em Contas e caixa", registrado_nome: u.nome, criado_em: new Date().toISOString() }); }
+          gravar(s); return espera(true);
+        },
+        async excluirSaldo(id) { const s = ler(); exigir(s, "tes"); this._st(s); s.fin.contas_saldos = s.fin.contas_saldos.filter((x) => x.id !== id); gravar(s); return espera(true); },
+        async salvarPagar(d) { const s = ler(); const u = exigir(s, "tes"); this._st(s); if (d.id) Object.assign(s.fin.contas_pagar.find((x) => x.id === d.id), d); else s.fin.contas_pagar.push({ status: "aberta", recorrencia: "unica", ...d, id: novoId(), registrado_nome: u.nome, criado_em: new Date().toISOString() }); gravar(s); return espera(true); },
+        async excluirPagar(id) { const s = ler(); exigir(s, "tes"); this._st(s); s.fin.contas_pagar = s.fin.contas_pagar.filter((x) => x.id !== id); gravar(s); return espera(true); },
+        async publicarMapa(dados) { const s = ler(); const u = exigir(s, "tes"); this._st(s); s.fin.mapa.unshift({ id: Date.now(), dados, gerado_nome: u.nome, gerado_em: new Date().toISOString() }); s.fin.mapa = s.fin.mapa.slice(0, 60); gravar(s); return espera(true); },
+        async mapa() { const s = ler(); exigir(s); this._st(s); return espera(s.fin.mapa[0] ? JSON.parse(JSON.stringify(s.fin.mapa[0])) : null); }
+      },
       sobras: {
         _st(s) { s.fin.sobras = s.fin.sobras || []; s.fin.sobras_cotas = s.fin.sobras_cotas || []; s.fin.fundos_mov = s.fin.fundos_mov || []; },
         async publico() {
@@ -1572,6 +1590,19 @@
         async registros(pid) { let q = sb.from("igcc_registros").select("*").order("data", { ascending: false }).limit(1000); if (pid) q = q.eq("perfil_id", pid); return ok(await q); },
         async registrar(d) { ok(await sb.from("igcc_registros").insert(d)); return true; },
         async excluirRegistro(id) { ok(await sb.from("igcc_registros").delete().eq("id", id)); return true; }
+      },
+      caixa: {
+        async dados() {
+          const [c, sd, pg] = await Promise.all([sb.from("fin_contas").select("*").order("ordem"), sb.from("fin_contas_saldos").select("*").order("data", { ascending: false }).limit(1000), sb.from("fin_contas_pagar").select("*").order("vencimento")]);
+          return { contas: ok(c), saldos: sd.error ? [] : sd.data, pagar: pg.error ? [] : pg.data };
+        },
+        async salvarConta(d) { const x = { ...d }; delete x.id; delete x.criado_em; if (d.id) ok(await sb.from("fin_contas").update(x).eq("id", d.id)); else ok(await sb.from("fin_contas").insert(x)); return true; },
+        async registrarSaldo(d) { ok(await sb.from("fin_contas_saldos").insert(d)); return true; },
+        async excluirSaldo(id) { ok(await sb.from("fin_contas_saldos").delete().eq("id", id)); return true; },
+        async salvarPagar(d) { const x = { ...d }; delete x.id; delete x.criado_em; delete x.registrado_nome; if (d.id) ok(await sb.from("fin_contas_pagar").update(x).eq("id", d.id)); else ok(await sb.from("fin_contas_pagar").insert(x)); return true; },
+        async excluirPagar(id) { ok(await sb.from("fin_contas_pagar").delete().eq("id", id)); return true; },
+        async publicarMapa(dados) { ok(await sb.from("fin_mapa").insert({ dados })); return true; },
+        async mapa() { const r = await sb.from("fin_mapa").select("*").order("gerado_em", { ascending: false }).limit(1); return r.error || !r.data.length ? null : r.data[0]; }
       },
       sobras: {
         async publico() {

@@ -368,3 +368,6 @@ form.aval { border-top: 1px solid var(--line); padding-top: .8rem; margin-top: .
 .barras-fisfin > div { display: grid; grid-template-columns: 14rem 1fr 9rem; gap: .8rem; align-items: center; font-size: .9rem; }
 .barras-fisfin b { text-align: right; font-weight: 600; }
 @media (max-width: 640px) { .barras-fisfin > div { grid-template-columns: 1fr auto; } .barras-fisfin .barra { grid-column: 1 / -1; grid-row: 2; } }
+
+.mapa-grade { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; margin-top: 1rem; }
+@media (max-width: 900px) { .mapa-grade { grid-template-columns: 1fr; } }

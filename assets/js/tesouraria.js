@@ -73,7 +73,7 @@
     const fech = Fin.mesFechamento(base.parametros);
     const recarregar = () => render(el, ctx);
 
-    const abas = [["resumo", "Resumo"], ["retiradas", "Retiradas"], ["cooperativa", "Cooperativa"], ["sobras", "Sobras e fundos"], ["despesas", "Despesas"], ["pagamentos", "Pagamentos e aportes"], ["cadastro", "Cadastro"], ["config", "Configurações"]];
+    const abas = [["resumo", "Resumo"], ["retiradas", "Retiradas"], ["caixa", "Contas e caixa"], ["cooperativa", "Cooperativa"], ["sobras", "Sobras e fundos"], ["despesas", "Despesas"], ["pagamentos", "Pagamentos e aportes"], ["cadastro", "Cadastro"], ["config", "Configurações"]];
     el.innerHTML = `
       <div class="pag-cab"><div><p class="eyebrow">Tesouraria</p><h1>Financeiro</h1></div>
         <button class="btn btn-ghost" id="t-exportar">Exportar para Excel</button></div>
@@ -99,6 +99,7 @@
         ${(() => { const atr = (base.parcelas || []).filter((x) => !x.recebido_em && x.previsto_em && x.previsto_em < hojeISO()); const fat = (base.parcelas || []).filter((x) => !x.recebido_em && (base.marcos || []).some((m) => m.parcela_id === x.id && m.entregue_em));
           return (atr.length ? `<div class="notice err"><b>${atr.length} parcela(s) de contrato em atraso.</b> Veja em Cooperativa → Parcelas dos contratos; se faltar caixa para as retiradas, cubra com o Fundo de Soberania.</div>` : "")
             + (fat.length ? `<div class="notice ok"><b>${fat.length} parcela(s) liberada(s) por entrega concluída</b>: ${fat.map((x) => esc(x.descricao)).join(", ")}. Emita a nota fiscal e acompanhe o pagamento.</div>` : ""); })()}
+        <div id="t-alertas-cx"></div>
         ${semCadastro.length ? `<div class="notice warn">${semCadastro.length} Pix confirmado(s) de quem ainda não tem cadastro financeiro ligado à conta do site. Ligue a conta em <b>Cadastro</b> e eles entram sozinhos.</div>` : ""}
         ${aguardando.length ? `<section class="painel acerto">
           <div class="painel-cab"><h2>Pix aguardando confirmação</h2><span class="selo warn">${aguardando.length}</span></div>
@@ -124,6 +125,8 @@
           </table></div>` : '<p class="vazio">Nenhum cooperado cadastrado. Comece pela aba Cadastro.</p>'}
         </section>`;
     }
+
+    if (aba === "resumo" && window.Caixa) window.Caixa.alertasResumo(base, guias).then((h) => { const b = $("#t-alertas-cx"); if (b) b.innerHTML = h; });
 
     /* ---------------- Retiradas ---------------- */
     if (aba === "retiradas") {
@@ -360,6 +363,9 @@
         if (await acao($("#rc-btn"), () => API.fin.salvarReceita({ mes: m + "-01", receita_bruta: num($("#rc-val").value) }), "Receita salva.")) recarregar();
       });
     }
+
+    /* ---------------- Contas, contas a pagar e mapa do dinheiro ---------------- */
+    if (aba === "caixa") await window.Caixa.renderTesouraria(corpo, { base, calc, guias, recarregar, leitura });
 
     /* ---------------- Sobras e fundos coletivos ---------------- */
     if (aba === "sobras") await window.Sobras.renderTesouraria(corpo, { base, calc, recarregar });

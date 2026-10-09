@@ -585,6 +585,11 @@
       }
     },
 
+    mapa: {
+      titulo: "Mapa do dinheiro",
+      async render(el) { return window.Caixa.renderPainel(el); }
+    },
+
     denuncia: {
       titulo: "Denúncias e reclamações",
       async render(el) {
