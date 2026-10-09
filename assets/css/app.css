@@ -348,3 +348,18 @@ select.mini { padding: 0.4rem 0.5rem; font-size: 0.85rem; width: auto; }
 .bep-lista dt { font-family: var(--mono); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
 .bep-lista dd { margin: .2rem 0 0; line-height: 1.55; }
 form.aval { border-top: 1px solid var(--line); padding-top: .8rem; margin-top: .8rem; }
+
+/* Chat do projeto */
+.pchat-msgs { max-height: 60vh; min-height: 12rem; overflow-y: auto; display: grid; gap: .55rem; align-content: start; padding: .3rem .3rem .3rem 0; margin-bottom: .8rem; }
+.pchat-msg { padding: .55rem .75rem; border-radius: 8px; background: rgba(255,255,255,.04); overflow-wrap: anywhere; max-width: 85%; }
+.pchat-msg.minha { background: rgba(47,107,255,.14); justify-self: end; }
+.pchat-msg p { margin: .25rem 0 0; }
+.pchat-sis { margin: 0; font-size: .85rem; color: var(--muted); font-style: italic; text-align: center; padding: .2rem .6rem; overflow-wrap: anywhere; }
+.pchat-arq { display: inline-block; margin-top: .4rem; background: none; border: 1px solid var(--line); border-radius: 6px; padding: .3rem .6rem; color: var(--fg); cursor: pointer; font: inherit; font-size: .88rem; text-align: left; overflow-wrap: anywhere; }
+.pchat-arq:hover { border-color: var(--cyan); }
+.pchat-f { display: grid; gap: .5rem; }
+.pchat-acoes { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+.pchat-acoes .hint { flex: 1; min-width: 8rem; }
+.pchat-anexo { cursor: pointer; }
+.asm-passo-lista { padding-left: 1.2rem; display: grid; gap: .4rem; }
+@media (max-width: 640px) { .pchat-msg { max-width: 100%; } }

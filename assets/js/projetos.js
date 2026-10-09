@@ -44,6 +44,9 @@
   const ST_APONT = { aberto: '<span class="selo warn">aberto</span>', corrigido: '<span class="selo info">corrigido, aguardando conferência</span>', contestado: '<span class="selo err">contestado, aguardando o CA</span>', resolvido: '<span class="selo ok">resolvido</span>', cancelado: '<span class="selo">cancelado</span>' };
   const ST_ADES = { manifestada: '<span class="selo warn">adesão manifestada</span>', confirmada: '<span class="selo ok">na equipe</span>', nao_selecionada: '<span class="selo">não selecionada</span>', desistiu: '<span class="selo">desistiu</span>', encerrada: '<span class="selo">encerrada</span>' };
   const ATIVOS = ["Contratado", "Em execução"];
+  /* mensagens já vistas por projeto (só neste navegador; serve para o contador de novas) */
+  const visto = { ler(u, pid) { try { return localStorage.getItem(`bimcore-chat-visto-${u}-${pid}`) || ""; } catch (e) { return ""; } }, gravar(u, pid, t) { try { localStorage.setItem(`bimcore-chat-visto-${u}-${pid}`, t); } catch (e) {} } };
+  const novasPorProjeto = (ult, meId) => { const o = {}; (ult || []).forEach((m) => { if (m.autor_id !== meId && m.criado_em > visto.ler(meId, m.projeto_id)) o[m.projeto_id] = (o[m.projeto_id] || 0) + 1; }); return o; };
 
   const lerValor = (t) => { t = String(t || "").replace(/[R$\s]/g, ""); if (t.includes(",")) t = t.replace(/\./g, "").replace(",", "."); const v = Number(t); return Number.isFinite(v) ? Math.round(v * 100) / 100 : 0; };
   const brl = (v) => (v == null || v === "" ? "" : Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
@@ -55,6 +58,7 @@
     const [d, eu] = await Promise.all([API.proj.carregar(), meuPerfilTecnico()]);
     const me = ctx.sessao.perfil;
     d.me = me; d.eu = eu;
+    d.novas = novasPorProjeto(await API.proj.ultimasMensagens().catch(() => []), me.id);
     d.ca = !!(me.status === "ativo" && me.conselho_adm);
     d.gestorGeral = me.papel === "coordenacao" || d.ca;
     d.gere = (p) => d.gestorGeral || p.coordenador_id === me.id;
@@ -92,7 +96,8 @@
       const ch = abertas({ ...d }).filter((f) => compativel(f, eu) && !d.adesoes.some((a) => a.funcao_id === f.id && a.perfil_id === me.id)).length;
       const ap = d.apontamentos.filter((a) => a.status === "aberto" && a.destinatario_id === me.id).length + d.apontamentos.filter((a) => a.status === "corrigido" && a.autor_id === me.id).length
         + (me.conselho_adm ? d.apontamentos.filter((a) => a.status === "contestado" && a.autor_id !== me.id && a.destinatario_id !== me.id).length : 0);
-      return ch + ap;
+      const nv = Object.values(novasPorProjeto(await API.proj.ultimasMensagens().catch(() => []), me.id)).reduce((t, n) => t + n, 0);
+      return ch + ap + nv;
     } catch (e) { return 0; }
   }
   /* aviso no Início */
@@ -165,7 +170,7 @@
     if (!ps.length) return '<p class="hint">Nenhum projeto ainda.</p>';
     return `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Projeto</th><th>Situação</th><th>Coordenador</th><th>Equipe</th><th></th></tr></thead>
       <tbody>${ps.map((p) => { const eq = d.adesoes.filter((a) => a.projeto_id === p.id && a.status === "confirmada").length; const ab = d.funcoes.filter((f) => f.projeto_id === p.id && f.status === "aberta").length;
-        return `<tr><td><b>${esc(p.nome)}</b><span class="sub">${p.complexidade === "complexo" ? "complexo" : "padrão"}${p.fim ? " · término " + data(p.fim) : ""}</span></td><td>${esc(p.status)}</td><td>${esc(p.coordenador_nome || "a designar")}</td>
+        return `<tr><td><b>${esc(p.nome)}</b>${d.novas && d.novas[p.id] ? ` <span class="contador">${d.novas[p.id]}</span>` : ""}<span class="sub">${p.complexidade === "complexo" ? "complexo" : "padrão"}${p.fim ? " · término " + data(p.fim) : ""}${d.novas && d.novas[p.id] ? " · mensagens novas no chat" : ""}</span></td><td>${esc(p.status)}</td><td>${esc(p.coordenador_nome || "a designar")}</td>
           <td>${eq} pessoa(s)${ab ? `<span class="sub">${ab} chamada(s) aberta(s)</span>` : ""}</td><td class="acoes-celula"><button class="btn btn-ghost btn-sm" data-abrir="${p.id}">Abrir</button></td></tr>`; }).join("")}</tbody></table></div>`;
   }
   function htmlLimites(d) {
@@ -266,14 +271,16 @@
   async function renderProjeto(el, ctx, d, pid, voltar) {
     const p = d.projetos.find((x) => x.id === pid); if (!p) return voltar();
     const me = d.me, gere = d.gere(p), membro = d.membro(p), c = d.contratoDe(p);
-    const aba = abaDe[pid] || "bep";
+    if (p.status === "Arquivado") return renderArquivado(el, d, p, voltar);
+    const veChat = !!p.coordenador_id && (membro || gere || me.conselho_fiscal);
+    const aba = abaDe[pid] || (veChat ? "chat" : "bep");
     const fs = d.funcoes.filter((f) => f.projeto_id === pid);
     const ads = d.adesoes.filter((a) => a.projeto_id === pid);
     const aps = d.apontamentos.filter((a) => a.projeto_id === pid);
     const ms = d.marcos.filter((x) => x.projeto_id === pid).sort((a, b) => String(a.previsto || "9").localeCompare(String(b.previsto || "9")));
     const equipe = ads.filter((a) => a.status === "confirmada");
     const pendAp = aps.filter((a) => ["aberto", "corrigido", "contestado"].includes(a.status)).length;
-    const abas = [["bep", "BEP e entregas"], ["equipe", "Chamadas e equipe"], ["horas", "Horas"], ["apont", `Apontamentos${pendAp ? ` <span class="contador">${pendAp}</span>` : ""}`], ["aval", "Avaliação"]];
+    const abas = [...(p.coordenador_id ? [["chat", `Chat${d.novas[pid] ? ` <span class="contador">${d.novas[pid]}</span>` : ""}`]] : []), ["bep", "BEP e entregas"], ["equipe", "Chamadas e equipe"], ["horas", "Horas"], ["apont", `Apontamentos${pendAp ? ` <span class="contador">${pendAp}</span>` : ""}`], ["aval", "Avaliação"]];
     el.innerHTML = `
       <div class="pag-cab"><div><p class="eyebrow"><button class="link-botao" id="pj-voltar">← Projetos</button></p><h1>${esc(p.nome)}</h1></div>${gere ? '<button class="btn btn-ghost" id="pj-editar">Editar dados</button>' : ""}</div>
       <dl class="sol-dados">
@@ -283,7 +290,7 @@
         <div><dt>Prazo</dt><dd>${p.inicio ? data(p.inicio) : "—"} a ${p.fim ? data(p.fim) : "—"}</dd></div>
         <div><dt>Horas orçadas</dt><dd>${horas(p.horas_orcadas || 0)}</dd></div>
       </dl>
-      ${d.gestorGeral ? `<p><button class="btn btn-ghost btn-sm" id="pj-coord">${p.coordenador_id ? "Trocar coordenador" : "Designar coordenador"}</button></p>` : ""}
+      <p>${d.gestorGeral ? `<button class="btn btn-ghost btn-sm" id="pj-coord">${p.coordenador_id ? "Trocar coordenador" : "Designar coordenador"}</button> ` : ""}${gere && p.status === "Concluído" ? '<button class="btn btn-primary btn-sm" id="pj-arquivar">Exportar e arquivar o projeto</button>' : ""}</p>
       <nav class="subabas" role="tablist">${abas.map(([k, t]) => `<button role="tab" data-pa="${k}" aria-selected="${aba === k}">${t}</button>`).join("")}</nav>
       <div id="pj-corpo"></div>`;
     $("#pj-voltar").onclick = voltar;
@@ -299,6 +306,48 @@
       $("#dc-ok", m.el).onclick = async (ev) => { if (await acao(ev.currentTarget, () => API.proj.designarCoordenador(pid, $("#dc-p", m.el).value, $("#dc-a", m.el).value.trim()), "Coordenador designado.")) { m.fechar(); recarregar(); } };
     };
     const corpo = $("#pj-corpo");
+    if ($("#pj-arquivar")) $("#pj-arquivar").onclick = () => modalArquivar(d, p, voltar);
+
+    /* ---- Chat ---- */
+    if (aba === "chat") {
+      if (!veChat) { corpo.innerHTML = '<p class="vazio">O chat é da equipe do projeto. Ele abre quando o coordenador é designado e cada integrante entra ao ser confirmado na equipe.</p>'; return; }
+      const podeEscrever = membro || gere;
+      corpo.innerHTML = `<section class="painel pchat"><h2>Chat do projeto</h2>
+          <p class="hint">Todos os assuntos do projeto ficam aqui: decisões, resultados de simulações, sugestões e documentos. Aprovações, entradas na equipe, apontamentos e entregas são registrados sozinhos. Ao arquivar o projeto, a conversa e os anexos são exportados e guardados pela cooperativa.</p>
+          <div class="pchat-msgs" id="pc-msgs"><p class="hint">Carregando…</p></div>
+          ${podeEscrever ? `<form id="pc-f" class="pchat-f" novalidate><textarea class="input" id="pc-t" rows="2" maxlength="4000" placeholder="Escreva sua mensagem (Enter envia, Shift+Enter quebra a linha)"></textarea>
+            <div class="pchat-acoes"><label class="btn btn-ghost btn-sm pchat-anexo">Anexar PDF ou imagem<input type="file" id="pc-a" accept="application/pdf,image/png,image/jpeg" hidden></label><span class="hint" id="pc-an"></span><button class="btn btn-primary btn-sm" type="submit" id="pc-env">Enviar</button></div></form>` : '<p class="hint">Você está vendo o chat como Conselho Fiscal (só leitura).</p>'}
+        </section>`;
+      const box = $("#pc-msgs"); let msgs = [], ult = "";
+      const hora = (t) => new Date(t).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+      const desenhar = () => {
+        const fim = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+        box.innerHTML = msgs.length ? msgs.map((m) => m.tipo === "sistema" ? `<p class="pchat-sis">${esc(m.texto)} <span class="hint">${hora(m.criado_em)}</span></p>`
+          : `<div class="pchat-msg ${m.autor_id === me.id ? "minha" : ""}"><b>${esc(m.autor_nome || "")}</b> <span class="hint">${hora(m.criado_em)}</span>${m.texto ? `<p>${esc(m.texto).replace(/\n/g, "<br>")}</p>` : ""}
+            ${m.anexo_caminho ? `<button class="pchat-arq" data-anexo="${m.id}">📎 ${esc(m.anexo_nome || "anexo")}${m.anexo_tamanho ? " · " + UI.bytes(m.anexo_tamanho) : ""}</button>` : ""}</div>`).join("") : '<p class="hint">Nenhuma mensagem ainda.</p>';
+        if (fim || !ult) box.scrollTop = box.scrollHeight;
+      };
+      const buscar = async () => {
+        const novas = await API.proj.mensagens(pid, ult || null).catch(() => []);
+        if (novas.length) { msgs = msgs.concat(novas.filter((n) => !msgs.some((m) => m.id === n.id))); ult = msgs[msgs.length - 1].criado_em; visto.gravar(me.id, pid, ult); desenhar(); }
+        else if (!msgs.length) desenhar();
+      };
+      await buscar();
+      const timer = setInterval(() => { if (!document.body.contains(box)) return clearInterval(timer); buscar(); }, 5000);
+      box.onclick = async (e) => { const b = e.target.closest("[data-anexo]"); if (!b) return; const m = msgs.find((x) => x.id === b.dataset.anexo); const url = await acao(null, () => API.proj.linkAnexo(m)); if (url) { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener"; if (url.startsWith("data:")) a.download = m.anexo_nome || "anexo"; document.body.appendChild(a); a.click(); a.remove(); } };
+      if (podeEscrever) {
+        const arq = $("#pc-a");
+        arq.onchange = () => { const f = arq.files[0]; $("#pc-an").textContent = f ? `${f.name} (${UI.bytes(f.size)})` : ""; };
+        const enviar = async () => {
+          const t = $("#pc-t").value.trim(), f = arq.files[0] || null; if (!t && !f) return;
+          const ok = await acao($("#pc-env"), () => API.proj.enviarMensagem(pid, t, f));
+          if (ok !== false) { $("#pc-t").value = ""; arq.value = ""; $("#pc-an").textContent = ""; await buscar(); box.scrollTop = box.scrollHeight; }
+        };
+        $("#pc-f").addEventListener("submit", (e) => { e.preventDefault(); enviar(); });
+        $("#pc-t").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar(); } });
+      }
+      return;
+    }
 
     /* ---- BEP e entregas ---- */
     if (aba === "bep") {
@@ -549,6 +598,102 @@
         conselhos: [...m.el.querySelectorAll("[data-cons]:checked")].map((c) => c.dataset.cons), vagas: Math.max(1, Number($("#fn-v", m.el).value) || 1), horas_previstas: Number($("#fn-h", m.el).value) || 0,
         prazo_adesao: $("#fn-pr", m.el).value || null, status: $("#fn-s", m.el).value, atribuicoes: $("#fn-a", m.el).value.trim() || FUNCOES[$("#fn-f", m.el).value].texto || null };
       if (await acao(ev.currentTarget, () => API.proj.salvarFuncao(x), "Chamada salva.")) { m.fechar(); depois(); }
+    };
+  }
+
+  /* ---------- Projeto arquivado: só o resumo fica no site ---------- */
+  function renderArquivado(el, d, p, voltar) {
+    const r = p.resumo_arquivo || {};
+    el.innerHTML = `<div class="pag-cab"><div><p class="eyebrow"><button class="link-botao" id="pj-voltar">← Projetos</button></p><h1>${esc(p.nome)}</h1></div></div>
+      <div class="notice">Projeto arquivado em ${dataHora(p.arquivado_em)} por ${esc(p.arquivado_nome || "")}. O chat, os anexos, o BEP, os apontamentos e a equipe foram exportados e guardados em: <b>${esc(p.arquivo_local || "")}</b>. No site ficam só o contrato, as parcelas, as horas e este resumo.</div>
+      <dl class="sol-dados"><div><dt>Horas orçadas</dt><dd>${horas(r.horas_orcadas || 0)}</dd></div><div><dt>Horas aprovadas</dt><dd>${horas(r.horas_aprovadas || 0)}</dd></div><div><dt>IEO</dt><dd>${r.ieo ? Number(r.ieo).toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—"}</dd></div>
+        <div><dt>Mensagens e anexos</dt><dd>${r.mensagens || 0} mensagens · ${r.anexos || 0} anexos</dd></div></dl>
+      ${(r.equipe || []).length ? `<section class="painel"><h2>Equipe</h2><ul>${r.equipe.map((x) => `<li>${esc(x.nome)} — ${esc(x.funcao)}</li>`).join("")}</ul></section>` : ""}
+      ${(r.avaliacoes || []).length ? `<section class="painel"><h2>Avaliação entre pares (médias)</h2><div class="tabela-wrap"><table class="tabela"><thead><tr><th>Cooperado</th><th class="num">Qualidade</th><th class="num">Prazos</th><th class="num">Colaboração</th><th class="num">BEP</th></tr></thead>
+        <tbody>${r.avaliacoes.map((a) => `<tr><td>${esc(a.nome)}</td><td class="num">${a.qualidade}</td><td class="num">${a.prazos}</td><td class="num">${a.colaboracao}</td><td class="num">${a.conformidade}</td></tr>`).join("")}</tbody></table></div></section>` : ""}`;
+    $("#pj-voltar").onclick = voltar;
+  }
+
+  /* ---------- Exportar (.zip) e arquivar ---------- */
+  let jszip = null;
+  function carregarZip() {
+    if (window.JSZip) return Promise.resolve(window.JSZip);
+    if (jszip) return jszip;
+    jszip = new Promise((ok, er) => { const sc = document.createElement("script"); sc.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"; sc.onload = () => ok(window.JSZip); sc.onerror = () => { jszip = null; er(new Error("Não consegui carregar o gerador de .zip. Verifique a internet e tente de novo.")); }; document.head.appendChild(sc); });
+    return jszip;
+  }
+  const slug = (t) => String(t || "projeto").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "projeto";
+  const pagina = (titulo, corpo) => `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(titulo)}</title>
+    <style>body{font:15px/1.55 system-ui,sans-serif;max-width:960px;margin:2rem auto;padding:0 1rem;color:#111}h1{font-size:1.5rem}h2{font-size:1.15rem;margin-top:2rem;border-bottom:1px solid #ccc}table{border-collapse:collapse;width:100%;font-size:.9rem}td,th{border:1px solid #ccc;padding:.35rem .5rem;text-align:left;vertical-align:top}.sis{color:#555;font-style:italic}.msg{margin:.6rem 0;padding:.5rem .7rem;background:#f4f6fa;border-radius:6px}.meta{color:#666;font-size:.85rem}</style></head><body>${corpo}</body></html>`;
+
+  async function exportarZip(d, p, progresso) {
+    const JSZip = await carregarZip();
+    progresso("Juntando a conversa e os registros…");
+    const [msgs, hs, aval] = await Promise.all([API.proj.mensagens(p.id), API.proj.horasProjeto(p.id).catch(() => []), API.proj.resumoAvaliacoes(p.id).catch(() => [])]);
+    const c = d.contratoDe(p), fs = d.funcoes.filter((f) => f.projeto_id === p.id), ads = d.adesoes.filter((a) => a.projeto_id === p.id);
+    const aps = d.apontamentos.filter((a) => a.projeto_id === p.id), ms = d.marcos.filter((m) => m.projeto_id === p.id), pcs = c ? d.parcelas.filter((x) => x.contrato_id === c.id) : [];
+    const zip = new JSZip(); const pasta = zip.folder("anexos"); const nomes = {};
+    let i = 0;
+    for (const m of msgs.filter((x) => x.anexo_caminho)) {
+      i++; progresso(`Baixando anexo ${i} de ${msgs.filter((x) => x.anexo_caminho).length}…`);
+      let nome = String(i).padStart(3, "0") + "_" + (m.anexo_nome || "anexo").replace(/[\\/:*?"<>|]+/g, "_");
+      nomes[m.id] = nome; pasta.file(nome, await API.proj.baixarAnexo(m));
+    }
+    const dt = (t) => (t ? new Date(t).toLocaleString("pt-BR") : "");
+    const chat = pagina("Chat — " + p.nome, `<h1>Chat do projeto: ${esc(p.nome)}</h1><p class="meta">Exportado em ${dt(new Date())} · ${msgs.length} mensagens · ${Object.keys(nomes).length} anexos</p>` +
+      msgs.map((m) => m.tipo === "sistema" ? `<p class="sis">[${dt(m.criado_em)}] ${esc(m.texto)}</p>` : `<div class="msg"><div class="meta"><b>${esc(m.autor_nome || "")}</b> · ${dt(m.criado_em)}</div>${m.texto ? `<div>${esc(m.texto).replace(/\n/g, "<br>")}</div>` : ""}${nomes[m.id] ? `<div>📎 <a href="anexos/${encodeURIComponent(nomes[m.id])}">${esc(m.anexo_nome || nomes[m.id])}</a></div>` : ""}</div>`).join(""));
+    const tab = (cab, linhas) => linhas.length ? `<table><tr>${cab.map((h) => `<th>${esc(h)}</th>`).join("")}</tr>${linhas.map((l) => `<tr>${l.map((x) => `<td>${esc(x == null ? "" : x)}</td>`).join("")}</tr>`).join("")}</table>` : "<p>—</p>";
+    const b = p.bep || {};
+    const dossie = pagina("Projeto — " + p.nome, `<h1>${esc(p.nome)}</h1><p class="meta">BIMCORE Cooperativa de Trabalho · dossiê exportado em ${dt(new Date())}</p>
+      <h2>Contrato</h2>${c ? tab(["Objeto", "Contratante", "Tipo", "Natureza", "Número", "Valor", "Assinatura", "Vigência"], [[c.objeto, c.contratante, (TIPOS_CONTRATO[c.tipo] || {}).nome || c.tipo, NATUREZA[c.natureza] || c.natureza, c.numero, c.remunerado ? moeda(c.valor) : "gratuito", c.assinatura, c.vigencia_fim]]) +
+        "<h3>Parcelas</h3>" + tab(["Parcela", "Previsto", "Valor", "Recebido em", "Valor recebido", "NF"], pcs.map((x) => [x.descricao, x.previsto_em, moeda(x.valor), x.recebido_em, x.valor_recebido != null ? moeda(x.valor_recebido) : "", x.nota_fiscal])) : "<p>Sem contrato.</p>"}
+      <h2>Projeto</h2>${tab(["Situação", "Complexidade", "Coordenador", "Designação", "Início", "Término", "Horas orçadas", "LOD", "CDE"], [[p.status, p.complexidade, p.coordenador_nome, p.coordenador_ato, p.inicio, p.fim, p.horas_orcadas, p.lod, p.cde_url]])}
+      <h2>BEP</h2>${BEP.map(([k, t]) => b[k] ? `<h3>${esc(t)}</h3><p>${esc(b[k]).replace(/\n/g, "<br>")}</p>` : "").join("") || "<p>—</p>"}
+      <h2>Chamadas de adesão</h2>${tab(["Função", "Categoria mínima", "Conselhos", "Vagas", "Horas previstas", "Prazo", "Situação", "Atribuições"], fs.map((f) => [nomeFuncao(f), f.categoria_min, (f.conselhos || []).join("/"), f.vagas, f.horas_previstas, f.prazo_adesao, f.status, f.atribuicoes]))}
+      <h2>Adesões e equipe</h2>${tab(["Cooperado", "Função", "Situação", "Mensagem", "Motivo", "Decidido por", "Em"], ads.map((a) => { const f = fs.find((x) => x.id === a.funcao_id); return [a.nome, f ? nomeFuncao(f) : "", a.status, a.mensagem, a.motivo, a.decidido_nome, dt(a.decidido_em)]; }))}
+      <h2>Entregas</h2>${tab(["Entrega", "Previsto", "Entregue em", "Conformidade", "Observação"], ms.map((m) => [m.titulo, m.previsto, m.entregue_em, m.conformidade_nome, m.observacao]))}
+      <h2>Apontamentos</h2>${tab(["Data", "Tipo", "De", "Para", "Fundamento", "Descrição", "Impeditivo", "Situação", "Resposta", "Decisão do CA"], aps.map((a) => [dt(a.criado_em), TIPOS_APONT[a.tipo] || a.tipo, a.autor_nome, a.destinatario_nome || "equipe", a.fundamento, a.descricao, a.impeditivo ? "sim" : "não", a.status, a.resposta, a.decisao ? a.decisao + " (" + (a.decidido_nome || "") + ")" : ""]))}
+      <h2>Horas lançadas</h2>${tab(["Data", "Cooperado", "Tipo", "Horas", "Descrição", "Aprovação", "Por"], hs.map((h) => [h.data, h.cooperado_nome, API.TIPOS_HORA[h.tipo] || h.tipo, h.horas, h.descricao, h.aprovacao, h.aprovado_nome]))}
+      <h2>Avaliação entre pares (médias)</h2>${tab(["Cooperado", "Avaliações", "Qualidade", "Prazos", "Colaboração", "Conformidade com o BEP"], aval.map((a) => [a.nome, a.n, a.qualidade, a.prazos, a.colaboracao, a.conformidade]))}`);
+    zip.file("1-chat.html", chat); zip.file("2-dossie-do-projeto.html", dossie);
+    zip.file("dados.json", JSON.stringify({ projeto: p, contrato: c, parcelas: pcs, chamadas: fs, adesoes: ads, entregas: ms, apontamentos: aps, horas: hs, avaliacoes: aval, mensagens: msgs.map((m) => ({ ...m, anexo_dados: undefined, anexo_arquivo: nomes[m.id] || null })) }, null, 2));
+    zip.file("LEIA-ME.txt", `Arquivo do projeto "${p.nome}" — BIMCORE Cooperativa de Trabalho.\r\nAbra 1-chat.html para a conversa (os anexos estão na pasta anexos) e 2-dossie-do-projeto.html para contrato, BEP, equipe, entregas, apontamentos, horas e avaliação.\r\ndados.json tem os mesmos dados em formato aberto.\r\nExportado em ${dt(new Date())}.`);
+    progresso("Compactando…");
+    const blob = await zip.generateAsync({ type: "blob" });
+    const nome = `projeto-${slug(p.nome)}-${UI.hoje()}.zip`;
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = nome; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    const exec = hs.filter((h) => h.tipo === "produtiva" && (h.aprovacao || "aprovada") === "aprovada").reduce((t, h) => t + Number(h.horas), 0);
+    return { nome, resumo: { horas_orcadas: Number(p.horas_orcadas || 0), horas_aprovadas: exec, ieo: p.horas_orcadas && exec ? Math.round(p.horas_orcadas / exec * 100) / 100 : null,
+      equipe: ads.filter((a) => ["confirmada", "encerrada"].includes(a.status)).map((a) => { const f = fs.find((x) => x.id === a.funcao_id); return { nome: a.nome, funcao: f ? nomeFuncao(f) : "" }; }),
+      avaliacoes: aval.map((a) => ({ nome: a.nome, n: a.n, qualidade: a.qualidade, prazos: a.prazos, colaboracao: a.colaboracao, conformidade: a.conformidade })),
+      mensagens: msgs.length, anexos: Object.keys(nomes).length, arquivo: nome, exportado_em: new Date().toISOString() } };
+  }
+
+  function modalArquivar(d, p, depois) {
+    const equipe = d.adesoes.filter((a) => a.projeto_id === p.id && ["confirmada", "encerrada"].includes(a.status));
+    let exp = null;
+    const m = UI.modal(`<h2>Exportar e arquivar</h2>
+      <p>Ao final do projeto, tudo vai para o arquivo da cooperativa e sai do site, para não pesar.</p>
+      <ol class="asm-passo-lista">
+        <li><b>Antes:</b> confira se a equipe já fez a avaliação entre pares (${equipe.length} integrante(s)) — depois de arquivar, ela fecha.</li>
+        <li><b>Baixe o arquivo do projeto (.zip)</b>: chat completo com os anexos, dossiê (contrato, BEP, equipe, entregas, apontamentos, horas, avaliação) e os dados em formato aberto.</li>
+        <li><b>Guarde o .zip no armazenamento da cooperativa</b> e abra para conferir.</li>
+        <li><b>Informe onde guardou</b> e confirme. O site apaga o chat, os anexos, o BEP, as chamadas, os apontamentos e as entregas. Ficam só o contrato, as parcelas, as horas lançadas (que sustentam as retiradas) e um resumo do projeto.</li></ol>
+      <div class="sol-acoes"><button class="btn btn-primary btn-sm" id="aq-zip">1. Baixar arquivo do projeto (.zip)</button><span class="hint" id="aq-prog"></span></div>
+      <div class="form-grid" style="margin-top:1rem"><div class="field full"><label for="aq-loc">Onde o arquivo foi guardado</label><input class="input" id="aq-loc" maxlength="300" placeholder="Ex.: Google Drive da BIMCORE / Projetos / 2027 / Escola X" disabled></div>
+        <label class="ciente full"><input type="checkbox" id="aq-ok" disabled> <span>Guardei o .zip, abri e conferi o chat e os anexos. Entendo que o site vai apagar esses registros.</span></label></div>
+      <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-danger btn-sm" id="aq-apagar" disabled>2. Arquivar e apagar do site</button></div>`);
+    const prog = (t) => { $("#aq-prog", m.el).textContent = t; };
+    $("#aq-zip", m.el).onclick = async (ev) => {
+      const ok = await acao(ev.currentTarget, async () => { exp = await exportarZip(d, p, prog); return true; }, "Arquivo baixado. Guarde-o e confira.");
+      if (ok) { prog(`Baixado: ${exp.nome}`); ["#aq-loc", "#aq-ok"].forEach((s) => { $(s, m.el).disabled = false; }); }
+      else prog("");
+    };
+    const liberar = () => { $("#aq-apagar", m.el).disabled = !(exp && $("#aq-ok", m.el).checked && $("#aq-loc", m.el).value.trim().length >= 3); };
+    $("#aq-ok", m.el).onchange = liberar; $("#aq-loc", m.el).oninput = liberar;
+    $("#aq-apagar", m.el).onclick = async (ev) => {
+      if (!(await confirmar(`Apagar do site os registros de trabalho de "${p.nome}"? Isso não pode ser desfeito; o que vale daqui em diante é o arquivo guardado.`, "Arquivar e apagar"))) return;
+      if (await acao(ev.currentTarget, () => API.proj.arquivar(p.id, $("#aq-loc", m.el).value.trim(), exp.resumo), "Projeto arquivado.")) { m.fechar(); depois(); }
     };
   }
 
