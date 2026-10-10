@@ -1021,7 +1021,7 @@
         async registrar(d) { const s = ler(); const u = exigir(s, "ca"); this._par(s); if (d.perfil_id === u.id) falha("Ninguém registra contribuição para si mesmo."); s.igcc_registros.push({ ...d, id: novoId(), registrado_nome: u.nome, criado_em: new Date().toISOString() }); gravar(s); return espera(true); },
         async excluirRegistro(id) { const s = ler(); exigir(s, "ca"); this._par(s); s.igcc_registros = s.igcc_registros.filter((r) => !(r.id === id && ["contribuicao", "disciplina"].includes(r.componente))); gravar(s); return espera(true); }
       },
-      manual: { async obter() { const s = ler(); exigir(s); return espera(s.site_manual || null); } },
+      manual: { async obter() { const s = ler(); exigir(s); return s.site_manual || api.manualArquivo(); } },
       notif: {
         async listar() { const s = ler(); const u = exigir(s); const c = s.fin.cooperados.find((x) => x.perfil_id === u.id);
           const todos = u.papel === "coordenacao" || u.conselho_adm || u.conselho_fiscal || u.tesouraria;
@@ -1668,7 +1668,7 @@
         async registrar(d) { ok(await sb.from("igcc_registros").insert(d)); return true; },
         async excluirRegistro(id) { ok(await sb.from("igcc_registros").delete().eq("id", id)); return true; }
       },
-      manual: { async obter() { const r = await sb.from("site_manual").select("*").eq("id", 1).maybeSingle(); return r.error ? null : r.data; } },
+      manual: { async obter() { return api.manualArquivo(); } },
       notif: {
         async listar() { const r = await sb.from("fin_notificacoes").select("*").order("criado_em", { ascending: false }).limit(500); return r.error ? [] : r.data; },
         async decidir(id, d) { ok(await sb.from("fin_notificacoes").update({ status: d.status, providencia: d.providencia || null }).eq("id", id)); return true; }
@@ -1723,6 +1723,12 @@
   api.STATUS_PROJETO = STATUS_PROJETO;
   api.LIMITES_PADRAO = LIMITES_PADRAO;
   api.formatarTelefone = formatarTelefone;
+  // manual do site: arquivo publicado junto com o site, sempre a versão mais recente
+  api.manualArquivo = async () => {
+    const r = await fetch("assets/manual/manual.html?t=" + Date.now(), { cache: "no-store" }); if (!r.ok) return null;
+    const html = await r.text(); const m = html.match(/atualizado:\s*(\d{4}-\d{2}-\d{2})/);
+    return { html, atualizado_em: m ? m[1] : null };
+  };
   api.whatsTelefone = whatsTelefone;
   api.MODALIDADES = MODALIDADES;
   api.CATEGORIAS_DOC = CATEGORIAS_DOC;
