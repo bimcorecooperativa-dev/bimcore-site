@@ -11,8 +11,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="assets/css/base.css?v=202610091655">
-<link rel="stylesheet" href="assets/css/app.css?v=202610091655">
+<link rel="stylesheet" href="assets/css/base.css?v=202610092104">
+<link rel="stylesheet" href="assets/css/app.css?v=202610092104">
 </head>
 <body>
 <main class="login-pagina">
@@ -33,7 +33,7 @@
         <div class="field"><label for="e-email">E-mail</label><input class="input" id="e-email" type="email" autocomplete="email" required></div>
         <div class="field"><label for="e-senha">Senha</label><input class="input" id="e-senha" type="password" autocomplete="current-password" required></div>
         <button class="btn btn-primary" type="submit" id="e-btn">Entrar</button>
-        <div class="linha-link"><button type="button" class="link-botao" id="esqueci">Esqueci minha senha</button><a href="index.html">Voltar ao site</a></div>
+        <div class="linha-link"><button type="button" class="link-botao" id="esqueci">Esqueci minha senha</button><button type="button" class="link-botao" id="nao-confirmei">Não consegui confirmar o e-mail</button><a href="index.html">Voltar ao site</a></div>
       </form>
 
       <form id="form-cadastro" novalidate hidden>
@@ -66,6 +66,15 @@
         <button class="btn btn-primary" type="submit" id="k-btn">Enviar solicitação</button>
       </form>
 
+      <form id="form-confirmar" novalidate hidden>
+        <p class="hint">Se o botão do e-mail não funcionou, o link expirou ou o e-mail não chegou, peça um novo aqui. Abra o e-mail no mesmo celular ou computador e toque em "Confirmar meu e-mail". Se o e-mail trouxer um código de 6 dígitos, você também pode digitá-lo abaixo.</p>
+        <div class="field"><label for="c-email">E-mail</label><input class="input" id="c-email" type="email" autocomplete="email" required></div>
+        <button class="btn btn-primary" type="button" id="c-reenviar">Reenviar e-mail de confirmação</button>
+        <div class="field" style="margin-top:1rem"><label for="c-codigo">Código do e-mail (opcional)</label><input class="input" id="c-codigo" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="000000"></div>
+        <button class="btn btn-ghost" type="submit" id="c-btn">Confirmar com o código</button>
+        <button type="button" class="link-botao" id="voltar-login2">Voltar para entrar</button>
+      </form>
+
       <form id="form-recuperar" novalidate hidden>
         <p class="hint">Informe seu e-mail. Enviaremos um link para você criar uma nova senha.</p>
         <div class="field"><label for="r-email">E-mail</label><input class="input" id="r-email" type="email" autocomplete="email" required></div>
@@ -92,9 +101,9 @@
 </main>
 <div class="toast-wrap" id="toasts" aria-live="polite"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="assets/js/config.js?v=202610091655"></script>
-<script src="assets/js/api.js?v=202610091655"></script>
-<script src="assets/js/ui.js?v=202610091655"></script>
-<script src="assets/js/entrar.js?v=202610091655"></script>
+<script src="assets/js/config.js?v=202610092104"></script>
+<script src="assets/js/api.js?v=202610092104"></script>
+<script src="assets/js/ui.js?v=202610092104"></script>
+<script src="assets/js/entrar.js?v=202610092104"></script>
 </body>
 </html>

@@ -248,6 +248,8 @@
         try { localStorage.setItem(SKEY, u.id); } catch (e) {}
         return espera(true);
       },
+      async reenviarConfirmacao() { return espera(true); },
+      async confirmarCodigo() { return espera(true); },
       async signUp(dados) {
         const s = ler();
         const email = String(dados.email).trim(), senha = dados.senha;
@@ -1136,6 +1138,8 @@
         const data = ok(await sb.auth.signUp({ email: String(dados.email).trim(), password: dados.senha, options: { data: meta, emailRedirectTo: base() + "entrar.html" } }));
         return { precisaConfirmar: !data.session };
       },
+      async reenviarConfirmacao(email) { ok(await sb.auth.resend({ type: "signup", email: String(email).trim(), options: { emailRedirectTo: base() + "entrar.html" } })); return true; },
+      async confirmarCodigo(email, codigo) { ok(await sb.auth.verifyOtp({ email: String(email).trim(), token: String(codigo).replace(/\D/g, ""), type: "signup" })); return true; },
       async signOut() { await sb.auth.signOut(); return true; },
       async resetPassword(email) { ok(await sb.auth.resetPasswordForEmail(String(email).trim(), { redirectTo: base() + "entrar.html" })); return true; },
       async updatePassword(nova) { ok(await sb.auth.updateUser({ password: nova })); return true; },

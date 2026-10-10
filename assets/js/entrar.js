@@ -3,13 +3,13 @@
   "use strict";
   const { $, acao, toast } = window.UI;
   const API = window.API;
-  const forms = { entrar: $("#form-entrar"), cadastro: $("#form-cadastro"), recuperar: $("#form-recuperar"), nova: $("#form-nova-senha") };
+  const forms = { entrar: $("#form-entrar"), cadastro: $("#form-cadastro"), recuperar: $("#form-recuperar"), nova: $("#form-nova-senha"), confirmar: $("#form-confirmar") };
   const aviso = $("#aviso");
   const abas = $(".abas-login");
 
   const mostrar = (qual) => {
     Object.entries(forms).forEach(([k, f]) => { f.hidden = k !== qual; });
-    abas.hidden = qual === "recuperar" || qual === "nova";
+    abas.hidden = qual === "recuperar" || qual === "nova" || qual === "confirmar";
     $("#aba-entrar").setAttribute("aria-selected", String(qual === "entrar"));
     $("#aba-cadastro").setAttribute("aria-selected", String(qual === "cadastro"));
     aviso.hidden = true;
@@ -23,6 +23,22 @@
   $("#aba-cadastro").addEventListener("click", () => mostrar("cadastro"));
   $("#esqueci").addEventListener("click", () => mostrar("recuperar"));
   $("#voltar-login").addEventListener("click", () => mostrar("entrar"));
+  $("#voltar-login2").addEventListener("click", () => mostrar("entrar"));
+  const abrirConfirmar = (email, msg, tipo) => { mostrar("confirmar"); if (email) $("#c-email").value = email; if (msg) avisar(msg, tipo); };
+  $("#nao-confirmei").addEventListener("click", () => abrirConfirmar($("#e-email").value));
+  $("#c-reenviar").addEventListener("click", async () => {
+    const email = $("#c-email").value.trim(); if (!email) return avisar("Informe o e-mail.", "err");
+    if (await acao($("#c-reenviar"), () => API.reenviarConfirmacao(email))) avisar("Enviamos um novo e-mail de confirmação. Pode levar alguns minutos; veja também a caixa de spam.", "ok");
+  });
+  forms.confirmar.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const email = $("#c-email").value.trim(), cod = $("#c-codigo").value.replace(/\D/g, "");
+    if (!email || cod.length < 6) return avisar("Informe o e-mail e o código de 6 dígitos.", "err");
+    if (await acao($("#c-btn"), () => API.confirmarCodigo(email, cod))) { avisar("E-mail confirmado.", "ok"); const s = await API.getSession().catch(() => null); if (s) location.replace(destino(s)); else mostrar("entrar"); }
+  });
+  // volta do link do e-mail com erro (link expirado, já usado ou aberto em outro aparelho)
+  const hashErro = new URLSearchParams(location.hash.replace(/^#/, "")).get("error_code") || new URLSearchParams(location.search).get("error_code");
+  if (hashErro) abrirConfirmar("", hashErro === "otp_expired" ? "O link de confirmação expirou ou já foi usado. Peça um novo abaixo." : "Não foi possível confirmar pelo link. Peça um novo abaixo.", "err");
 
   if (API.demo) $("#demo-contas").hidden = false;
   if (location.hash === "#cadastro") mostrar("cadastro");
@@ -39,8 +55,10 @@
     e.preventDefault();
     const email = $("#e-email").value, senha = $("#e-senha").value;
     if (!email || !senha) return avisar("Preencha e-mail e senha.", "err");
-    const ok = await acao($("#e-btn"), () => API.signIn(email, senha));
+    let naoConfirmado = false;
+    const ok = await acao($("#e-btn"), async () => { try { return await API.signIn(email, senha); } catch (er) { if (/confirm/i.test(er.message || "")) naoConfirmado = true; throw er; } });
     if (ok) location.replace(destino(await API.getSession()));
+    else if (naoConfirmado) abrirConfirmar(email, "Seu e-mail ainda não foi confirmado. Peça um novo e-mail de confirmação abaixo.", "warn");
   });
 
   // Lista de áreas de atuação
