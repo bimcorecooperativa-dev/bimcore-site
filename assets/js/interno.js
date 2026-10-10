@@ -590,6 +590,11 @@
           if (ok) { ctx.atualizarContadores(); paginas.mensagens.render(el, ctx); }
         };
       }
+    },
+
+    manual: {
+      titulo: "Manual do site",
+      async render(el) { return window.Manual.render(el); }
     }
   };
 
@@ -612,6 +617,7 @@
       if (ca || fiscal) out.notificacoes = { ...todas.notificacoes, separador: false };
       if (tes || fiscal) out.financeiro = { ...todas.financeiro, separador: false };
       if (fiscal) out.conselho = { ...todas.conselho, separador: false };
+      out.manual = { ...todas.manual, separador: false };
       return out;
     }
   });

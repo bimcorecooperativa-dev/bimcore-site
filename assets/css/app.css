@@ -371,3 +371,13 @@ form.aval { border-top: 1px solid var(--line); padding-top: .8rem; margin-top: .
 
 .mapa-grade { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; margin-top: 1rem; }
 @media (max-width: 900px) { .mapa-grade { grid-template-columns: 1fr; } }
+
+/* Manual do site */
+.manual-indice ul{margin:.3rem 0 0;padding-left:1.1rem;columns:2;column-gap:2rem}
+.manual-indice li{margin:.2rem 0;break-inside:avoid}
+.manual-texto h2{margin:1.8rem 0 .6rem;padding-top:.4rem;border-top:1px solid var(--line-2, var(--line-1, #d8e0ea));scroll-margin-top:90px}
+.manual-texto h2:first-child{margin-top:0;border-top:0;padding-top:0}
+.manual-texto h3{margin:1.2rem 0 .4rem;scroll-margin-top:90px}
+.manual-texto p,.manual-texto li{line-height:1.6}
+.manual-texto ul,.manual-texto ol{padding-left:1.2rem}
+@media (max-width:640px){.manual-indice ul{columns:1}}

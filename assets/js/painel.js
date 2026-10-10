@@ -834,6 +834,11 @@
       async render(el) { return window.IGCC.renderMeu(el); }
     },
 
+    manual: {
+      titulo: "Manual do site",
+      async render(el) { return window.Manual.render(el); }
+    },
+
     perfil: {
       titulo: "Meu perfil",
       separador: true,
