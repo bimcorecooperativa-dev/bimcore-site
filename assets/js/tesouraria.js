@@ -399,7 +399,7 @@
       corpo.innerHTML = `
         <section class="painel">
           <div class="painel-cab"><h2>Despesas da cooperativa</h2><button class="btn btn-primary btn-sm" id="t-nova-desp">Nova despesa</button></div>
-          <p class="hint">Só gera débito o que for <b>cobrado dos cooperados</b> (chamada aprovada, art. 9º, I). Despesa não cobrada: quem pagar fica com crédito de aporte, devolvido só no desligamento. Quem pagou cada despesa é lançado em <b>Pagamentos e aportes</b>.</p>
+          <p class="hint">Só gera débito o que for <b>cobrado dos cooperados</b> (chamada aprovada, art. 9º, I). Despesa não cobrada: quem pagar fica com crédito de aporte, devolvido só no desligamento. Quem pagou cada despesa é informado no próprio formulário da despesa.</p>
           ${base.despesas.length ? `<div class="tabela-wrap"><table class="tabela">
             <thead><tr><th>Data</th><th>Descrição</th><th class="num">Valor</th><th>Cobrança</th><th class="num">Pago por cooperados</th><th></th></tr></thead>
             <tbody>${base.despesas.slice().sort((a, b) => (a.data ? 0 : 1) - (b.data ? 0 : 1) || String(a.data || "").localeCompare(String(b.data || "")) || String(a.criado_em || "").localeCompare(String(b.criado_em || ""))).map((d) => `<tr><td>${d.data ? data(d.data) : '<span class="selo warn">sem data</span>'}</td>
@@ -580,9 +580,17 @@
     }
 
     /* ---------------- formulários ---------------- */
-    function formDespesa(d) {
+    async function formDespesa(d) {
       const ativos = coops.filter((c) => c.situacao === "ativo");
       const part = new Set(d ? d.participantes : ativos.map((c) => c.id));
+      const contas = ((await API.caixa.dados().catch(() => ({ contas: [] }))).contas || []).filter((c) => c.ativa !== false);
+      const ja = d ? base.pagamentos.filter((p) => p.despesa_id === d.id) : [];
+      const nomeDe = (id) => (coops.find((c) => c.id === id) || {}).nome || "cooperado";
+      const contaPadrao = d ? d.conta_id || "" : "";
+      const linhaPag = () => `<div class="pag-linha" style="display:flex;gap:.5rem;align-items:end;margin-bottom:.4rem">
+          <div class="field" style="flex:2;margin:0"><select class="input" data-pg-coop aria-label="Cooperado que pagou">${ativos.map((c) => `<option value="${c.id}">${esc(c.nome)}</option>`).join("")}</select></div>
+          <div class="field" style="flex:1;margin:0"><input class="input" data-pg-valor inputmode="decimal" placeholder="Valor (R$)" aria-label="Valor pago"></div>
+          <button class="btn btn-ghost btn-sm" type="button" data-pg-rem aria-label="Remover">✕</button></div>`;
       const m = UI.modal(`
         <h2>${d ? "Editar despesa" : "Nova despesa"}</h2>
         <div class="form-grid">
@@ -596,12 +604,32 @@
           <p class="hint">Quem divide esta despesa: <b id="fd-cada"></b></p>
           ${coops.map((c) => `<label class="ciente"><input type="checkbox" value="${c.id}" ${part.has(c.id) ? "checked" : ""}> <span>${esc(c.nome)}${c.situacao !== "ativo" ? " (desligado)" : ""}</span></label>`).join("")}
         </div>
+        <fieldset class="painel" style="margin:.8rem 0;padding:.8rem 1rem"><legend><b>Quem pagou</b></legend>
+          <div id="fd-quem">
+            ${ja.length ? `<p class="hint">Já lançado: ${ja.map((p) => `${esc(nomeDe(p.fin_cooperado_id))} ${moeda(p.valor)}`).join(" · ")}. Para corrigir esses, use Pagamentos e aportes.</p>` : ""}
+            <p class="hint" id="fd-quem-dica">Cooperado que pagou do próprio bolso fica com o valor como aporte (crédito devolvido no desligamento).</p>
+            <div id="fd-pags"></div>
+            <button class="btn btn-ghost btn-sm" type="button" id="fd-mais">+ Cooperado que pagou</button>
+          </div>
+          <div class="field" style="margin-top:.6rem"><label for="fd-conta" id="fd-conta-rot">O restante saiu da conta</label><select class="input" id="fd-conta"><option value="">Ainda não foi pago pela cooperativa</option>${contas.map((c) => `<option value="${c.id}" ${contaPadrao === c.id ? "selected" : ""}>${esc(c.nome)}${c.banco ? " (" + esc(c.banco) + ")" : ""}</option>`).join("")}</select>
+            <span class="hint" id="fd-resto"></span></div>
+        </fieldset>
         <div class="field"><label for="fd-obs">Observação</label><input class="input" id="fd-obs" maxlength="500" value="${esc(d ? d.observacao || "" : "")}"></div>
         <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="fd-ok">Salvar</button></div>`);
+      const novosPags = () => [...m.el.querySelectorAll(".pag-linha")].map((l) => ({ coop: l.querySelector("[data-pg-coop]").value, valor: lerValor(l.querySelector("[data-pg-valor]").value) }));
+      const somaJa = ja.reduce((t, p) => t + Number(p.valor), 0);
+      $("#fd-mais", m.el).onclick = () => { $("#fd-pags", m.el).insertAdjacentHTML("beforeend", linhaPag()); atualiza(); };
+      m.el.addEventListener("click", (e) => { const r = e.target.closest("[data-pg-rem]"); if (r) { r.closest(".pag-linha").remove(); atualiza(); } });
       const atualiza = () => {
         $("#fd-part", m.el).hidden = !$("#fd-cobrar", m.el).checked;
         const n = m.el.querySelectorAll("#fd-part input:checked").length, v = lerValor($("#fd-valor", m.el).value);
         $("#fd-cada", m.el).textContent = n && v > 0 ? `${n} cooperado(s), ${moeda(Fin.centavos(v / n))} cada` : `${n} cooperado(s)`;
+        const cob = $("#fd-cobrar", m.el).checked;
+        $("#fd-quem", m.el).hidden = cob;
+        if (cob) { $("#fd-conta-rot", m.el).textContent = "A cooperativa pagou o fornecedor pela conta"; $("#fd-resto", m.el).textContent = "As partes de cada um entram depois, quando pagarem (Pix ou Pagamentos e aportes)."; return; }
+        const resto = Fin.centavos(v - somaJa - novosPags().reduce((t, p) => t + p.valor, 0));
+        $("#fd-conta-rot", m.el).textContent = resto > 0.004 ? `O restante (${moeda(resto)}) saiu da conta` : "Saiu da conta";
+        $("#fd-resto", m.el).textContent = resto < -0.004 ? `Os pagamentos passam do valor da despesa em ${moeda(-resto)}.` : resto > 0.004 ? "Se o restante ainda não foi pago, deixe \"Ainda não foi pago\"." : "Os cooperados pagaram tudo; não sai nada das contas da cooperativa.";
       };
       m.el.addEventListener("change", atualiza); m.el.addEventListener("input", atualiza); atualiza();
       $("#fd-ok", m.el).onclick = async (ev) => {
@@ -610,8 +638,24 @@
           participantes: $("#fd-cobrar", m.el).checked ? [...m.el.querySelectorAll("#fd-part input:checked")].map((i) => i.value) : [] };
         if (!reg.descricao || !(reg.valor > 0)) return toast("Informe descrição e valor.", "err");
         if (reg.cobrar && !reg.participantes.length) return toast("Marque quem divide a despesa.", "err");
+        const pags = reg.cobrar ? [] : novosPags();
+        if (pags.some((p) => !(p.valor > 0))) return toast("Informe o valor de cada cooperado que pagou (ou remova a linha).", "err");
+        const resto = Fin.centavos(reg.valor - somaJa - pags.reduce((t, p) => t + p.valor, 0));
+        if (resto < -0.004) return toast(`O que os cooperados pagaram passa do valor da despesa em ${moeda(-resto)}.`, "err");
+        reg.conta_id = (reg.cobrar || resto > 0.004) ? $("#fd-conta", m.el).value || null : null;
+        if (pags.length && !reg.data) return toast("Informe a data: ela vale também para os pagamentos dos cooperados.", "err");
         if (d) reg.id = d.id;
-        const ok = await acao(ev.currentTarget, () => API.fin.salvar("despesas", reg), "Despesa salva.");
+        const ok = await acao(ev.currentTarget, async () => {
+          const id = await API.fin.salvar("despesas", reg); const feitos = [];
+          try {
+            for (const p of pags) feitos.push(await API.fin.salvar("pagamentos", { data: reg.data, fin_cooperado_id: p.coop, tipo: "despesa", despesa_id: id, valor: p.valor, mes_ref: null, observacao: null, origem: "tesouraria" }));
+          } catch (e) {
+            for (const f of feitos) await API.fin.excluir("pagamentos", f).catch(() => {});
+            if (!d) await API.fin.excluir("despesas", id).catch(() => {});
+            throw e;
+          }
+          return true;
+        }, pags.length ? `Despesa salva com ${pags.length} pagamento(s) de cooperado.` : "Despesa salva.");
         if (ok) { m.fechar(); recarregar(); }
       };
     }

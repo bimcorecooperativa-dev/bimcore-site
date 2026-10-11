@@ -396,3 +396,6 @@ form.aval { border-top: 1px solid var(--line); padding-top: .8rem; margin-top: .
 .adm-check li.ok { color: var(--ok, #2fbf71); }
 .sep-v { display: inline-block; width: 1px; height: 1.6rem; background: var(--line-2, #2a3a50); margin: 0 .3rem; }
 .balao-sindicato { border-left: 3px solid var(--cyan, #39c6f4); }
+
+/* botão com cara de link (ex.: "3 movimento(s) desde...") */
+.link-btn { background: none; border: 0; padding: 0; color: var(--cyan); text-decoration: underline; cursor: pointer; font: inherit; }

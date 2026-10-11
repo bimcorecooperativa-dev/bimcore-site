@@ -199,6 +199,7 @@
     const lista = [...m.autos, ...abertas].sort((a, b) => String(a.vencimento).localeCompare(String(b.vencimento)));
     const selo = (v) => { const d = Math.round((new Date(v + "T12:00:00Z") - new Date(hoje + "T12:00:00Z")) / 864e5); return d < 0 ? `<span class="selo err">vencida há ${-d} dia(s)</span>` : d <= 7 ? `<span class="selo warn">vence em ${d} dia(s)</span>` : `<span class="selo">em ${d} dias</span>`; };
     const ultSaldo = (id) => cx.saldos.filter((s) => s.conta_id === id).sort((a, b) => b.data.localeCompare(a.data) || String(b.criado_em).localeCompare(String(a.criado_em)))[0];
+    const esp = {}; cx.contas.forEach((c) => { esp[c.id] = saldoEsperado(c, ultSaldo(c.id), { base, guias, contas: cx.contas, pagar: cx.pagar }); });
     corpo.innerHTML = `
       <section class="painel"><div class="painel-cab"><h2>Mapa do dinheiro</h2><span class="hint">publicado para todos os cooperados</span></div>${htmlMapa(m, false)}
         <p class="hint">O caixa livre para retiradas desconta sozinho as camadas da conta movimento (guias, contas a pagar, sobras, os 20% não gastos e o que falta transferir para o FIC e para as aplicações). Ele é atualizado sempre que esta aba é aberta.</p></section>
@@ -208,15 +209,16 @@
           <tbody>${lista.map((x) => `<tr><td>${data(x.vencimento)}</td><td>${esc(x.descricao)}<span class="sub">${x.auto ? "automático · " + esc(x.onde) : esc([x.categoria, x.fornecedor, x.recorrencia !== "unica" ? (x.recorrencia === "mensal" ? "mensal" : "anual") : ""].filter(Boolean).join(" · "))}</span></td>
             <td class="num">${moeda(x.valor)}</td><td>${selo(x.vencimento)}</td><td class="acoes-celula">${x.auto ? "" : `<button class="btn btn-primary btn-sm so-tes" data-pagar-cp="${x.id}">Pagar</button> <button class="btn btn-ghost btn-sm so-tes" data-ed-cp="${x.id}">Editar</button>`}</td></tr>`).join("")}</tbody>
           <tfoot><tr><td></td><td>Total previsto</td><td class="num">${moeda(lista.reduce((t, x) => t + Number(x.valor), 0))}</td><td></td><td></td></tr></tfoot></table></div>` : '<p class="vazio">Nada a pagar previsto.</p>'}
-        ${cx.pagar.some((x) => x.status === "paga") ? `<details style="margin-top:.8rem"><summary>Pagas</summary><div class="tabela-wrap"><table class="tabela"><thead><tr><th>Pago em</th><th>Descrição</th><th class="num">Valor</th></tr></thead>
-          <tbody>${cx.pagar.filter((x) => x.status === "paga").sort((a, b) => String(b.pago_em).localeCompare(String(a.pago_em))).slice(0, 60).map((x) => `<tr><td>${data(x.pago_em)}</td><td>${esc(x.descricao)}<span class="sub">${esc(x.categoria || "")}</span></td><td class="num">${moeda(x.valor_pago != null ? x.valor_pago : x.valor)}</td></tr>`).join("")}</tbody></table></div></details>` : ""}
+        ${cx.pagar.some((x) => x.status === "paga") ? `<details style="margin-top:.8rem"><summary>Pagas</summary><div class="tabela-wrap"><table class="tabela"><thead><tr><th>Pago em</th><th>Descrição</th><th class="num">Valor</th><th></th></tr></thead>
+          <tbody>${cx.pagar.filter((x) => x.status === "paga").sort((a, b) => String(b.pago_em).localeCompare(String(a.pago_em))).slice(0, 60).map((x) => `<tr><td>${data(x.pago_em)}</td><td>${esc(x.descricao)}<span class="sub">${esc(x.categoria || "")}</span></td><td class="num">${moeda(x.valor_pago != null ? x.valor_pago : x.valor)}</td><td class="acoes-celula"><button class="btn btn-ghost btn-sm so-tes" data-desf-cp="${x.id}">Desfazer</button></td></tr>`).join("")}</tbody></table></div></details>` : ""}
       </section>
       <section class="painel"><div class="painel-cab"><h2>Contas bancárias e saldos</h2><button class="btn btn-ghost btn-sm so-tes" id="ct-nova">Nova conta</button></div>
-        <p class="hint">Informe o saldo de cada conta pelo extrato, pelo menos uma vez por semana. O saldo da conta movimento também alimenta o caixa livre das retiradas.${cx.contas.length ? "" : " Sugestão: comece com as contas padrão."}</p>
+        <p class="hint">O site calcula o <b>saldo esperado</b> de cada conta a partir do último saldo informado e do que já foi lançado (Pix e pagamentos dos cooperados, parcelas recebidas, retiradas, guias, despesas e contas pagas). Olhe o extrato: se bater, clique em <b>Confere com o extrato</b>; se não bater, informe o saldo real (a diferença costuma ser tarifa, rendimento ou transferência entre contas). O saldo da conta movimento alimenta o caixa livre das retiradas.${cx.contas.length ? "" : " Sugestão: comece com as contas padrão."}</p>
         ${cx.contas.length ? "" : '<p><button class="btn btn-primary btn-sm so-tes" id="ct-padrao">Criar as contas padrão</button></p>'}
-        ${cx.contas.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Conta</th><th class="num">Último saldo</th><th>Informado</th><th></th></tr></thead>
+        ${cx.contas.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Conta</th><th class="num">Último saldo</th><th>Informado</th><th class="num">Esperado hoje</th><th></th></tr></thead>
           <tbody>${cx.contas.map((c) => { const u = ultSaldo(c.id); return `<tr${c.ativa === false ? ' style="opacity:.55"' : ""}><td>${esc(c.nome)}<span class="sub">${esc(TIPOS_CONTA[c.tipo])}${c.banco ? " · " + esc(c.banco) : ""}${c.finalidade ? " · " + esc(c.finalidade) : ""}</span></td><td class="num">${u ? moeda(u.saldo) : "—"}</td><td>${u ? data(u.data) + `<span class="sub">${esc(u.registrado_nome || "")}</span>` : "—"}</td>
-            <td class="acoes-celula"><button class="btn btn-primary btn-sm so-tes" data-saldo="${c.id}">Informar saldo</button> <button class="btn btn-ghost btn-sm so-tes" data-ed-ct="${c.id}">Editar</button></td></tr>`; }).join("")}</tbody></table></div>` : ""}
+            <td class="num">${(() => { const e = esp[c.id]; if (!e) return "—"; if (!e.itens.length) return `${moeda(e.esperado)}<span class="sub">sem movimento desde então</span>`; return `<b>${moeda(e.esperado)}</b><span class="sub"><button class="link-btn" type="button" data-esp="${c.id}">${e.itens.length} movimento(s) desde ${data(e.desde)}</button></span>`; })()}</td>
+            <td class="acoes-celula">${esp[c.id] && esp[c.id].itens.length ? `<button class="btn btn-primary btn-sm so-tes" data-confere="${c.id}">Confere com o extrato</button> ` : ""}<button class="btn ${esp[c.id] && esp[c.id].itens.length ? "btn-ghost" : "btn-primary"} btn-sm so-tes" data-saldo="${c.id}">Informar saldo</button> <button class="btn btn-ghost btn-sm so-tes" data-ed-ct="${c.id}">Editar</button></td></tr>`; }).join("")}</tbody></table></div>` : ""}
       </section>`;
 
     const modalConta = (c) => {
@@ -255,13 +257,13 @@
         <div class="field"><label for="pp-d">Pago em</label><input class="input" id="pp-d" type="date" value="${hoje}" max="${hoje}"></div>
         <div class="field"><label for="pp-v">Valor pago (R$)</label><input class="input" id="pp-v" inputmode="decimal" value="${brl(x.valor)}"></div>
         <label class="ciente full"><input type="checkbox" id="pp-desp" checked> <span>Registrar também como despesa da cooperativa (entra na prestação de contas dos 20%)</span></label></div>
-        <p class="hint">Sai de: ${esc(mov.nome || "conta não informada")}. Depois, atualize o saldo da conta.${x.recorrencia !== "unica" ? ` A próxima (${x.recorrencia}) será criada sozinha.` : ""}</p>
+        <p class="hint">Sai de: ${esc(mov.nome || "conta não informada")}. O saldo esperado da conta já desconta este pagamento; confira com o extrato quando puder.${x.recorrencia !== "unica" ? ` A próxima (${x.recorrencia}) será criada sozinha.` : ""}</p>
         <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="pp-ok">Confirmar pagamento</button></div>`);
       $("#pp-ok", mm.el).onclick = async (ev) => {
         const dt = $("#pp-d", mm.el).value, v = lerValor($("#pp-v", mm.el).value); if (!dt || !(v > 0)) return toast("Informe a data e o valor.", "err");
         const ok = await acao(ev.currentTarget, async () => {
           let despesa_id = null;
-          if ($("#pp-desp", mm.el).checked) { await API.fin.salvar("despesas", { data: dt, descricao: x.descricao, categoria: x.categoria || "Outras", valor: v, cobrar: false, participantes: [], observacao: [x.fornecedor, "paga pela tesouraria (contas a pagar)"].filter(Boolean).join(" · ") }); }
+          if ($("#pp-desp", mm.el).checked) { despesa_id = await API.fin.salvar("despesas", { data: dt, descricao: x.descricao, categoria: x.categoria || "Outras", valor: v, cobrar: false, participantes: [], conta_id: mov.id || null, observacao: [x.fornecedor, "paga pela tesouraria (contas a pagar)"].filter(Boolean).join(" · ") }); }
           await API.caixa.salvarPagar({ id: x.id, status: "paga", pago_em: dt, valor_pago: v, despesa_id });
           if (x.recorrencia !== "unica") await API.caixa.salvarPagar({ descricao: x.descricao, categoria: x.categoria, fornecedor: x.fornecedor, valor: x.valor, vencimento: proximoMes(x.vencimento, x.recorrencia === "mensal" ? 1 : 12), recorrencia: x.recorrencia, conta_id: x.conta_id, observacao: x.observacao });
           return true;
@@ -280,15 +282,78 @@
       if (b.dataset.edCt) return modalConta(cx.contas.find((c) => c.id === b.dataset.edCt));
       if (b.dataset.edCp) return modalPagar(cx.pagar.find((x) => x.id === b.dataset.edCp));
       if (b.dataset.pagarCp) return pagarConta(cx.pagar.find((x) => x.id === b.dataset.pagarCp));
+      if (b.dataset.desfCp) {
+        const x = cx.pagar.find((y) => y.id === b.dataset.desfCp);
+        const prox = x.recorrencia !== "unica" ? cx.pagar.find((y) => y.status === "aberta" && y.id !== x.id && y.descricao === x.descricao && y.vencimento === proximoMes(x.vencimento, x.recorrencia === "mensal" ? 1 : 12)) : null;
+        const temDesp = x.despesa_id && base.despesas.some((d) => d.id === x.despesa_id);
+        if (!(await confirmar(`Desfazer o pagamento de "${x.descricao}"? A conta volta a ficar em aberto${temDesp ? ", a despesa lançada junto é apagada" : ""}${prox ? " e a próxima repetição, criada no pagamento, é removida" : ""}.`, "Desfazer pagamento"))) return;
+        const ok = await acao(b, async () => {
+          if (temDesp) await API.fin.excluir("despesas", x.despesa_id);
+          if (prox) await API.caixa.excluirPagar(prox.id);
+          await API.caixa.salvarPagar({ id: x.id, status: "aberta", pago_em: null, valor_pago: null, despesa_id: null });
+          return true;
+        }, "Pagamento desfeito.");
+        if (ok) recarregar(); return;
+      }
+      if (b.dataset.esp) {
+        const c = cx.contas.find((x) => x.id === b.dataset.esp), e = esp[c.id];
+        UI.modal(`<h2>Movimentos — ${esc(c.nome)}</h2><p class="muted">Desde o saldo de ${moeda(ultSaldo(c.id).saldo)} informado em ${data(e.desde)}.</p>
+          <div class="tabela-wrap"><table class="tabela"><thead><tr><th>Data</th><th>Movimento</th><th class="num">Valor</th></tr></thead>
+          <tbody>${e.itens.map((i) => `<tr><td>${data(i.data)}</td><td>${esc(i.desc)}</td><td class="num" style="color:${i.valor < 0 ? "var(--err)" : "var(--ok)"}">${moeda(i.valor)}</td></tr>`).join("")}</tbody>
+          <tfoot><tr><td></td><td>Saldo esperado</td><td class="num"><b>${moeda(e.esperado)}</b></td></tr></tfoot></table></div>
+          <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Fechar</button></div>`);
+        return;
+      }
+      if (b.dataset.confere) {
+        const c = cx.contas.find((x) => x.id === b.dataset.confere), e = esp[c.id];
+        if (!(await confirmar(`O extrato de ${c.nome} mostra ${moeda(e.esperado)} hoje?`, "Sim, confere"))) return;
+        if (await acao(b, () => API.caixa.registrarSaldo({ conta_id: c.id, data: hoje, saldo: e.esperado, observacao: "Conferido com o extrato (saldo esperado pelo site)" }), "Saldo conferido.")) recarregar();
+        return;
+      }
       if (b.dataset.saldo) {
-        const c = cx.contas.find((x) => x.id === b.dataset.saldo);
-        const mm = UI.modal(`<h2>Saldo — ${esc(c.nome)}</h2><div class="form-grid"><div class="field"><label for="sd-d">Data do extrato</label><input class="input" id="sd-d" type="date" value="${hoje}" max="${hoje}"></div>
-          <div class="field"><label for="sd-v">Saldo (R$)</label><input class="input" id="sd-v" inputmode="decimal"></div><div class="field full"><label for="sd-o">Observação</label><input class="input" id="sd-o" maxlength="200"></div></div>
+        const c = cx.contas.find((x) => x.id === b.dataset.saldo), e = esp[c.id];
+        const mm = UI.modal(`<h2>Saldo — ${esc(c.nome)}</h2>${e && e.itens.length ? `<p class="muted">Saldo esperado pelo site: <b>${moeda(e.esperado)}</b>.</p>` : ""}<div class="form-grid"><div class="field"><label for="sd-d">Data do extrato</label><input class="input" id="sd-d" type="date" value="${hoje}" max="${hoje}"></div>
+          <div class="field"><label for="sd-v">Saldo (R$)</label><input class="input" id="sd-v" inputmode="decimal"></div><div class="field full"><label for="sd-o">Observação</label><input class="input" id="sd-o" maxlength="200" placeholder="Ex.: tarifa do banco, rendimento, transferência para o FIC"></div></div>
+          <p class="hint" id="sd-dif"></p>
           <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="sd-ok">Salvar</button></div>`);
+        const dif = () => { const t = $("#sd-v", mm.el).value.trim(); if (!e || !e.itens.length || !t) { $("#sd-dif", mm.el).textContent = ""; return null; } const d = c2(lerValor(t) - e.esperado); $("#sd-dif", mm.el).textContent = Math.abs(d) < 0.005 ? "Bate com o esperado." : `Diferença de ${moeda(d)} em relação ao esperado. Confira se falta lançar algo no site; se for tarifa, rendimento ou transferência, explique na observação.`; return d; };
+        $("#sd-v", mm.el).addEventListener("input", dif);
         $("#sd-ok", mm.el).onclick = async (ev) => { const t = $("#sd-v", mm.el).value.trim(); if (!t) return toast("Informe o saldo.", "err");
-          if (await acao(ev.currentTarget, () => API.caixa.registrarSaldo({ conta_id: c.id, data: $("#sd-d", mm.el).value || hoje, saldo: lerValor(t), observacao: $("#sd-o", mm.el).value.trim() || null }), "Saldo registrado.")) { mm.fechar(); recarregar(); } };
+          const d = dif(); let obs = $("#sd-o", mm.el).value.trim();
+          if (d != null && Math.abs(d) >= 0.005) { if (!obs) return toast("Há diferença em relação ao saldo esperado: explique na observação.", "err"); obs = `${obs} (diferença de ${moeda(d)} sobre o esperado)`; }
+          if (await acao(ev.currentTarget, () => API.caixa.registrarSaldo({ conta_id: c.id, data: $("#sd-d", mm.el).value || hoje, saldo: lerValor(t), observacao: obs || null }), "Saldo registrado.")) { mm.fechar(); recarregar(); } };
       }
     };
+  }
+
+  /* Saldo esperado de cada conta: último saldo informado + o que o site já sabe que entrou e saiu depois.
+     A tesouraria só confere com o extrato. Transferências entre contas e tarifas não passam pelo site:
+     aparecem como diferença na conferência. */
+  function saldoEsperado(c, ult, { base, guias, contas, pagar }) {
+    if (!ult) return null;
+    const mov0 = (contas || []).find((x) => x.tipo === "movimento" && x.ativa !== false);
+    const ehMov = mov0 && mov0.id === c.id;
+    const depois = (dt, criado) => dt && (dt > ult.data || (dt === ult.data && criado && String(criado) > String(ult.criado_em)));
+    const itens = [];
+    const add = (dt, criado, valor, desc) => { if (Math.abs(valor) > 0.004 && depois(dt, criado)) itens.push({ data: dt, valor: c2(valor), desc }); };
+    const desp = {}; (base.despesas || []).forEach((d) => { desp[d.id] = d; });
+    const pagosDe = (id) => (base.pagamentos || []).filter((p) => p.despesa_id === id).reduce((t, p) => t + Number(p.valor), 0);
+    if (ehMov) {
+      const ENTRA = { contribuicao: "Contribuição", integralizacao: "Integralização", aporte: "Aporte", chamada: "Chamada" };
+      (base.pagamentos || []).forEach((p) => {
+        if (p.retirada_id) return; // descontado da retirada: não passa pela conta
+        const d = p.despesa_id ? desp[p.despesa_id] : null;
+        if (ENTRA[p.tipo]) add(p.data, p.criado_em, Number(p.valor), ENTRA[p.tipo]);
+        else if (p.tipo === "despesa" && d && d.cobrar) add(p.data, p.criado_em, Number(p.valor), "Parte da chamada: " + d.descricao);
+      });
+      (base.parcelas || []).filter((x) => x.recebido_em).forEach((x) => add(x.recebido_em, x.atualizado_em || x.criado_em, Number(x.valor_recebido != null ? x.valor_recebido : x.valor), "Parcela recebida: " + (x.descricao || "contrato")));
+      (base.retiradas || []).filter((r) => r.status === "paga").forEach((r) => add(r.pago_em, r.atualizado_em, -Number(r.liquido || 0), "Retirada paga (líquido)"));
+      (guias || []).filter((g) => g.pago_em).forEach((g) => add(g.pago_em, g.criado_em, -Number(g.valor), `Guia ${g.tipo} paga`));
+    }
+    (base.despesas || []).filter((d) => d.conta_id === c.id).forEach((d) => add(d.data, d.criado_em, -(d.cobrar ? Number(d.valor) : Number(d.valor) - pagosDe(d.id)), "Despesa: " + d.descricao));
+    (pagar || []).filter((x) => x.status === "paga" && !(x.despesa_id && desp[x.despesa_id]) && (x.conta_id || (mov0 && mov0.id)) === c.id).forEach((x) => add(x.pago_em, null, -Number(x.valor_pago != null ? x.valor_pago : x.valor), "Conta paga: " + x.descricao));
+    itens.sort((a, b) => a.data.localeCompare(b.data));
+    return { esperado: c2(Number(ult.saldo) + itens.reduce((t, i) => t + i.valor, 0)), itens, desde: ult.data };
   }
 
   /* Alertas para o Resumo da tesouraria */
@@ -310,5 +375,5 @@
       ${r ? `<p class="hint">Atualizado em ${dataHora(r.gerado_em)} por ${esc(r.gerado_nome || "tesouraria")}.</p><section class="painel">${htmlMapa(r.dados, true)}</section>` : '<p class="vazio">A tesouraria ainda não publicou o mapa. Ele aparece quando as contas e os saldos forem cadastrados.</p>'}`;
   }
 
-  window.Caixa = { calcular, htmlMapa, renderTesouraria, renderPainel, alertasResumo, TIPOS_CONTA };
+  window.Caixa = { calcular, saldoEsperado, htmlMapa, renderTesouraria, renderPainel, alertasResumo, TIPOS_CONTA };
 })();

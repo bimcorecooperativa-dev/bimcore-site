@@ -788,10 +788,11 @@
         },
         async salvar(tabela, d) {
           const s = ler(); const u = exigir(s, "tes"); const lista = s.fin[tabela];
+          let novo = d.id;
           if (d.id) { const x = lista.find((r) => r.id === d.id); if (!x) falha("Registro não encontrado."); Object.assign(x, d); }
-          else lista.push({ ...d, id: novoId(), criado_nome: u.nome, criado_em: new Date().toISOString() });
+          else { novo = novoId(); lista.push({ ...d, id: novo, criado_nome: u.nome, criado_em: new Date().toISOString() }); }
           if (tabela === "cooperados") s.fin.cooperados.forEach((c) => { if (!c.perfil_id) { const p = s.perfis.find((pp) => (c.email && pp.email.toLowerCase() === c.email.toLowerCase()) && !s.fin.cooperados.some((o) => o.perfil_id === pp.id)); if (p) c.perfil_id = p.id; } });
-          gravar(s); return espera(true);
+          gravar(s); return espera(novo);
         },
         async excluir(tabela, id) {
           const s = ler(); exigir(s, "tes");
@@ -1615,9 +1616,9 @@
         async salvar(tabela, d) {
           const t = { cooperados: "fin_cooperados", despesas: "fin_despesas", pagamentos: "fin_pagamentos" }[tabela];
           const dados = { ...d }; delete dados.id; delete dados.criado_em;
-          if (d.id) { ok(await sb.from(t).update(dados).eq("id", d.id)); return true; }
+          if (d.id) { ok(await sb.from(t).update(dados).eq("id", d.id)); return d.id; }
           if (tabela !== "cooperados") { const uid = await meuId(); const eu = ok(await sb.from("perfis").select("nome").eq("id", uid).single()); dados.criado_nome = eu.nome; }
-          ok(await sb.from(t).insert(dados)); return true;
+          return ok(await sb.from(t).insert(dados).select("id").single()).id;
         },
         async excluir(tabela, id) {
           const t = { cooperados: "fin_cooperados", despesas: "fin_despesas", pagamentos: "fin_pagamentos" }[tabela];
