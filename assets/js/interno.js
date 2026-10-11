@@ -62,59 +62,13 @@
 
     solicitacoes: {
       titulo: "Solicitações de admissão",
-      async contador() { return (await API.cooperados.listar()).filter((c) => c.status === "pendente" || c.status === "entrevista").length; },
-      async render(el, ctx) {
-        const todos = await API.cooperados.listar();
-        const abertas = todos.filter((c) => c.status === "pendente" || c.status === "entrevista")
-          .sort((a, b) => (a.criado_em || "").localeCompare(b.criado_em || ""));
-        const recusadas = todos.filter((c) => c.status === "recusado");
-        const ST = API.STATUS_COOPERADO;
-        el.innerHTML = `
-          <div class="pag-cab"><div><p class="eyebrow">Quadro social</p><h1>Solicitações de admissão</h1></div></div>
-          <p class="muted">Quem pede para entrar na cooperativa aparece aqui e não tem acesso a nada até ser aprovado. Registre o parecer e escolha o próximo passo.</p>
-          ${abertas.length ? abertas.map((c) => `
-            <section class="painel solicitacao" data-id="${c.id}">
-              <div class="painel-cab"><div><h2>${esc(c.nome || "(sem nome)")}</h2><span class="hint">Solicitação de ${data(c.criado_em)} · ${esc(c.email)}</span></div>
-                <span class="selo ${c.status === "entrevista" ? "info" : "warn"}">${esc(ST[c.status])}</span></div>
-              <dl class="sol-dados">
-                <div><dt>Área pretendida</dt><dd>${esc(c.area_atuacao || c.especialidade || "—")}</dd></div>
-                <div><dt>Formação</dt><dd>${esc(c.formacao || "—")}</dd></div>
-                <div><dt>Registro profissional</dt><dd>${esc(c.registro_profissional || "—")}</dd></div>
-                <div><dt>Cidade</dt><dd>${esc(c.cidade || "—")}</dd></div>
-                <div><dt>Telefone</dt><dd>${c.telefone ? `<a href="${esc(API.whatsTelefone(c.telefone))}" target="_blank" rel="noopener">${esc(c.telefone)}</a>` : "—"}</dd></div>
-                <div><dt>Currículo</dt><dd>${c.curriculo_url && /^https?:\/\//i.test(c.curriculo_url) ? `<a href="${esc(c.curriculo_url)}" target="_blank" rel="noopener">Abrir link</a>` : "—"}</dd></div>
-              </dl>
-              <div class="sol-texto"><b>Experiência</b><p>${esc(c.experiencia || "—")}</p></div>
-              <div class="sol-texto"><b>Motivação</b><p>${esc(c.motivacao || "—")}</p></div>
-              <div class="sol-acoes">
-                <div class="field"><label for="obs-${c.id}">Parecer da coordenação</label><textarea class="input" id="obs-${c.id}" style="min-height:4.5rem" maxlength="2000" placeholder="Registro interno da análise">${esc(c.analise_obs || "")}</textarea></div>
-              </div>
-              <div class="sol-acoes">
-                ${c.status === "pendente" ? '<button class="btn btn-ghost btn-sm" data-acao="entrevista">Chamar para conversa</button>' : ""}
-                <button class="btn btn-primary btn-sm" data-acao="ativo">Aprovar admissão</button>
-                <button class="btn btn-danger btn-sm" data-acao="recusado">Não aprovar</button>
-              </div>
-            </section>`).join("") : '<p class="vazio">Nenhuma solicitação aguardando análise.</p>'}
-          ${recusadas.length ? `<section class="painel"><h2>Não aprovadas</h2><div class="tabela-wrap"><table class="tabela">
-            <thead><tr><th>Nome</th><th>Área</th><th>Análise</th><th>Parecer</th><th><span class="sr-only">Ações</span></th></tr></thead>
-            <tbody>${recusadas.map((c) => `<tr data-id="${c.id}"><td>${esc(c.nome)}<span class="sub">${esc(c.email)}</span></td><td>${esc(c.area_atuacao || "—")}</td>
-              <td class="num" style="text-align:left">${data(c.analisado_em)}</td><td>${esc(c.analise_obs || "—")}</td>
-              <td class="acoes-celula"><button class="btn btn-ghost btn-sm" data-acao="pendente">Reabrir</button></td></tr>`).join("")}</tbody></table></div></section>` : ""}`;
-        el.onclick = async (e) => {
-          const b = e.target.closest("[data-acao]"); if (!b) return;
-          const box = b.closest("[data-id]"); const id = box.dataset.id;
-          const novo = b.dataset.acao;
-          const c = todos.find((x) => x.id === id);
-          const obsEl = document.getElementById("obs-" + id);
-          const dados = { status: novo };
-          if (obsEl) dados.analise_obs = obsEl.value.trim();
-          const textos = { ativo: `Aprovar a admissão de ${c.nome}? A pessoa passa a ter acesso à área do cooperado.`, recusado: `Registrar que a admissão de ${c.nome} não foi aprovada?` };
-          if (textos[novo] && !(await confirmar(textos[novo], novo === "ativo" ? "Aprovar" : "Não aprovar"))) return;
-          const msg = { ativo: "Admissão aprovada.", recusado: "Solicitação registrada como não aprovada.", entrevista: "Marcado para conversa.", pendente: "Solicitação reaberta." }[novo];
-          const ok = await acao(b, () => API.cooperados.atualizar(id, dados), msg);
-          if (ok) { ctx.atualizarContadores(); paginas.solicitacoes.render(el, ctx); }
-        };
-      }
+      async contador() { return window.Admissao.contador(); },
+      async render(el, ctx) { return window.Admissao.renderSolicitacoes(el, ctx); }
+    },
+
+    livro: {
+      titulo: "Livro de Matrícula",
+      async render(el) { return window.Admissao.renderLivro(el); }
     },
 
     cooperados: {
@@ -611,12 +565,14 @@
     filtrar: (todas, { coord, tes, fiscal, ca }) => {
       if (coord) return todas;
       const out = {};
+      if (ca) out.solicitacoes = { ...todas.solicitacoes, separador: false };
       if (ca) out.projetos = { ...todas.projetos, separador: false };
       if (ca) out.enquadramento = { ...todas.enquadramento, separador: false };
       if (ca || fiscal) out.igcc = { ...todas.igcc, separador: false };
       if (ca || fiscal) out.notificacoes = { ...todas.notificacoes, separador: false };
       if (tes || fiscal) out.financeiro = { ...todas.financeiro, separador: false };
       if (fiscal) out.conselho = { ...todas.conselho, separador: false };
+      out.livro = { ...todas.livro, separador: false };
       out.manual = { ...todas.manual, separador: false };
       return out;
     }

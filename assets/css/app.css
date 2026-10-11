@@ -381,3 +381,17 @@ form.aval { border-top: 1px solid var(--line); padding-top: .8rem; margin-top: .
 .manual-texto p,.manual-texto li{line-height:1.6}
 .manual-texto ul,.manual-texto ol{padding-left:1.2rem}
 @media (max-width:640px){.manual-indice ul{columns:1}}
+
+/* Admissão */
+.adm-passo .painel-cab h2 { display: flex; align-items: center; gap: .6rem; }
+.adm-num { display: inline-grid; place-items: center; width: 1.8rem; height: 1.8rem; border-radius: 50%; border: 1px solid var(--line-2, #2a3a50); font-size: .9rem; }
+.adm-passo.feito .adm-num { background: var(--ok, #2fbf71); color: #04140b; border-color: transparent; }
+.adm-passo.atual { border-color: var(--cyan, #39c6f4); }
+.adm-passo:not(.atual):not(.feito) { opacity: .85; }
+.adm-docs { list-style: none; margin: .4rem 0 0; padding: 0; display: grid; gap: .6rem; }
+.adm-docs li { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .7rem 0; border-bottom: 1px solid var(--line-2, #2a3a50); }
+.adm-docs .sub { display: block; }
+.adm-termo { margin: 1rem 0; padding: 1rem 1.2rem; border: 1px dashed var(--line-2, #2a3a50); border-radius: 10px; line-height: 1.6; }
+.adm-check { list-style: none; padding: 0; margin: .4rem 0 .8rem; display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; font-size: .92rem; color: var(--muted); }
+.adm-check li.ok { color: var(--ok, #2fbf71); }
+.sep-v { display: inline-block; width: 1px; height: 1.6rem; background: var(--line-2, #2a3a50); margin: 0 .3rem; }

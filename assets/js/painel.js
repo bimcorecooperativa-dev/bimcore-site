@@ -834,6 +834,11 @@
       async render(el) { return window.IGCC.renderMeu(el); }
     },
 
+    livro: {
+      titulo: "Livro de Matrícula",
+      async render(el) { return window.Admissao.renderLivro(el); }
+    },
+
     manual: {
       titulo: "Manual do site",
       async render(el) { return window.Manual.render(el); }
@@ -892,6 +897,7 @@
     async antes(ctx, el) {
       const p = ctx.sessao.perfil;
       if (p.status === "ativo") return false;
+      if (["pendente", "entrevista", "aprovado"].includes(p.status)) { await window.Admissao.renderCandidato(el, ctx); return true; }
       const resumo = `<dl class="sol-dados">
           <div><dt>Área pretendida</dt><dd>${esc(p.area_atuacao || "—")}</dd></div>
           <div><dt>Formação</dt><dd>${esc(p.formacao || "—")}</dd></div>

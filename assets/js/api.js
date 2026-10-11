@@ -1022,6 +1022,61 @@
         async excluirRegistro(id) { const s = ler(); exigir(s, "ca"); this._par(s); s.igcc_registros = s.igcc_registros.filter((r) => !(r.id === id && ["contribuicao", "disciplina"].includes(r.componente))); gravar(s); return espera(true); }
       },
       manual: { async obter() { const s = ler(); exigir(s); return s.site_manual || api.manualArquivo(); } },
+      admissao: {
+        _st(s) {
+          s.admissao_fichas = s.admissao_fichas || [];
+          if (!s.livro) s.livro = (s.fin.cooperados || []).filter((c) => c.situacao !== "desligado").sort((a, b) => a.nome.localeCompare(b.nome))
+            .map((c, i) => ({ numero: i + 1, perfil_id: c.perfil_id || null, fin_cooperado_id: c.id, nome: c.nome, data_admissao: c.data_admissao || "2026-01-28", quotas_subscritas: c.quotas_iniciais || 10, fundador: true, assinado_em: c.data_admissao || "2026-01-28", registrado_nome: "Assembleia de fundação" }));
+        },
+        _ficha(s, uid) { this._st(s); let f = s.admissao_fichas.find((x) => x.perfil_id === uid); if (!f) { f = { perfil_id: uid, docs: [] }; s.admissao_fichas.push(f); } return f; },
+        _eu(s) { const id = localStorage.getItem(SKEY); const u = s.perfis.find((p) => p.id === id); if (!u) falha("Faça login novamente."); return u; },
+        _cand(u) { if (!["pendente", "entrevista", "aprovado"].includes(u.status)) falha("Esta etapa não está mais aberta."); },
+        async minhaFicha() { const s = ler(); const u = this._eu(s); this._st(s); return espera(JSON.parse(JSON.stringify(s.admissao_fichas.find((x) => x.perfil_id === u.id) || null))); },
+        async salvarFicha(d) { const s = ler(); const u = this._eu(s); this._cand(u); Object.assign(this._ficha(s, u.id), d); gravar(s); return espera(true); },
+        async enviarDoc(tipo, arquivo) {
+          const s = ler(); const u = this._eu(s); this._cand(u);
+          if (arquivo.size > 1.5 * 1024 * 1024) falha("No modo demonstração o limite é 1,5 MB por arquivo.");
+          const url = await new Promise((ok, er) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = er; r.readAsDataURL(arquivo); });
+          this._ficha(s, u.id).docs.push({ tipo, caminho: url, nome: arquivo.name, tamanho: arquivo.size, enviado_em: new Date().toISOString() }); gravar(s); return espera(true);
+        },
+        async removerDoc(caminho) { const s = ler(); const u = this._eu(s); this._cand(u); const f = this._ficha(s, u.id); f.docs = f.docs.filter((d) => d.caminho !== caminho); gravar(s); return espera(true); },
+        async linkDoc(caminho) { return caminho; },
+        async fichas() { const s = ler(); exigir(s, "ver"); this._st(s); return espera(JSON.parse(JSON.stringify(s.admissao_fichas))); },
+        async decidir(id, d) {
+          const s = ler(); const u = exigir(s); if (!(u.papel === "coordenacao" || u.conselho_adm)) falha("Só o Conselho de Administração decide a admissão.");
+          const p = s.perfis.find((x) => x.id === id); if (!p) falha("Cadastro não encontrado.");
+          Object.assign(p, { status: d.status, ca_reuniao: d.ca_reuniao || null, analise_obs: d.analise_obs || p.analise_obs || null, analisado_em: new Date().toISOString(), ca_decidido_nome: u.nome }); gravar(s); return espera(true);
+        },
+        async registrarMatricula(id, assinado, obs) {
+          const s = ler(); const u = exigir(s); if (!(u.papel === "coordenacao" || u.conselho_adm)) falha("Só a coordenação ou o CA registra matrículas."); this._st(s);
+          const p = s.perfis.find((x) => x.id === id); const f = s.admissao_fichas.find((x) => x.perfil_id === id);
+          if (!p || p.status !== "aprovado") falha("A admissão precisa estar aprovada pelo Conselho de Administração.");
+          if (!f || !f.declaracao_em) falha("Falta a declaração de livre adesão e de ciência do Estatuto (Estatuto, art. 4º).");
+          if (!f.aceite_matricula_em) falha("Falta o aceite do candidato no termo de matrícula.");
+          let c = s.fin.cooperados.find((x) => x.perfil_id === id);
+          if (!c) { c = { id: novoId(), nome: f.nome_completo || p.nome, email: p.email, perfil_id: id, cargo: "", quotas_iniciais: 10, integralizado_admissao: 0, data_admissao: assinado, situacao: "ativo", data_desligamento: null, compensar_aportes: false, observacao: f.forma_integralizacao === "parcelado" ? `Quotas iniciais a integralizar em ${f.parcelas || 1} parcela(s) descontadas das retiradas (RI, art. 19, §1º)` : "" }; s.fin.cooperados.push(c); }
+          const numero = s.livro.reduce((m, x) => Math.max(m, x.numero), 0) + 1;
+          s.livro.push({ numero, perfil_id: id, fin_cooperado_id: c.id, nome: f.nome_completo || p.nome, data_admissao: assinado, quotas_subscritas: 10, forma_integralizacao: f.forma_integralizacao, reuniao_ca: p.ca_reuniao, fundador: false, assinado_em: assinado, observacao: obs || null, registrado_nome: u.nome });
+          Object.assign(p, { status: "ativo", data_ingresso: assinado }); gravar(s); return espera(numero);
+        },
+        async vincular(id, fin) {
+          const s = ler(); const u = exigir(s); if (!(u.papel === "coordenacao" || u.conselho_adm)) falha("Só a coordenação ou o CA faz o vínculo."); this._st(s);
+          const c = s.fin.cooperados.find((x) => x.id === fin); if (c.perfil_id && c.perfil_id !== id) falha("Esta matrícula já está ligada a outra conta do site.");
+          c.perfil_id = id; const l = s.livro.find((x) => x.fin_cooperado_id === fin); if (l) l.perfil_id = id;
+          const p = s.perfis.find((x) => x.id === id); p.status = "ativo"; p.analise_obs = p.analise_obs || "Cooperado já matriculado: conta do site vinculada à matrícula existente, sem nova adesão."; gravar(s); return espera(l ? l.numero : null);
+        },
+        async semConta() { const s = ler(); exigir(s); this._st(s); return espera(s.fin.cooperados.filter((c) => !c.perfil_id && c.situacao !== "desligado").map((c) => ({ fin_id: c.id, nome: c.nome, numero: (s.livro.find((l) => l.fin_cooperado_id === c.id) || {}).numero }))); },
+        async livro() {
+          const s = ler(); exigir(s); this._st(s); const q = Number(s.fin.parametros.quota || 50);
+          return espera(s.livro.map((l) => {
+            const c = s.fin.cooperados.find((x) => x.id === l.fin_cooperado_id) || {};
+            const pg = (s.fin.pagamentos || []).filter((p) => p.fin_cooperado_id === c.id);
+            const ct = pg.filter((p) => p.tipo === "contribuicao").reduce((t, p) => t + Number(p.valor), 0) + (s.fin.retiradas || []).filter((r) => r.fin_cooperado_id === c.id && r.status === "paga").reduce((t, r) => t + Number(r.contribuicao || 0), 0);
+            const ig = pg.filter((p) => ["integralizacao", "abatimento"].includes(p.tipo)).reduce((t, p) => t + Number(p.valor), 0);
+            return { numero: l.numero, nome: l.nome, data_admissao: l.data_admissao, fundador: l.fundador, situacao: l.data_desligamento ? "desligado" : (c.situacao || "ativo"), data_desligamento: l.data_desligamento || null, quotas_iniciais: l.quotas_subscritas, capital_subscrito: l.quotas_subscritas * q + ct, capital_integralizado: Number(c.integralizado_admissao || 0) + ig + ct, quota: q };
+          }).sort((a, b) => a.numero - b.numero));
+        }
+      },
       notif: {
         async listar() { const s = ler(); const u = exigir(s); const c = s.fin.cooperados.find((x) => x.perfil_id === u.id);
           const todos = u.papel === "coordenacao" || u.conselho_adm || u.conselho_fiscal || u.tesouraria;
@@ -1669,6 +1724,27 @@
         async excluirRegistro(id) { ok(await sb.from("igcc_registros").delete().eq("id", id)); return true; }
       },
       manual: { async obter() { return api.manualArquivo(); } },
+      admissao: {
+        async minhaFicha() { const uid = await meuId(); const r = await sb.from("admissao_fichas").select("*").eq("perfil_id", uid).maybeSingle(); return r.error ? null : r.data; },
+        async salvarFicha(d) { const uid = await meuId(); ok(await sb.from("admissao_fichas").upsert({ ...d, perfil_id: uid })); return true; },
+        async enviarDoc(tipo, arquivo) {
+          const uid = await meuId();
+          const seguro = arquivo.name.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\w.\-]+/g, "_");
+          const caminho = `${uid}/${tipo}_${Date.now()}_${seguro}`;
+          ok(await sb.storage.from("admissao").upload(caminho, arquivo, { upsert: false, contentType: arquivo.type || undefined }));
+          const f = await this.minhaFicha(); const docs = [...((f && f.docs) || []), { tipo, caminho, nome: arquivo.name, tamanho: arquivo.size, enviado_em: new Date().toISOString() }];
+          const r = await sb.from("admissao_fichas").upsert({ perfil_id: uid, docs }); if (r.error) { await sb.storage.from("admissao").remove([caminho]); falha(r.error); }
+          return true;
+        },
+        async removerDoc(caminho) { const uid = await meuId(); const f = await this.minhaFicha(); ok(await sb.from("admissao_fichas").update({ docs: ((f && f.docs) || []).filter((d) => d.caminho !== caminho) }).eq("perfil_id", uid)); await sb.storage.from("admissao").remove([caminho]); return true; },
+        async linkDoc(caminho) { const r = await sb.storage.from("admissao").createSignedUrl(caminho, 300); ok(r); return r.data.signedUrl; },
+        async fichas() { const r = await sb.from("admissao_fichas").select("*"); return r.error ? [] : r.data; },
+        async decidir(id, d) { ok(await sb.from("perfis").update({ status: d.status, ca_reuniao: d.ca_reuniao || null, analise_obs: d.analise_obs || null }).eq("id", id)); return true; },
+        async registrarMatricula(id, assinado, obs) { return ok(await sb.rpc("registrar_matricula", { p_perfil: id, p_assinado: assinado, p_obs: obs || null })); },
+        async vincular(id, fin) { return ok(await sb.rpc("vincular_cooperado_existente", { p_perfil: id, p_fin: fin })); },
+        async semConta() { const r = await sb.rpc("matriculas_sem_conta"); return r.error ? [] : r.data; },
+        async livro() { return ok(await sb.rpc("livro_matricula_publico")); }
+      },
       notif: {
         async listar() { const r = await sb.from("fin_notificacoes").select("*").order("criado_em", { ascending: false }).limit(500); return r.error ? [] : r.data; },
         async decidir(id, d) { ok(await sb.from("fin_notificacoes").update({ status: d.status, providencia: d.providencia || null }).eq("id", id)); return true; }
