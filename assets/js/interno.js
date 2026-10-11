@@ -506,7 +506,8 @@
             </form></section>
           <section class="painel"><h2>Acervo</h2>
             ${docs.length ? `<div class="docs">${docs.map((d) => `<div class="doc"><div><b>${esc(d.titulo)}</b><span>${esc(d.categoria)} · ${esc(d.nome_arquivo)} · ${bytes(d.tamanho || 0)} · ${data(d.criado_em)}</span></div>
-              <div class="doc-acoes"><button class="btn btn-ghost btn-sm" data-abrir="${d.id}">Abrir</button><button class="btn btn-danger btn-sm" data-del="${d.id}">Excluir</button></div></div>`).join("")}</div>` : '<p class="vazio">Nenhum documento enviado.</p>'}
+              <div class="doc-acoes"><button class="btn btn-ghost btn-sm" data-abrir="${d.id}">Abrir</button><button class="btn btn-ghost btn-sm" data-subst="${d.id}">Substituir arquivo</button><button class="btn btn-danger btn-sm" data-del="${d.id}">Excluir</button></div></div>`).join("")}</div>` : '<p class="vazio">Nenhum documento enviado.</p>'}
+            <p class="hint">Enviar, substituir ou excluir aparece para todos os cooperados no Início ("mudanças desde a sua última visita") e fica no histórico de Documentos.</p>
           </section>`;
         $("#d-arq").onchange = (e) => { const f = e.target.files[0]; if (f && !$("#d-tit").value) $("#d-tit").value = f.name.replace(/\.[^.]+$/, ""); };
         $("#f-doc").addEventListener("submit", async (e) => {
@@ -522,6 +523,17 @@
         el.onclick = async (e) => {
           const ab = e.target.closest("[data-abrir]");
           if (ab) { const doc = docs.find((d) => d.id === ab.dataset.abrir); const url = await acao(ab, () => API.documentos.link(doc)); if (url) abrirArquivo(url, doc.nome_arquivo); return; }
+          const sb2 = e.target.closest("[data-subst]");
+          if (sb2) {
+            const doc = docs.find((d) => d.id === sb2.dataset.subst);
+            const m = UI.modal(`<h2>Substituir arquivo</h2><p class="muted">${esc(doc.titulo)} · atual: ${esc(doc.nome_arquivo)}</p>
+              <div class="field"><label for="ds-arq">Novo arquivo (até 50 MB)</label><input class="input" id="ds-arq" type="file"></div>
+              <p class="hint">O título e a categoria continuam os mesmos. O arquivo antigo é apagado e os cooperados veem o aviso de substituição.</p>
+              <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="ds-ok">Substituir</button></div>`);
+            $("#ds-ok", m.el).onclick = async (ev) => { const f = $("#ds-arq", m.el).files[0]; if (!f) return toast("Escolha o arquivo.", "err"); if (f.size > 50 * 1024 * 1024) return toast("O arquivo passa de 50 MB.", "err");
+              if (await acao(ev.currentTarget, () => API.documentos.substituir(doc, f), "Arquivo substituído.")) { m.fechar(); paginas.documentos.render(el); } };
+            return;
+          }
           const b = e.target.closest("[data-del]"); if (!b) return;
           if (!(await confirmar("Excluir este documento? O arquivo será apagado.", "Excluir"))) return;
           const ok = await acao(b, () => API.documentos.excluir(docs.find((d) => d.id === b.dataset.del)), "Documento excluído.");

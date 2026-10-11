@@ -307,11 +307,22 @@
           const s = ler(); exigir(s, true);
           if (arquivo.size > 1.5 * 1024 * 1024) falha("No modo demonstração o limite é 1,5 MB por arquivo. Com o banco real, o limite é 50 MB.");
           const dataUrl = await new Promise((ok, erro) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = erro; r.readAsDataURL(arquivo); });
-          s.documentos.push({ id: novoId(), titulo, categoria, nome_arquivo: arquivo.name, tamanho: arquivo.size, caminho: dataUrl, criado_em: new Date().toISOString() });
-          gravar(s); return espera(true);
+          const id = novoId(); s.documentos.push({ id, titulo, categoria, nome_arquivo: arquivo.name, tamanho: arquivo.size, caminho: dataUrl, criado_em: new Date().toISOString() });
+          this._hist(s, id, "enviado", titulo, categoria); gravar(s); return espera(true);
         },
+        _hist(s, id, acao, titulo, categoria) { const u = exigir(s); s.docs_hist = s.docs_hist || []; s.docs_hist.unshift({ id: novoId(), documento_id: id, acao, titulo, categoria, por_nome: u.nome, em: new Date().toISOString() }); s.docs_hist = s.docs_hist.slice(0, 200); },
+        async substituir(doc, arquivo) {
+          const s = ler(); exigir(s, true);
+          if (arquivo.size > 1.5 * 1024 * 1024) falha("No modo demonstração o limite é 1,5 MB por arquivo. Com o banco real, o limite é 50 MB.");
+          const dataUrl = await new Promise((ok, erro) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = erro; r.readAsDataURL(arquivo); });
+          const x = s.documentos.find((d) => d.id === doc.id); Object.assign(x, { caminho: dataUrl, nome_arquivo: arquivo.name, tamanho: arquivo.size, atualizado_em: new Date().toISOString() });
+          this._hist(s, x.id, "substituido", x.titulo, x.categoria); gravar(s); return espera(true);
+        },
+        async historico() { const s = ler(); exigir(s); return espera(JSON.parse(JSON.stringify((s.docs_hist || []).slice(0, 50)))); },
+        async visto() { const s = ler(); const u = exigir(s); return espera(((s.docs_visto || {})[u.id]) || null); },
+        async marcarVisto() { const s = ler(); const u = exigir(s); s.docs_visto = s.docs_visto || {}; s.docs_visto[u.id] = new Date().toISOString(); gravar(s); return espera(true); },
         async link(doc) { return doc.caminho; },
-        async excluir(doc) { const s = ler(); exigir(s, true); s.documentos = s.documentos.filter((d) => d.id !== doc.id); gravar(s); return espera(true); }
+        async excluir(doc) { const s = ler(); exigir(s, true); s.documentos = s.documentos.filter((d) => d.id !== doc.id); this._hist(s, doc.id, "excluido", doc.titulo, doc.categoria); gravar(s); return espera(true); }
       },
       projetos: {
         async listar() { const s = ler(); exigir(s); return espera([...s.projetos].sort((a, b) => (b.criado_em || "").localeCompare(a.criado_em || ""))); },
@@ -1308,7 +1319,19 @@
           ok(await sb.from("documentos").delete().eq("id", doc.id));
           await sb.storage.from("documentos").remove([doc.caminho]);
           return true;
-        }
+        },
+        async substituir(doc, arquivo) {
+          const seguro = arquivo.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w.\-]+/g, "_");
+          const caminho = `${new Date().getFullYear()}/${Date.now()}_${seguro}`;
+          ok(await sb.storage.from("documentos").upload(caminho, arquivo, { upsert: false, contentType: arquivo.type || undefined }));
+          const r = await sb.from("documentos").update({ caminho, nome_arquivo: arquivo.name, tamanho: arquivo.size, atualizado_em: new Date().toISOString() }).eq("id", doc.id);
+          if (r.error) { await sb.storage.from("documentos").remove([caminho]); falha(r.error); }
+          await sb.storage.from("documentos").remove([doc.caminho]);
+          return true;
+        },
+        async historico() { const r = await sb.from("documentos_historico").select("*").order("em", { ascending: false }).limit(50); return r.error ? [] : r.data; },
+        async visto() { const uid = await meuId(); const r = await sb.from("lembretes_adiados").select("ate").eq("perfil_id", uid).eq("chave", "documentos_visto").maybeSingle(); return r.error || !r.data ? null : r.data.ate; },
+        async marcarVisto() { const uid = await meuId(); await sb.from("lembretes_adiados").upsert({ perfil_id: uid, chave: "documentos_visto", ate: new Date().toISOString() }); return true; }
       },
       projetos: {
         async listar() { return ok(await sb.from("projetos").select("*").order("criado_em", { ascending: false })); },

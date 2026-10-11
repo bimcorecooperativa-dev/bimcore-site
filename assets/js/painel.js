@@ -42,6 +42,17 @@
       <a class="btn btn-ghost btn-sm" href="#perfil">Já sou filiado(a): informar</a> <button class="link-botao" id="sind-adiar" type="button">Lembrar depois</button></div>`;
   }
 
+  /* Mudanças em Documentos desde a última vez que a pessoa abriu a página */
+  const ACAO_DOC = { enviado: "novo documento", substituido: "arquivo substituído", excluido: "documento excluído", editado: "título ou categoria alterados" };
+  async function avisoDocumentos() {
+    const [hist, visto] = await Promise.all([API.documentos.historico().catch(() => []), API.documentos.visto().catch(() => null)]);
+    const novos = hist.filter((h) => !visto || h.em > visto);
+    if (!novos.length) return "";
+    return `<div class="notice"><b>Documentos: ${novos.length} ${novos.length === 1 ? "mudança" : "mudanças"} desde a sua última visita</b>
+      <ul style="margin:.3rem 0 .5rem 1.1rem">${novos.slice(0, 5).map((h) => `<li>${esc(h.titulo || "documento")} <span class="hint">(${ACAO_DOC[h.acao] || h.acao} · ${esc(h.categoria || "")} · ${data(h.em)}${h.por_nome ? " · " + esc(h.por_nome) : ""})</span></li>`).join("")}${novos.length > 5 ? `<li class="hint">e mais ${novos.length - 5}…</li>` : ""}</ul>
+      <a class="btn btn-ghost btn-sm" href="#documentos">Ver documentos</a></div>`;
+  }
+
   const paginas = {
     inicio: {
       titulo: "Início",
@@ -54,6 +65,7 @@
           <div class="pag-cab"><div><p class="eyebrow">${esc(nomeMes)}</p><h1>Olá, ${esc((ctx.sessao.perfil.nome || "").split(" ")[0] || "cooperado")}</h1></div>
             <a class="btn btn-primary" href="#horas">Lançar horas</a></div>
           ${await balaoSindicato(ctx)}
+          ${await avisoDocumentos()}
           ${await window.Assembleias.anuncio()}
           ${window.Projetos ? await window.Projetos.anuncio(ctx) : ""}
           <div class="kpis">
@@ -692,14 +704,17 @@
     documentos: {
       titulo: "Documentos",
       async render(el) {
-        const docs = await API.documentos.listar();
+        const [docs, hist, visto] = await Promise.all([API.documentos.listar(), API.documentos.historico().catch(() => []), API.documentos.visto().catch(() => null)]);
+        API.documentos.marcarVisto().catch(() => {});
         const grupos = {};
         docs.forEach((d) => { (grupos[d.categoria] = grupos[d.categoria] || []).push(d); });
+        const novo = (d) => visto && ((d.atualizado_em || d.criado_em) > visto) ? ' <span class="selo info">novo</span>' : "";
         el.innerHTML = `
           <div class="pag-cab"><div><p class="eyebrow">Cooperativa</p><h1>Documentos</h1></div></div>
+          ${hist.length ? `<details class="explica"><summary>Mudanças recentes</summary><ul style="margin:.4rem 0 0 1.1rem">${hist.slice(0, 15).map((h) => `<li>${data(h.em)}: ${esc(h.titulo || "documento")} <span class="hint">(${ACAO_DOC[h.acao] || h.acao} · ${esc(h.categoria || "")}${h.por_nome ? " · " + esc(h.por_nome) : ""})</span></li>`).join("")}</ul></details>` : ""}
           ${docs.length ? API.CATEGORIAS_DOC.filter((c) => grupos[c]).map((c) => `
             <section class="painel"><h2>${esc(c)}</h2><div class="docs">
-              ${grupos[c].map((d) => `<div class="doc"><div><b>${esc(d.titulo)}</b><span>${esc(d.nome_arquivo)} · ${bytes(d.tamanho || 0)} · ${data(d.criado_em)}</span></div>
+              ${grupos[c].map((d) => `<div class="doc"><div><b>${esc(d.titulo)}</b>${novo(d)}<span>${esc(d.nome_arquivo)} · ${bytes(d.tamanho || 0)} · ${d.atualizado_em ? "atualizado em " + data(d.atualizado_em) : data(d.criado_em)}</span></div>
                 <div class="doc-acoes"><button class="btn btn-ghost btn-sm" data-abrir="${d.id}">Abrir</button></div></div>`).join("")}
             </div></section>`).join("") : '<p class="vazio">A coordenação ainda não publicou documentos.</p>'}`;
         el.onclick = async (e) => {
