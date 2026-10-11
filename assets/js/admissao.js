@@ -157,7 +157,8 @@
             ${c.status === "pendente" ? '<button class="btn btn-ghost btn-sm" data-dec="entrevista">Chamar para conversa</button>' : ""}
             <button class="btn btn-primary btn-sm" data-dec="aprovado">Aprovado pelo CA</button>
             <button class="btn btn-danger btn-sm" data-dec="recusado">Não aprovado pelo CA</button>
-            ${semConta.length ? `<span class="sep-v"></span><select class="input mini" id="vinc-${c.id}" aria-label="Matrícula existente"><option value="">Já é cooperado? Escolha a matrícula</option>${semConta.map((x) => `<option value="${x.fin_id}">${x.numero ? "nº " + x.numero + " · " : ""}${esc(x.nome)}</option>`).join("")}</select> <button class="btn btn-ghost btn-sm" data-vincular="1">Vincular sem nova adesão</button>` : ""}
+            ${(() => { const opcoes = semConta.filter((x) => !x.perfil_id || x.perfil_id === c.id); if (!opcoes.length) return ""; const minha = opcoes.find((x) => x.perfil_id === c.id);
+              return `<span class="sep-v"></span><select class="input mini" id="vinc-${c.id}" aria-label="Matrícula existente"><option value="">Já é cooperado? Escolha a matrícula</option>${opcoes.map((x) => `<option value="${x.fin_id}" ${minha && minha.fin_id === x.fin_id ? "selected" : ""}>${x.numero ? "nº " + x.numero + " · " : ""}${esc(x.nome)}</option>`).join("")}</select> <button class="btn ${minha ? "btn-primary" : "btn-ghost"} btn-sm" data-vincular="1">Vincular sem nova adesão</button>${minha ? `<span class="hint">Esta conta já está ligada à matrícula${minha.numero ? " nº " + minha.numero : ""} de ${esc(minha.nome)} no financeiro: é cooperado(a).</span>` : ""}`; })()}
           </div>` : `
           <div class="form-grid" style="margin-top:.8rem">
             <div class="field"><label for="ass-${c.id}">Data da assinatura no Livro</label><input class="input" id="ass-${c.id}" type="date" max="${hoje}" value="${hoje}"></div>

@@ -1065,7 +1065,8 @@
           c.perfil_id = id; const l = s.livro.find((x) => x.fin_cooperado_id === fin); if (l) l.perfil_id = id;
           const p = s.perfis.find((x) => x.id === id); p.status = "ativo"; p.analise_obs = p.analise_obs || "Cooperado já matriculado: conta do site vinculada à matrícula existente, sem nova adesão."; gravar(s); return espera(l ? l.numero : null);
         },
-        async semConta() { const s = ler(); exigir(s); this._st(s); return espera(s.fin.cooperados.filter((c) => !c.perfil_id && c.situacao !== "desligado").map((c) => ({ fin_id: c.id, nome: c.nome, numero: (s.livro.find((l) => l.fin_cooperado_id === c.id) || {}).numero }))); },
+        async semConta() { const s = ler(); exigir(s); this._st(s); const cand = (id) => { const p = s.perfis.find((x) => x.id === id); return p && ["pendente", "entrevista", "aprovado"].includes(p.status); };
+          return espera(s.fin.cooperados.filter((c) => c.situacao !== "desligado" && (!c.perfil_id || cand(c.perfil_id))).map((c) => ({ fin_id: c.id, nome: c.nome, numero: (s.livro.find((l) => l.fin_cooperado_id === c.id) || {}).numero, perfil_id: c.perfil_id || null }))); },
         async livro() {
           const s = ler(); exigir(s); this._st(s); const q = Number(s.fin.parametros.quota || 50);
           return espera(s.livro.map((l) => {
