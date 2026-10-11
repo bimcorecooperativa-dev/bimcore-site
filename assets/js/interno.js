@@ -93,12 +93,16 @@
               <td><label class="ciente" style="margin:0"><input type="checkbox" data-campo="conselho_fiscal" ${c.conselho_fiscal ? "checked" : ""} ${c.id === ctx.sessao.perfil.id ? "disabled" : ""}> <span>membro</span></label></td>
               <td class="acoes-celula">${c.id === ctx.sessao.perfil.id ? '<span class="hint">você</span>' : '<button class="btn btn-primary btn-sm" data-salvar>Salvar</button>'}</td></tr>`).join("")}</tbody>
           </table></div>` : '<p class="vazio">Nenhum cooperado admitido ainda.</p>'}`;
+        const travaCargo = (tr) => { const cb = tr.querySelector('[data-campo="conselho_adm"]'), s = tr.querySelector('[data-campo="cargo_ca"]'); if (!cb || !s || cb.disabled) return; s.disabled = !cb.checked; if (!cb.checked) s.value = ""; s.title = cb.checked ? "" : "Marque \"membro\" do CA para escolher o cargo"; };
+        el.querySelectorAll("tr[data-id]").forEach(travaCargo);
+        el.onchange = (e) => { if (e.target.matches('[data-campo="conselho_adm"]')) travaCargo(e.target.closest("tr")); };
         el.onclick = async (e) => {
           const b = e.target.closest("[data-salvar]"); if (!b) return;
           const tr = b.closest("tr");
           const dados = { status: tr.querySelector('[data-campo="status"]').value, papel: tr.querySelector('[data-campo="papel"]').value, tesouraria: tr.querySelector('[data-campo="tesouraria"]').checked, conselho_fiscal: tr.querySelector('[data-campo="conselho_fiscal"]').checked,
             conselho_adm: tr.querySelector('[data-campo="conselho_adm"]').checked, cargo_ca: tr.querySelector('[data-campo="cargo_ca"]').value || null };
           if (dados.conselho_adm && dados.conselho_fiscal) return toast("Quem é do Conselho Fiscal não pode ser do Conselho de Administração (Estatuto, art. 60, §5º).", "err");
+          if (!dados.conselho_adm && dados.cargo_ca) return toast("O cargo só existe para quem é membro do Conselho de Administração. Marque \"membro\" no CA ou deixe o cargo em branco. Funções do dia a dia (comunicação, apoio administrativo, tesouraria, secretaria) não são cargo do CA: são funções técnicas operacionais (Regimento, art. 81).", "err");
           if (dados.conselho_adm && !dados.cargo_ca) return toast("Escolha o cargo no Conselho de Administração (Regimento, art. 71).", "err");
           if (dados.conselho_fiscal && (dados.tesouraria || dados.papel === "coordenacao")) return toast("Quem é do Conselho Fiscal não pode estar na coordenação nem na tesouraria: o CF fiscaliza essas funções (Estatuto, art. 60).", "err");
           if (dados.status === "desligado" && !(await confirmar("Desligar este cooperado? Ele perde o acesso à área do cooperado.", "Desligar"))) return;
