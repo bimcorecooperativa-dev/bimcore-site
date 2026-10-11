@@ -399,3 +399,9 @@ form.aval { border-top: 1px solid var(--line); padding-top: .8rem; margin-top: .
 
 /* botão com cara de link (ex.: "3 movimento(s) desde...") */
 .link-btn { background: none; border: 0; padding: 0; color: var(--cyan); text-decoration: underline; cursor: pointer; font: inherit; }
+/* lista de signatários da ata */
+.asm-assin { margin: .6rem 0 .8rem 1.2rem; }
+.asm-assin li { margin-bottom: .35rem; }
+.asm-assin li .sub { display: block; }
+.asm-assin li.ok > b::after { content: " ✓"; color: var(--ok); }
+.asm-assin li.vez > b { color: var(--warn); }

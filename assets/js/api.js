@@ -396,7 +396,10 @@
         async comentar(id, texto) { const s = ler(); const u = exigir(s); this._s(s).comentarios.push({ id: novoId(), proposta_id: id, perfil_id: u.id, nome: u.nome, texto: String(texto).slice(0, 2000), em: new Date().toISOString() }); gravar(s); return espera(true); }
       },
       assembleias: {
-        _s(s) { s.asm = s.asm || { assembleias: [], pautas: [], presencas: [], votos: [], secretos: [], chat: [], assinaturas: [] }; return s.asm; },
+        _s(s) { s.asm = s.asm || { assembleias: [], pautas: [], presencas: [], votos: [], secretos: [], chat: [], assinaturas: [] }; s.asm.versoes = s.asm.versoes || []; s.asm.arquivos = s.asm.arquivos || {}; return s.asm; },
+        _mesa(u, a) { return this._gestor(u) || [a.mesa_presidente, a.mesa_secretario].includes(u.id); },
+        _b64(bytes) { let t = ""; for (let i = 0; i < bytes.length; i += 32768) t += String.fromCharCode.apply(null, bytes.subarray(i, i + 32768)); return btoa(t); },
+        _bytes(b64) { const t = atob(b64); const o = new Uint8Array(t.length); for (let i = 0; i < t.length; i++) o[i] = t.charCodeAt(i); return o; },
         _gestor(u) { return u.status === "ativo" && (u.papel === "coordenacao" || u.conselho_fiscal); },
         _quorum(s, a) {
           const A = this._s(s); const n = a.membros_na_data || Math.max(s.perfis.filter((p) => p.status === "ativo").length, ((s.fin && s.fin.cooperados) || []).filter((c) => (c.situacao || "ativo") === "ativo").length);
@@ -419,14 +422,56 @@
           const secretos = A.secretos.filter((v) => pautas.some((p) => p.id === v.pauta_id && p.status === "encerrada"));
           return espera(JSON.parse(JSON.stringify({ assembleia: a, pautas, votos, secretos, votantes: A.votos.filter((v) => ids.includes(v.pauta_id)).map((v) => ({ pauta_id: v.pauta_id, perfil_id: v.perfil_id, nome: v.nome })),
             presencas: A.presencas.filter((x) => x.assembleia_id === id), chat: A.chat.filter((c) => c.assembleia_id === id), assinaturas: A.assinaturas.filter((x) => x.assembleia_id === id),
-            quorum: this._quorum(s, a), membros: s.perfis.filter((p) => p.status === "ativo").map((p) => ({ id: p.id, nome: p.nome, email: p.email })) })));
+            quorum: this._quorum(s, a), membros: s.perfis.filter((p) => p.status === "ativo").map((p) => ({ id: p.id, nome: p.nome, email: p.email, papel: p.papel, conselho_adm: !!p.conselho_adm, conselho_fiscal: !!p.conselho_fiscal, cargo_ca: p.cargo_ca || null, tesouraria: !!p.tesouraria })),
+            versoes: A.versoes.filter((v) => v.assembleia_id === id).sort((x, y) => x.ordem - y.ordem) })));
+        },
+        async nota(id, chave, texto) {
+          const s = ler(); const u = exigir(s); const a = this._s(s).assembleias.find((x) => x.id === id);
+          if (!this._mesa(u, a)) falha("Só a mesa (presidente e secretário) escreve na ata.");
+          if (!["aberta", "instalada"].includes(a.status)) falha("As anotações da ata são feitas durante a sessão. Depois do encerramento, o texto fica travado.");
+          a.notas = { ...(a.notas || {}), [chave]: String(texto || "").slice(0, 20000) }; gravar(s); return espera(true);
+        },
+        async comissao(id, ids) {
+          const s = ler(); const u = exigir(s); const A = this._s(s); const a = A.assembleias.find((x) => x.id === id);
+          if (!this._mesa(u, a)) falha("Só a mesa registra a comissão."); if (a.status !== "instalada") falha("A comissão é designada durante a assembleia.");
+          if (!ids.length || ids.length > 5) falha("A comissão tem de 1 a 5 cooperados (Estatuto, art. 39, §1º).");
+          if (ids.some((x) => !A.presencas.some((p) => p.assembleia_id === id && p.perfil_id === x))) falha("A comissão só pode ter cooperados presentes.");
+          a.comissao = ids; gravar(s); return espera(true);
+        },
+        async cpfs(id) { return espera([]); },
+        async fecharAta(id, texto, bytes, hash, signatarios) {
+          const s = ler(); const u = exigir(s); const A = this._s(s); const a = A.assembleias.find((x) => x.id === id);
+          if (!this._mesa(u, a)) falha("Só a mesa fecha a ata."); if (!["encerrada", "sem_quorum"].includes(a.status)) falha("A ata é fechada depois do encerramento."); if (a.ata_fechada_em) falha("A ata já foi fechada e não muda mais.");
+          if (!signatarios.length) falha("Informe quem assina a ata.");
+          const caminho = `${id}/ata-${hash.slice(0, 12)}.pdf`; A.arquivos[caminho] = this._b64(bytes);
+          Object.assign(a, { ata: texto, ata_pdf: caminho, ata_hash: hash, ata_signatarios: signatarios, ata_fechada_em: new Date().toISOString() }); gravar(s); return espera(true);
+        },
+        async baixarArquivoAta(caminho) { const s = ler(); exigir(s); const b = this._s(s).arquivos[caminho]; if (!b) falha("Arquivo não encontrado."); return espera(this._bytes(b)); },
+        async enviarVersao(id, bytes, meta) {
+          const s = ler(); const u = exigir(s); const A = this._s(s); const a = A.assembleias.find((x) => x.id === id);
+          if (!a.ata_fechada_em) falha("A ata ainda não foi fechada."); if (a.ata_concluida_em) falha("Todas as assinaturas já foram colhidas.");
+          const vs = A.versoes.filter((v) => v.assembleia_id === id), k = vs.length, sig = a.ata_signatarios[k];
+          if (u.id !== sig.perfil_id && !this._gestor(u)) falha(`Agora é a vez de ${sig.nome} assinar.`);
+          if (meta.sha256 === a.ata_hash || vs.some((v) => v.sha256 === meta.sha256)) falha("Este arquivo é igual a uma versão anterior: falta a assinatura gov.br.");
+          const caminho = `${id}/v${k + 1}-${meta.sha256.slice(0, 12)}.pdf`; A.arquivos[caminho] = this._b64(bytes);
+          A.versoes.push({ id: novoId(), assembleia_id: id, ordem: k + 1, perfil_id: sig.perfil_id, nome: sig.nome, arquivo: caminho, sha256: meta.sha256, tamanho: bytes.length, assinaturas: meta.assinaturas, prefixo_ok: meta.prefixo_ok, enviado_por: u.id, enviado_nome: u.nome, enviado_em: new Date().toISOString() });
+          if (k + 1 >= a.ata_signatarios.length) a.ata_concluida_em = new Date().toISOString();
+          gravar(s); return espera(true);
+        },
+        async desfazerVersao(id) {
+          const s = ler(); const u = exigir(s); if (!this._gestor(u)) falha("Só quem dirige a assembleia desfaz uma versão."); const A = this._s(s); const a = A.assembleias.find((x) => x.id === id);
+          if (a.ata_publicada_em) falha("A ata já foi publicada."); const vs = A.versoes.filter((v) => v.assembleia_id === id); const ult = vs.sort((x, y) => y.ordem - x.ordem)[0];
+          if (ult) { A.versoes = A.versoes.filter((v) => v !== ult); delete A.arquivos[ult.arquivo]; } a.ata_concluida_em = null; gravar(s); return espera(true);
         },
         async salvar(d) {
           const s = ler(); const u = exigir(s); if (!this._gestor(u)) falha("permission denied"); const A = this._s(s);
           if (d.id) {
             const a = A.assembleias.find((x) => x.id === d.id); if (!a) falha("Assembleia não encontrada.");
             if (a.status !== "rascunho" && ["data_hora", "tipo", "titulo", "duracao_min"].some((k) => k in d && d[k] !== a[k])) falha("Depois do edital publicado, data, tipo e ordem do dia não mudam. Cancele e convoque outra assembleia.");
-            if (a.ata_publicada_em && "ata" in d && d.ata !== a.ata) falha("A ata já foi publicada.");
+            if (["ata", "notas", "comissao", "ata_fechada_em", "ata_hash", "ata_pdf", "ata_signatarios", "ata_concluida_em", "ata_publicada_em"].some((k) => k in d)) falha("A ata e as anotações só mudam pelos botões da sala.");
+            if (["mesa_presidente", "mesa_secretario", "comissao_proposta"].some((k) => k in d && JSON.stringify(d[k]) !== JSON.stringify(a[k])) && !["rascunho", "agendada", "aberta"].includes(a.status)) falha("A mesa e a comissão proposta só mudam até a instalação da assembleia.");
+            if ((d.comissao_proposta || []).length > 5) falha("A comissão tem no máximo 5 cooperados (Estatuto, art. 39, §1º).");
+            if ("gravacao_url" in d && d.gravacao_url !== a.gravacao_url && a.ata_fechada_em) falha("A ata já foi fechada; o link da gravação não muda mais.");
             Object.assign(a, d);
           } else A.assembleias.push({ duracao_min: 120, ...d, id: novoId(), status: "rascunho", criado_por: u.id, criado_nome: u.nome, criado_em: new Date().toISOString() });
           gravar(s); return espera(true);
@@ -462,9 +507,14 @@
         async instalar(id) {
           const s = ler(); const u = exigir(s); if (!this._gestor(u)) falha("Só quem dirige a assembleia a instala."); const A = this._s(s); const a = A.assembleias.find((x) => x.id === id);
           if (a.status !== "aberta") falha("A sala precisa estar aberta."); let q;
-          if (a.tipo !== "pre") { if (Date.now() < new Date(a.data_hora).getTime()) falha("A assembleia só pode ser instalada a partir do horário do edital."); q = this._quorum(s, a); if (!q.atingido) falha(`Quórum ainda não atingido: ${q.presentes} presentes aptos, ${q.necessario} necessários na ${q.convocacao}ª convocação.`); }
+          if (a.tipo !== "pre") { if (!a.mesa_presidente || !a.mesa_secretario) falha("Defina quem preside e quem secretaria a mesa antes de instalar (Estatuto, art. 36)."); if (Date.now() < new Date(a.data_hora).getTime()) falha("A assembleia só pode ser instalada a partir do horário do edital."); q = this._quorum(s, a); if (!q.atingido) falha(`Quórum ainda não atingido: ${q.presentes} presentes aptos, ${q.necessario} necessários na ${q.convocacao}ª convocação.`); }
           else q = { presentes: A.presencas.filter((x) => x.assembleia_id === id).length, convocacao: 0 };
-          Object.assign(a, { status: "instalada", instalada_em: new Date().toISOString(), instalada_presentes: q.presentes, instalada_convocacao: q.convocacao }); gravar(s); return espera(q);
+          Object.assign(a, { status: "instalada", instalada_em: new Date().toISOString(), instalada_presentes: q.presentes, instalada_convocacao: q.convocacao });
+          if (a.tipo !== "pre" && (a.comissao_proposta || []).length && !A.pautas.some((p) => p.assembleia_id === id && p.especial === "comissao")) {
+            const nomes = s.perfis.filter((p) => a.comissao_proposta.includes(p.id)).map((p) => p.nome).sort().join(", ");
+            A.pautas.push({ id: novoId(), assembleia_id: id, ordem: 0, titulo: "Designação da comissão que assina a ata (Estatuto, art. 39, §1º)", descricao: `Proposta: ${nomes}.`, quorum: "maioria", impedir_orgaos: false, voto_secreto: false, status: "aguardando", resultado: null, especial: "comissao" });
+          }
+          gravar(s); return espera(q);
         },
         async encerrar(id, semQuorum) {
           const s = ler(); const u = exigir(s); if (!this._gestor(u)) falha("Só quem dirige a assembleia a encerra."); const A = this._s(s); const a = A.assembleias.find((x) => x.id === id);
@@ -496,6 +546,7 @@
           const minimo = p.quorum === "dois_tercos" ? Math.ceil(aptos * 2 / 3) : Math.floor(aptos / 2) + 1;
           const res = a.tipo === "pre" ? "consulta" : (abs + naov) * 2 > aptos ? "adiada" : fav >= minimo && aptos > 0 ? "aprovada" : "rejeitada";
           Object.assign(p, { status: "encerrada", encerrada_em: new Date().toISOString(), resultado: { aptos, favor: fav, contra: con, abstencao: abs, nao_votaram: naov, necessario: minimo, resultado: res, secreto: p.voto_secreto } });
+          if (p.especial === "comissao" && res === "aprovada") a.comissao = (a.comissao_proposta || []).slice();
           gravar(s); return espera(p.resultado);
         },
         async chat(id) { const s = ler(); exigir(s); return espera(this._s(s).chat.filter((c) => c.assembleia_id === id)); },
@@ -506,14 +557,14 @@
         },
         async assinar(id, qualidade) {
           const s = ler(); const u = exigir(s); const A = this._s(s); const a = A.assembleias.find((x) => x.id === id);
-          if (!["encerrada", "sem_quorum"].includes(a.status)) falha("A ata é assinada depois do encerramento."); if (a.ata_publicada_em) falha("A ata já foi publicada."); if (!a.ata) falha("A ata ainda não foi redigida.");
-          if (!A.presencas.some((x) => x.assembleia_id === id && x.perfil_id === u.id)) falha("Só quem esteve presente assina a ata.");
-          A.assinaturas = A.assinaturas.filter((x) => !(x.assembleia_id === id && x.perfil_id === u.id)); A.assinaturas.push({ assembleia_id: id, perfil_id: u.id, nome: u.nome, qualidade: qualidade || "cooperado", em: new Date().toISOString() });
+          if (!["aberta", "instalada", "encerrada", "sem_quorum"].includes(a.status)) falha("A confirmação de presença é feita durante ou logo depois da assembleia."); if (a.ata_publicada_em) falha("A ata já foi publicada.");
+          if (!A.presencas.some((x) => x.assembleia_id === id && x.perfil_id === u.id)) falha("Só quem esteve presente confirma a presença.");
+          A.assinaturas = A.assinaturas.filter((x) => !(x.assembleia_id === id && x.perfil_id === u.id)); A.assinaturas.push({ assembleia_id: id, perfil_id: u.id, nome: u.nome, qualidade: "presença e participação", em: new Date().toISOString() });
           gravar(s); return espera(true);
         },
         async publicarAta(id) {
           const s = ler(); const u = exigir(s); if (!this._gestor(u)) falha("Só quem dirige a assembleia publica a ata."); const A = this._s(s); const a = A.assembleias.find((x) => x.id === id);
-          if (!["encerrada", "sem_quorum"].includes(a.status)) falha("A assembleia ainda não foi encerrada."); if (!a.ata) falha("Redija a ata antes de publicar."); if (!A.assinaturas.some((x) => x.assembleia_id === id)) falha("A ata precisa de pelo menos uma assinatura.");
+          if (!["encerrada", "sem_quorum"].includes(a.status)) falha("A assembleia ainda não foi encerrada."); if (!a.ata_fechada_em) falha("Feche a ata antes de publicar."); if (!a.ata_concluida_em) falha("Faltam assinaturas gov.br na ata.");
           a.ata_publicada_em = new Date().toISOString(); gravar(s); return espera(true);
         }
       },
@@ -1323,14 +1374,32 @@
             sb.from("assembleias").select("*").eq("id", id).single(), sb.from("assembleia_pautas").select("*").eq("assembleia_id", id).order("ordem"),
             sb.from("assembleia_presencas").select("*").eq("assembleia_id", id).order("entrou_em"), sb.from("assembleia_chat").select("*").eq("assembleia_id", id).order("em"),
             sb.from("assembleia_assinaturas").select("*").eq("assembleia_id", id).order("em"), sb.rpc("assembleia_quorum", { p_id: id }),
-            sb.from("perfis").select("id,nome,email").eq("status", "ativo")]);
+            sb.from("perfis").select("id,nome,email,papel,conselho_adm,conselho_fiscal,cargo_ca,tesouraria").eq("status", "ativo")]);
           const pautas = ok(ps); const ids = pautas.map((p) => p.id);
           const [vt, sc] = ids.length ? await Promise.all([sb.from("assembleia_votos").select("*").in("pauta_id", ids), sb.from("assembleia_votos_secretos").select("*").in("pauta_id", ids)]) : [{ data: [] }, { data: [] }];
           const votos = (vt.data || []);
           // quem já votou (sem o conteúdo) vem dos próprios votos visíveis e do resultado; para a contagem ao vivo usamos a RPC de votantes
           const vv = ids.length ? await sb.rpc("assembleia_votantes", { p_id: id }) : { data: [] };
-          return { assembleia: ok(a), pautas, votos, secretos: sc.data || [], votantes: vv.error ? [] : vv.data || [], presencas: ok(pr), chat: ok(ch), assinaturas: ok(as), quorum: q.error ? null : q.data, membros: mb.error ? [] : mb.data };
+          const ve = await sb.from("assembleia_ata_versoes").select("*").eq("assembleia_id", id).order("ordem");
+          return { assembleia: ok(a), pautas, votos, secretos: sc.data || [], votantes: vv.error ? [] : vv.data || [], presencas: ok(pr), chat: ok(ch), assinaturas: ok(as), quorum: q.error ? null : q.data, membros: mb.error ? [] : mb.data, versoes: ve.error ? [] : ve.data };
         },
+        async nota(id, chave, texto) { ok(await sb.rpc("assembleia_nota", { p_id: id, p_chave: chave, p_texto: texto })); return true; },
+        async comissao(id, ids) { ok(await sb.rpc("assembleia_comissao", { p_id: id, p_ids: ids })); return true; },
+        async cpfs(id) { const r = await sb.rpc("assembleia_cpfs", { p_id: id }); return r.error ? [] : r.data || []; },
+        async fecharAta(id, texto, bytes, hash, signatarios) {
+          const caminho = `${id}/ata-${hash.slice(0, 12)}.pdf`;
+          ok(await sb.storage.from("atas").upload(caminho, new Blob([bytes], { type: "application/pdf" }), { upsert: false, contentType: "application/pdf" }));
+          ok(await sb.rpc("ata_fechar", { p_id: id, p_texto: texto, p_pdf: caminho, p_hash: hash, p_signatarios: signatarios }));
+          return true;
+        },
+        async baixarArquivoAta(caminho) { const r = await sb.storage.from("atas").download(caminho); ok(r); return new Uint8Array(await r.data.arrayBuffer()); },
+        async enviarVersao(id, bytes, meta) {
+          const caminho = `${id}/v${meta.ordem}-${meta.sha256.slice(0, 12)}.pdf`;
+          ok(await sb.storage.from("atas").upload(caminho, new Blob([bytes], { type: "application/pdf" }), { upsert: true, contentType: "application/pdf" }));
+          ok(await sb.rpc("ata_versao", { p_id: id, p_arquivo: caminho, p_sha: meta.sha256, p_tamanho: bytes.length, p_assinaturas: meta.assinaturas, p_prefixo_ok: meta.prefixo_ok }));
+          return true;
+        },
+        async desfazerVersao(id) { ok(await sb.rpc("ata_versao_desfazer", { p_id: id })); return true; },
         async salvar(d) {
           const x = { ...d }; delete x.id; delete x.pautas;
           if (d.id) ok(await sb.from("assembleias").update(x).eq("id", d.id)); else ok(await sb.from("assembleias").insert(x));
