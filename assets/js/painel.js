@@ -20,6 +20,21 @@
     ? `<span class="selo warn">${Math.round(fti * 100)}% em formação</span>`
     : `<span class="selo ok">${Math.round(fti * 100)}% em formação</span>`;
 
+  /* Lembrete de filiação sindical (Estatuto, art. 3º, §5º): só para quem não informou filiação; pode adiar por 30 dias */
+  const FRASES_SINDICATO = [
+    "Cooperativa e sindicato se completam: um organiza o trabalho, o outro defende direitos de toda a categoria.",
+    "Os pisos que usamos como base do nosso valor-hora foram conquistados pela luta sindical. Fortaleça quem conquistou.",
+    "Quem se organiza no trabalho também se organiza na categoria. Filie-se ao seu sindicato."
+  ];
+  async function balaoSindicato(ctx) {
+    const p = ctx.sessao.perfil; const f = await API.admissao.minhaFiliacao().catch(() => null); if (f && f.sindicato) return "";
+    try { const ate = Number(localStorage.getItem("bimcore-sindicato-adiar-" + p.id) || 0); if (ate > Date.now()) return ""; } catch (e) {}
+    const frase = FRASES_SINDICATO[new Date().getDate() % FRASES_SINDICATO.length];
+    setTimeout(() => { const b = document.getElementById("sind-adiar"); if (b) b.onclick = () => { try { localStorage.setItem("bimcore-sindicato-adiar-" + p.id, String(Date.now() + 30 * 864e5)); } catch (e) {} b.closest(".balao-sindicato").remove(); }; }, 0);
+    return `<div class="notice balao-sindicato"><b>Filiação sindical</b><p style="margin:.3rem 0 .5rem">${frase} A BIMCORE incentiva cada cooperado a se filiar ao sindicato da sua categoria (Estatuto, art. 3º, §5º).</p>
+      <a class="btn btn-ghost btn-sm" href="#perfil">Já sou filiado(a): informar</a> <button class="link-botao" id="sind-adiar" type="button">Lembrar depois</button></div>`;
+  }
+
   const paginas = {
     inicio: {
       titulo: "Início",
@@ -31,6 +46,7 @@
         el.innerHTML = `
           <div class="pag-cab"><div><p class="eyebrow">${esc(nomeMes)}</p><h1>Olá, ${esc((ctx.sessao.perfil.nome || "").split(" ")[0] || "cooperado")}</h1></div>
             <a class="btn btn-primary" href="#horas">Lançar horas</a></div>
+          ${await balaoSindicato(ctx)}
           ${await window.Assembleias.anuncio()}
           ${window.Projetos ? await window.Projetos.anuncio(ctx) : ""}
           <div class="kpis">
@@ -849,6 +865,7 @@
       separador: true,
       async render(el, ctx) {
         const p = ctx.sessao.perfil;
+        const fil = await API.admissao.minhaFiliacao().catch(() => null);
         el.innerHTML = `
           <div class="pag-cab"><div><p class="eyebrow">Cadastro</p><h1>Meu perfil</h1></div></div>
           <section class="painel"><h2>Dados</h2>
@@ -858,6 +875,8 @@
               <div class="field full"><label for="p-esp">Especialidade</label><input class="input" id="p-esp" value="${esc(p.especialidade)}" placeholder="Ex.: Estrutural, MEP, orçamento, coordenação BIM"></div>
               <div class="field"><label>E-mail</label><input class="input" value="${esc(p.email)}" disabled></div>
               <div class="field"><label>Cooperado desde</label><input class="input" value="${data(p.data_ingresso)}" disabled></div>
+              <div class="field full"><label for="p-sind">Sindicato a que sou filiado(a) (opcional)</label><input class="input" id="p-sind" value="${esc((fil && fil.sindicato) || "")}" maxlength="120" placeholder="Ex.: SENGE-RJ, Sindicato dos Arquitetos e Urbanistas do RJ">
+                <span class="hint">Informação voluntária e protegida (LGPD, art. 5º, II): fica visível só para você. A cooperativa vê apenas quantos cooperados são filiados, sem nomes. Deixe em branco se não for filiado(a).</span></div>
               <div class="full"><button class="btn btn-primary" id="p-btn" type="submit">Salvar dados</button></div>
             </form>
           </section>
@@ -869,7 +888,7 @@
           </section>`;
         $("#f-perfil").addEventListener("submit", async (e) => {
           e.preventDefault();
-          const ok = await acao($("#p-btn"), () => API.perfil.atualizarMeu({ nome: $("#p-nome").value.trim(), telefone: $("#p-tel").value.trim(), especialidade: $("#p-esp").value.trim() }), "Dados salvos.");
+          const ok = await acao($("#p-btn"), () => Promise.all([API.perfil.atualizarMeu({ nome: $("#p-nome").value.trim(), telefone: $("#p-tel").value.trim(), especialidade: $("#p-esp").value.trim() }), API.admissao.salvarFiliacao($("#p-sind").value.trim() || null)]), "Dados salvos.");
           if (ok) await ctx.recarregarSessao();
         });
         $("#f-senha").addEventListener("submit", async (e) => {

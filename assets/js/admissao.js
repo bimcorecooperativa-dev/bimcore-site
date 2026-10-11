@@ -53,6 +53,7 @@
     const corpo3 = `<p class="hint">Antes de decidir entrar, leia os documentos que regem a cooperativa (Estatuto, art. 4º, §1º; Regimento, art. 17, III).</p>
       ${leitura.length ? `<div class="docs">${leitura.map((d) => `<div class="doc"><div><b>${esc(d.titulo)}</b><span>${esc(d.categoria)}</span></div><div class="doc-acoes"><button class="btn btn-ghost btn-sm" data-ler="${d.id}">Abrir</button></div></div>`).join("")}</div>`
         : '<p class="notice">Os documentos ainda não foram disponibilizados aqui. A coordenação envia o Estatuto, o Regimento e o Manual do Cooperado por e-mail ou WhatsApp antes da sua declaração.</p>'}
+      <p class="hint" style="margin-top:.8rem"><b>Filiação sindical.</b> A BIMCORE incentiva cada cooperado a se filiar ao sindicato da sua categoria (Estatuto, art. 3º, §5º): cooperativa e sindicato se completam na defesa de quem trabalha. A filiação é livre e não é condição para a admissão.</p>
       <div class="notice" style="margin-top:.8rem"><b>Declaração de livre adesão</b><p style="margin:.4rem 0 0">Declaro que optei livremente por me associar à BIMCORE Cooperativa de Trabalho; que recebi e li o Estatuto Social, o Regimento Interno e o Manual do Cooperado; que estou alinhado(a) aos princípios de autogestão, planejamento coletivo e governança democrática; e que me comprometo com o Sistema de Governança e com o Plano de Negócios e de Desenvolvimento da cooperativa (Estatuto, arts. 3º e 4º).</p></div>
       ${ok3 ? `<p class="hint">Declaração assinada em ${dataHora(f.declaracao_em)}.</p>` : `<label class="ciente" style="margin-top:.6rem"><input type="checkbox" id="adm-dec"> <span>Li e concordo com a declaração acima.</span></label>
         <p><button class="btn btn-primary" id="adm-dec-ok" ${ok1 && ok2 ? "" : "disabled"}>Assinar declaração</button>${ok1 && ok2 ? "" : ' <span class="hint">Complete a ficha e os documentos primeiro.</span>'}</p>`}`;
@@ -209,7 +210,7 @@
 
   /* ===================== Livro de Matrícula ===================== */
   async function renderLivro(el) {
-    const linhas = await API.admissao.livro().catch(() => []);
+    const [linhas, sind] = await Promise.all([API.admissao.livro().catch(() => []), API.admissao.sindicalizacao ? API.admissao.sindicalizacao().catch(() => null) : null]);
     const ativos = linhas.filter((l) => l.situacao !== "desligado");
     const tot = (k, ls) => ls.reduce((t, l) => t + Number(l[k] || 0), 0);
     const q = (linhas[0] && Number(linhas[0].quota)) || QUOTA;
@@ -221,6 +222,7 @@
         <div class="kpi"><span class="rot">Cooperados ativos</span><span class="val">${ativos.length}</span><span class="det">${linhas.length} matrícula(s) no livro</span></div>
         <div class="kpi"><span class="rot">Capital subscrito</span><span class="val">${moeda(tot("capital_subscrito", ativos))}</span><span class="det">${fq(tot("capital_subscrito", ativos))} quotas</span></div>
         <div class="kpi"><span class="rot">Capital integralizado</span><span class="val">${moeda(tot("capital_integralizado", ativos))}</span><span class="det">${fq(tot("capital_integralizado", ativos))} quotas</span></div>
+        ${sind && sind.ativos ? `<div class="kpi"><span class="rot">Filiados a sindicato</span><span class="val">${sind.filiados} de ${sind.ativos}</span><span class="det">informado por cada cooperado no perfil, sem nomes (Estatuto, art. 3º, §5º)</span></div>` : ""}
         <div class="kpi"><span class="rot">A integralizar</span><span class="val">${moeda(Math.max(0, tot("capital_subscrito", ativos) - tot("capital_integralizado", ativos)))}</span><span class="det">quotas subscritas ainda não pagas</span></div>
       </div>
       ${linhas.length ? `<div class="tabela-wrap"><table class="tabela" id="lv-tab">

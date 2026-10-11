@@ -395,3 +395,4 @@ form.aval { border-top: 1px solid var(--line); padding-top: .8rem; margin-top: .
 .adm-check { list-style: none; padding: 0; margin: .4rem 0 .8rem; display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; font-size: .92rem; color: var(--muted); }
 .adm-check li.ok { color: var(--ok, #2fbf71); }
 .sep-v { display: inline-block; width: 1px; height: 1.6rem; background: var(--line-2, #2a3a50); margin: 0 .3rem; }
+.balao-sindicato { border-left: 3px solid var(--cyan, #39c6f4); }

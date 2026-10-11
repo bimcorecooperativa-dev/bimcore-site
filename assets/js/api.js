@@ -1075,7 +1075,10 @@
             const ig = pg.filter((p) => ["integralizacao", "abatimento"].includes(p.tipo)).reduce((t, p) => t + Number(p.valor), 0);
             return { numero: l.numero, nome: l.nome, data_admissao: l.data_admissao, fundador: l.fundador, situacao: l.data_desligamento ? "desligado" : (c.situacao || "ativo"), data_desligamento: l.data_desligamento || null, quotas_iniciais: l.quotas_subscritas, capital_subscrito: l.quotas_subscritas * q + ct, capital_integralizado: Number(c.integralizado_admissao || 0) + ig + ct, quota: q };
           }).sort((a, b) => a.numero - b.numero));
-        }
+        },
+        async sindicalizacao() { const s = ler(); exigir(s); const at = s.perfis.filter((p) => p.status === "ativo"); const f = s.filiacao || {}; return espera({ ativos: at.length, filiados: at.filter((p) => f[p.id]).length }); },
+        async minhaFiliacao() { const s = ler(); const u = exigir(s); const f = (s.filiacao || {})[u.id]; return espera(f ? { sindicato: f } : null); },
+        async salvarFiliacao(nome) { const s = ler(); const u = exigir(s); s.filiacao = s.filiacao || {}; if (nome) s.filiacao[u.id] = nome; else delete s.filiacao[u.id]; gravar(s); return espera(true); }
       },
       notif: {
         async listar() { const s = ler(); const u = exigir(s); const c = s.fin.cooperados.find((x) => x.perfil_id === u.id);
@@ -1743,7 +1746,10 @@
         async registrarMatricula(id, assinado, obs) { return ok(await sb.rpc("registrar_matricula", { p_perfil: id, p_assinado: assinado, p_obs: obs || null })); },
         async vincular(id, fin) { return ok(await sb.rpc("vincular_cooperado_existente", { p_perfil: id, p_fin: fin })); },
         async semConta() { const r = await sb.rpc("matriculas_sem_conta"); return r.error ? [] : r.data; },
-        async livro() { return ok(await sb.rpc("livro_matricula_publico")); }
+        async livro() { return ok(await sb.rpc("livro_matricula_publico")); },
+        async sindicalizacao() { const r = await sb.rpc("sindicalizacao"); return r.error ? null : r.data; },
+        async minhaFiliacao() { const uid = await meuId(); const r = await sb.from("filiacao_sindical").select("*").eq("perfil_id", uid).maybeSingle(); return r.error ? null : r.data; },
+        async salvarFiliacao(nome) { const uid = await meuId(); if (nome) ok(await sb.from("filiacao_sindical").upsert({ perfil_id: uid, sindicato: nome, informado_em: new Date().toISOString() })); else ok(await sb.from("filiacao_sindical").delete().eq("perfil_id", uid)); return true; }
       },
       notif: {
         async listar() { const r = await sb.from("fin_notificacoes").select("*").order("criado_em", { ascending: false }).limit(500); return r.error ? [] : r.data; },
