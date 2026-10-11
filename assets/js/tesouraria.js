@@ -31,7 +31,7 @@
     const ms = mesesDoTri(t);
     const vc = Fin.cooperativa(base, calc);
     const meses = ms.map((m) => { const l = vc.linhas.find((x) => x.mes === m) || {}; return { mes: m, receita: l.receita || 0, custo_op: l.custo_op || 0, admin_cog: l.admin_cog || 0, saldo_cog: l.saldo_cog || 0 }; });
-    const despesas = (base.despesas || []).filter((d) => d.data && ms.includes(Fin.mesDe(d.data))).map((d) => ({ data: d.data, descricao: d.descricao, categoria: d.categoria, valor: Number(d.valor) }));
+    const despesas = (base.despesas || []).filter((d) => d.data && ms.includes(Fin.mesDe(d.data)) && (d.fonte || "custo_op") === "custo_op").map((d) => ({ data: d.data, descricao: d.descricao, categoria: d.categoria, valor: Number(d.valor) }));
     const soma = (k) => Fin.centavos(meses.reduce((x, m) => x + m[k], 0));
     const tDesp = Fin.centavos(despesas.reduce((x, d) => x + d.valor, 0));
     return { trimestre: t, meses, despesas, totais: { receita: soma("receita"), custo_op: soma("custo_op"), admin_cog: soma("admin_cog"), despesas: tDesp, saldo: Fin.centavos(soma("custo_op") - soma("admin_cog") - tDesp) } };
@@ -403,7 +403,7 @@
           ${base.despesas.length ? `<div class="tabela-wrap"><table class="tabela">
             <thead><tr><th>Data</th><th>Descrição</th><th class="num">Valor</th><th>Cobrança</th><th class="num">Pago por cooperados</th><th></th></tr></thead>
             <tbody>${base.despesas.slice().sort((a, b) => (a.data ? 0 : 1) - (b.data ? 0 : 1) || String(a.data || "").localeCompare(String(b.data || "")) || String(a.criado_em || "").localeCompare(String(b.criado_em || ""))).map((d) => `<tr><td>${d.data ? data(d.data) : '<span class="selo warn">sem data</span>'}</td>
-              <td>${esc(d.descricao)}<span class="sub">${esc(d.categoria || "")}${d.observacao ? " · " + esc(d.observacao) : ""}</span></td>
+              <td>${esc(d.descricao)}<span class="sub">${esc(d.categoria || "")} · ${d.fonte === "fundo" ? esc(((window.Sobras && window.Sobras.FUNDOS[d.fundo]) || {}).nome || "fundo") : d.fonte === "caixa" ? "caixa geral" : "os 20%"}${d.observacao ? " · " + esc(d.observacao) : ""}</span></td>
               <td class="num">${moeda(d.valor)}</td>
               <td>${d.cobrar ? `Cobrada de ${d.participantes.length}<span class="sub">${moeda(Fin.centavos(d.valor / Math.max(1, d.participantes.length)))} cada</span>` : "Não cobrada<span class=\"sub\">quem pagou fica com aporte</span>"}</td>
               <td class="num">${moeda(pagoPor(d.id))}</td>
@@ -583,7 +583,14 @@
     async function formDespesa(d) {
       const ativos = coops.filter((c) => c.situacao === "ativo");
       const part = new Set(d ? d.participantes : ativos.map((c) => c.id));
-      const contas = ((await API.caixa.dados().catch(() => ({ contas: [] }))).contas || []).filter((c) => c.ativa !== false);
+      const [cxd, pubF] = await Promise.all([API.caixa.dados().catch(() => ({ contas: [] })), API.sobras.publico().catch(() => ({ movimentos: [] }))]);
+      const contas = (cxd.contas || []).filter((c) => c.ativa !== false);
+      const FU = (window.Sobras && window.Sobras.FUNDOS) || {};
+      const saldoF = window.Sobras ? window.Sobras.saldos(pubF.movimentos) : {};
+      const movAntigo = d && d.fundo_mov_id ? (pubF.movimentos || []).find((x) => x.id === d.fundo_mov_id) : null;
+      const dispF = (k) => Fin.centavos((saldoF[k] || 0) + (movAntigo && movAntigo.fundo === k ? -Number(movAntigo.valor) : 0));
+      const FUNDOS_DESP = ["fates", "reserva", "soberania", "fei", "apoio"];
+      const fonteAtual = d ? (d.fonte === "fundo" && d.fundo ? "fundo:" + d.fundo : d.fonte || "custo_op") : "custo_op";
       const ja = d ? base.pagamentos.filter((p) => p.despesa_id === d.id) : [];
       const nomeDe = (id) => (coops.find((c) => c.id === id) || {}).nome || "cooperado";
       const contaPadrao = d ? d.conta_id || "" : "";
@@ -613,6 +620,11 @@
           </div>
           <div class="field" style="margin-top:.6rem"><label for="fd-conta" id="fd-conta-rot">O restante saiu da conta</label><select class="input" id="fd-conta"><option value="">Ainda não foi pago pela cooperativa</option>${contas.map((c) => `<option value="${c.id}" ${contaPadrao === c.id ? "selected" : ""}>${esc(c.nome)}${c.banco ? " (" + esc(c.banco) + ")" : ""}</option>`).join("")}</select>
             <span class="hint" id="fd-resto"></span></div>
+          <div class="field" id="fd-w-fonte"><label for="fd-fonte">Quem banca essa parte</label><select class="input" id="fd-fonte">
+            <option value="custo_op" ${fonteAtual === "custo_op" ? "selected" : ""}>Os 20% (despesa administrativa)</option>
+            <option value="caixa" ${fonteAtual === "caixa" ? "selected" : ""}>Caixa geral da cooperativa (capital, aportes e outras entradas)</option>
+            ${FUNDOS_DESP.map((k) => `<option value="fundo:${k}" ${fonteAtual === "fundo:" + k ? "selected" : ""}>${esc((FU[k] || {}).nome || k)} (saldo ${moeda(dispF(k))})</option>`).join("")}
+          </select><span class="hint" id="fd-fonte-dica"></span></div>
         </fieldset>
         <div class="field"><label for="fd-obs">Observação</label><input class="input" id="fd-obs" maxlength="500" value="${esc(d ? d.observacao || "" : "")}"></div>
         <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="fd-ok">Salvar</button></div>`);
@@ -626,9 +638,14 @@
         $("#fd-cada", m.el).textContent = n && v > 0 ? `${n} cooperado(s), ${moeda(Fin.centavos(v / n))} cada` : `${n} cooperado(s)`;
         const cob = $("#fd-cobrar", m.el).checked;
         $("#fd-quem", m.el).hidden = cob;
+        const fo = $("#fd-fonte", m.el).value;
+        $("#fd-fonte-dica", m.el).textContent = fo === "custo_op" ? "Sai do saldo dos 20% e entra na prestação de contas trimestral (Estatuto, art. 23, §8º)." :
+          fo === "caixa" ? "Sai do dinheiro que a cooperativa tem fora dos 20% e dos fundos. Não entra na prestação dos 20%." :
+          `${(FU[fo.slice(6)] || {}).texto || ""} A saída é lançada no extrato do fundo quando a despesa tiver a conta de onde saiu. Use só dentro da finalidade do fundo e com a decisão que o Regimento exige (${(FU[fo.slice(6)] || {}).base || ""}).`;
         if (cob) { $("#fd-conta-rot", m.el).textContent = "A cooperativa pagou o fornecedor pela conta"; $("#fd-resto", m.el).textContent = "As partes de cada um entram depois, quando pagarem (Pix ou Pagamentos e aportes)."; return; }
         const resto = Fin.centavos(v - somaJa - novosPags().reduce((t, p) => t + p.valor, 0));
         $("#fd-conta-rot", m.el).textContent = resto > 0.004 ? `O restante (${moeda(resto)}) saiu da conta` : "Saiu da conta";
+        $("#fd-w-fonte", m.el).hidden = resto <= 0.004;
         $("#fd-resto", m.el).textContent = resto < -0.004 ? `Os pagamentos passam do valor da despesa em ${moeda(-resto)}.` : resto > 0.004 ? "Se o restante ainda não foi pago, deixe \"Ainda não foi pago\"." : "Os cooperados pagaram tudo; não sai nada das contas da cooperativa.";
       };
       m.el.addEventListener("change", atualiza); m.el.addEventListener("input", atualiza); atualiza();
@@ -643,6 +660,10 @@
         const resto = Fin.centavos(reg.valor - somaJa - pags.reduce((t, p) => t + p.valor, 0));
         if (resto < -0.004) return toast(`O que os cooperados pagaram passa do valor da despesa em ${moeda(-resto)}.`, "err");
         reg.conta_id = (reg.cobrar || resto > 0.004) ? $("#fd-conta", m.el).value || null : null;
+        const fo = reg.cobrar ? "caixa" : $("#fd-fonte", m.el).value;
+        reg.fonte = fo.startsWith("fundo:") ? "fundo" : fo; reg.fundo = fo.startsWith("fundo:") ? fo.slice(6) : null;
+        const saiFundo = reg.fonte === "fundo" && reg.conta_id && resto > 0.004 ? resto : 0;
+        if (saiFundo && saiFundo > dispF(reg.fundo) + 0.004) return toast(`${(FU[reg.fundo] || {}).nome || "O fundo"} tem ${moeda(dispF(reg.fundo))}; não cobre ${moeda(saiFundo)}.`, "err");
         if (pags.length && !reg.data) return toast("Informe a data: ela vale também para os pagamentos dos cooperados.", "err");
         if (d) reg.id = d.id;
         const ok = await acao(ev.currentTarget, async () => {
@@ -653,6 +674,12 @@
             for (const f of feitos) await API.fin.excluir("pagamentos", f).catch(() => {});
             if (!d) await API.fin.excluir("despesas", id).catch(() => {});
             throw e;
+          }
+          // extrato do fundo: refaz a saída quando a fonte, o valor ou a conta mudam
+          if (movAntigo) { await API.sobras.excluirMov(movAntigo.id); await API.fin.salvar("despesas", { id, fundo_mov_id: null }); }
+          if (saiFundo) {
+            const mid = await API.sobras.salvarMov({ fundo: reg.fundo, data: reg.data || UI.hoje(), valor: -saiFundo, descricao: ("Despesa: " + reg.descricao).slice(0, 300) });
+            await API.fin.salvar("despesas", { id, fundo_mov_id: mid });
           }
           return true;
         }, pags.length ? `Despesa salva com ${pags.length} pagamento(s) de cooperado.` : "Despesa salva.");
@@ -845,8 +872,8 @@
       if ((b = t("[data-ed-coop]"))) return formCooperado(porId[b.dataset.edCoop]);
       if ((b = t("[data-ex-desp]"))) {
         const d = despPorId[b.dataset.exDesp];
-        if (!(await confirmar(`Excluir a despesa "${d.descricao}"?`, "Excluir"))) return;
-        if (await acao(b, () => API.fin.excluir("despesas", d.id), "Despesa excluída.")) recarregar();
+        if (!(await confirmar(`Excluir a despesa "${d.descricao}"?${d.fundo_mov_id ? " A saída lançada no extrato do fundo também é apagada." : ""}`, "Excluir"))) return;
+        if (await acao(b, async () => { await API.fin.excluir("despesas", d.id); if (d.fundo_mov_id) await API.sobras.excluirMov(d.fundo_mov_id).catch(() => {}); return true; }, "Despesa excluída.")) recarregar();
         return;
       }
       if ((b = t("[data-ex-pag]"))) {

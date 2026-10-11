@@ -1151,7 +1151,7 @@
         },
         async salvarMov(d) {
           const s = ler(); const u = exigir(s, "tes"); this._st(s); if (d.fundo === "aposentadoria") falha("permission denied");
-          s.fin.fundos_mov.push({ ...d, id: novoId(), exercicio: null, registrado_nome: u.nome, criado_em: new Date().toISOString() }); gravar(s); return espera(true);
+          const id = novoId(); s.fin.fundos_mov.push({ ...d, id, exercicio: null, registrado_nome: u.nome, criado_em: new Date().toISOString() }); gravar(s); return espera(id);
         },
         async excluirMov(id) {
           const s = ler(); exigir(s, "tes"); this._st(s); const m = s.fin.fundos_mov.find((x) => x.id === id);
@@ -1784,7 +1784,7 @@
         async lancar(ex, cotas, aprovado_em, ata) { ok(await sb.rpc("lancar_sobras", { p_exercicio: ex, p_cotas: cotas, p_aprovado_em: aprovado_em, p_ata: ata || null })); return true; },
         async estornar(ex) { ok(await sb.rpc("estornar_sobras", { p_exercicio: ex })); return true; },
         async pagarRateio(ex, dataPag) { ok(await sb.rpc("pagar_rateio_sobras", { p_exercicio: ex, p_data: dataPag || null })); return true; },
-        async salvarMov(d) { ok(await sb.from("fin_fundos_mov").insert(d)); return true; },
+        async salvarMov(d) { return ok(await sb.from("fin_fundos_mov").insert(d).select("id").single()).id; },
         async excluirMov(id) { const r = ok(await sb.from("fin_fundos_mov").delete().eq("id", id).is("exercicio", null).select("id")); if (!r.length) falha("Movimentos da apuração só saem pelo estorno."); return true; }
       },
       contatos: {

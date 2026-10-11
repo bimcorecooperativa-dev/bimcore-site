@@ -51,7 +51,12 @@
     const sf = {}; (fundos || []).forEach((m) => { sf[m.fundo] = c2((sf[m.fundo] || 0) + Number(m.valor)); });
     const fundosTot = c2(Object.values(sf).reduce((t, v) => t + Math.max(0, v), 0));
     const vc = Fin.cooperativa(base, calc);
-    const pagos = (pagar || []).filter((x) => x.status === "paga").reduce((t, x) => t + Number(x.valor_pago != null ? x.valor_pago : x.valor), 0);
+    /* o que já saiu dos 20%: despesas pagas pela cooperativa com fonte "os 20%" (a parte que os cooperados não pagaram)
+       e contas pagas sem despesa ligada. Despesas do caixa geral ou de um fundo não tocam nos 20%. */
+    const despIds = new Set((base.despesas || []).map((d) => d.id));
+    const pagosCoop = (id) => (base.pagamentos || []).filter((p) => p.despesa_id === id).reduce((t, p) => t + Number(p.valor), 0);
+    const pagos = (base.despesas || []).filter((d) => d.conta_id && (d.fonte || "custo_op") === "custo_op").reduce((t, d) => t + Math.max(0, Number(d.valor) - (d.cobrar ? 0 : pagosCoop(d.id))), 0)
+      + (pagar || []).filter((x) => x.status === "paga" && !(x.despesa_id && despIds.has(x.despesa_id))).reduce((t, x) => t + Number(x.valor_pago != null ? x.valor_pago : x.valor), 0);
     /* Os 20% (Custo de Operação e Gestão) pagam as despesas administrativas e as retiradas de quem trabalha na administração.
        Do que entrou de 20%: sai o que já foi pago de despesas e de retiradas de administração; os créditos de administração
        ainda não retirados ficam reservados aqui (com o INSS patronal); o resto é o saldo dos 20% para despesas. */
@@ -256,14 +261,15 @@
       const mm = UI.modal(`<h2>Pagar: ${esc(x.descricao)}</h2>${aviso}<div class="form-grid">
         <div class="field"><label for="pp-d">Pago em</label><input class="input" id="pp-d" type="date" value="${hoje}" max="${hoje}"></div>
         <div class="field"><label for="pp-v">Valor pago (R$)</label><input class="input" id="pp-v" inputmode="decimal" value="${brl(x.valor)}"></div>
-        <label class="ciente full"><input type="checkbox" id="pp-desp" checked> <span>Registrar também como despesa da cooperativa (entra na prestação de contas dos 20%)</span></label></div>
+        <label class="ciente full"><input type="checkbox" id="pp-desp" checked> <span>Registrar também como despesa da cooperativa</span></label>
+        <div class="field full"><label for="pp-fonte">Quem banca</label><select class="input" id="pp-fonte"><option value="custo_op">Os 20% (despesa administrativa, entra na prestação de contas)</option><option value="caixa">Caixa geral da cooperativa (capital, aportes e outras entradas)</option></select><span class="hint">Para pagar com um fundo, lance pela aba Despesas.</span></div></div>
         <p class="hint">Sai de: ${esc(mov.nome || "conta não informada")}. O saldo esperado da conta já desconta este pagamento; confira com o extrato quando puder.${x.recorrencia !== "unica" ? ` A próxima (${x.recorrencia}) será criada sozinha.` : ""}</p>
         <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="pp-ok">Confirmar pagamento</button></div>`);
       $("#pp-ok", mm.el).onclick = async (ev) => {
         const dt = $("#pp-d", mm.el).value, v = lerValor($("#pp-v", mm.el).value); if (!dt || !(v > 0)) return toast("Informe a data e o valor.", "err");
         const ok = await acao(ev.currentTarget, async () => {
           let despesa_id = null;
-          if ($("#pp-desp", mm.el).checked) { despesa_id = await API.fin.salvar("despesas", { data: dt, descricao: x.descricao, categoria: x.categoria || "Outras", valor: v, cobrar: false, participantes: [], conta_id: mov.id || null, observacao: [x.fornecedor, "paga pela tesouraria (contas a pagar)"].filter(Boolean).join(" · ") }); }
+          if ($("#pp-desp", mm.el).checked) { despesa_id = await API.fin.salvar("despesas", { data: dt, descricao: x.descricao, categoria: x.categoria || "Outras", valor: v, cobrar: false, participantes: [], conta_id: mov.id || null, fonte: $("#pp-fonte", mm.el).value, observacao: [x.fornecedor, "paga pela tesouraria (contas a pagar)"].filter(Boolean).join(" · ") }); }
           await API.caixa.salvarPagar({ id: x.id, status: "paga", pago_em: dt, valor_pago: v, despesa_id });
           if (x.recorrencia !== "unica") await API.caixa.salvarPagar({ descricao: x.descricao, categoria: x.categoria, fornecedor: x.fornecedor, valor: x.valor, vencimento: proximoMes(x.vencimento, x.recorrencia === "mensal" ? 1 : 12), recorrencia: x.recorrencia, conta_id: x.conta_id, observacao: x.observacao });
           return true;
