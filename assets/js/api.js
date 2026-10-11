@@ -1135,7 +1135,9 @@
         },
         async sindicalizacao() { const s = ler(); exigir(s); const at = s.perfis.filter((p) => p.status === "ativo"); const f = s.filiacao || {}; return espera({ ativos: at.length, filiados: at.filter((p) => f[p.id]).length }); },
         async minhaFiliacao() { const s = ler(); const u = exigir(s); const f = (s.filiacao || {})[u.id]; return espera(f ? { sindicato: f } : null); },
-        async salvarFiliacao(nome) { const s = ler(); const u = exigir(s); s.filiacao = s.filiacao || {}; if (nome) s.filiacao[u.id] = nome; else delete s.filiacao[u.id]; gravar(s); return espera(true); }
+        async salvarFiliacao(nome) { const s = ler(); const u = exigir(s); s.filiacao = s.filiacao || {}; if (nome) s.filiacao[u.id] = nome; else delete s.filiacao[u.id]; gravar(s); return espera(true); },
+        async lembreteAte(chave) { const s = ler(); const u = exigir(s); const x = ((s.lembretes || {})[u.id] || {})[chave]; return espera(x || null); },
+        async adiarLembrete(chave, dias) { const s = ler(); const u = exigir(s); s.lembretes = s.lembretes || {}; s.lembretes[u.id] = s.lembretes[u.id] || {}; s.lembretes[u.id][chave] = new Date(Date.now() + dias * 864e5).toISOString(); gravar(s); return espera(true); }
       },
       notif: {
         async listar() { const s = ler(); const u = exigir(s); const c = s.fin.cooperados.find((x) => x.perfil_id === u.id);
@@ -1833,7 +1835,9 @@
         async livro() { return ok(await sb.rpc("livro_matricula_publico")); },
         async sindicalizacao() { const r = await sb.rpc("sindicalizacao"); return r.error ? null : r.data; },
         async minhaFiliacao() { const uid = await meuId(); const r = await sb.from("filiacao_sindical").select("*").eq("perfil_id", uid).maybeSingle(); return r.error ? null : r.data; },
-        async salvarFiliacao(nome) { const uid = await meuId(); if (nome) ok(await sb.from("filiacao_sindical").upsert({ perfil_id: uid, sindicato: nome, informado_em: new Date().toISOString() })); else ok(await sb.from("filiacao_sindical").delete().eq("perfil_id", uid)); return true; }
+        async salvarFiliacao(nome) { const uid = await meuId(); if (nome) ok(await sb.from("filiacao_sindical").upsert({ perfil_id: uid, sindicato: nome, informado_em: new Date().toISOString() })); else ok(await sb.from("filiacao_sindical").delete().eq("perfil_id", uid)); return true; },
+        async lembreteAte(chave) { const uid = await meuId(); const r = await sb.from("lembretes_adiados").select("ate").eq("perfil_id", uid).eq("chave", chave).maybeSingle(); return r.error || !r.data ? null : r.data.ate; },
+        async adiarLembrete(chave, dias) { const uid = await meuId(); ok(await sb.from("lembretes_adiados").upsert({ perfil_id: uid, chave, ate: new Date(Date.now() + dias * 864e5).toISOString() })); return true; }
       },
       notif: {
         async listar() { const r = await sb.from("fin_notificacoes").select("*").order("criado_em", { ascending: false }).limit(500); return r.error ? [] : r.data; },

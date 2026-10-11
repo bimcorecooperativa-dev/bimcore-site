@@ -26,11 +26,18 @@
     "Os pisos que usamos como base do nosso valor-hora foram conquistados pela luta sindical. Fortaleça quem conquistou.",
     "Quem se organiza no trabalho também se organiza na categoria. Filie-se ao seu sindicato."
   ];
+  // "Lembrar depois": esconde o balão por 30 dias, guardado na conta (vale em qualquer aparelho)
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest("#sind-adiar"); if (!b) return;
+    const balao = b.closest(".balao-sindicato"); if (balao) balao.remove();
+    try { await API.admissao.adiarLembrete("filiacao_sindical", 30); UI.toast("Combinado: lembramos de novo daqui a 30 dias."); } catch (err) { UI.toast("Não consegui guardar o adiamento; o lembrete pode voltar.", "err"); }
+  });
   async function balaoSindicato(ctx) {
     const p = ctx.sessao.perfil; const f = await API.admissao.minhaFiliacao().catch(() => null); if (f && f.sindicato) return "";
-    try { const ate = Number(localStorage.getItem("bimcore-sindicato-adiar-" + p.id) || 0); if (ate > Date.now()) return ""; } catch (e) {}
+    const ate = await API.admissao.lembreteAte("filiacao_sindical").catch(() => null);
+    if (ate && new Date(ate) > new Date()) return "";
+    try { if (Number(localStorage.getItem("bimcore-sindicato-adiar-" + p.id) || 0) > Date.now()) return ""; } catch (e) {}
     const frase = FRASES_SINDICATO[new Date().getDate() % FRASES_SINDICATO.length];
-    setTimeout(() => { const b = document.getElementById("sind-adiar"); if (b) b.onclick = () => { try { localStorage.setItem("bimcore-sindicato-adiar-" + p.id, String(Date.now() + 30 * 864e5)); } catch (e) {} b.closest(".balao-sindicato").remove(); }; }, 0);
     return `<div class="notice balao-sindicato"><b>Filiação sindical</b><p style="margin:.3rem 0 .5rem">${frase} A BIMCORE incentiva cada cooperado a se filiar ao sindicato da sua categoria (Estatuto, art. 3º, §5º).</p>
       <a class="btn btn-ghost btn-sm" href="#perfil">Já sou filiado(a): informar</a> <button class="link-botao" id="sind-adiar" type="button">Lembrar depois</button></div>`;
   }
