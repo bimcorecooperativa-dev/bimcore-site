@@ -10,6 +10,18 @@
     ["integralizacao", "Integralização de quotas"], ["abatimento", "Abatimento com aportes (só quotas iniciais)"]
   ];
   const ORIGEM = { tesouraria: "Tesouraria", pix: "Pix pelo site", abatimento: "Abatimento pelo site", planilha: "Planilha antiga" };
+  /* Documentos que aprovam despesas e quem precisa assinar (a regra também é conferida no banco, migração 039) */
+  const DOC_APROV = {
+    ata_ag: { nome: "Ata de Assembleia Geral", ass: "a ata está assinada pelos membros da Mesa, pelos administradores e conselheiros fiscais presentes e pela comissão de cooperados designada (Estatuto, art. 39, §1º)" },
+    ata_ca: { nome: "Ata de reunião do Conselho de Administração", ass: "a ata está assinada pelos conselheiros presentes (Estatuto, art. 55, III)" },
+    resolucao_ca: { nome: "Resolução do Conselho de Administração", ass: "a Resolução está numerada e assinada pelo Presidente, após decisão colegiada do CA (Regimento, art. 7º e §1º)" }
+  };
+  const exigeAprov = (cobrar, fonte, fundo) => cobrar ? { tipos: ["ata_ag", "ata_ca", "resolucao_ca"], por: "A chamada precisa ter sido aprovada pela Assembleia Geral ou pelo Conselho de Administração (Estatuto, art. 9º, I)." }
+    : fonte !== "fundo" ? null
+    : fundo === "reserva" ? { tipos: ["ata_ag"], por: "O Fundo de Reserva repara perdas e atende ao desenvolvimento das atividades; o uso é decidido pela Assembleia Geral (Estatuto, art. 73; Regimento, art. 117)." }
+    : fundo === "apoio" ? { tipos: ["ata_ca", "resolucao_ca"], por: "O Fundo de Apoio é aplicado conforme deliberação do Conselho de Administração; o Conselho Fiscal supervisiona, com sigilo de quem foi atendido (Regimento, art. 122, §§1º e 2º). Não identifique o cooperado no nome do arquivo." }
+    : fundo === "fei" ? { tipos: ["ata_ag", "ata_ca", "resolucao_ca"], por: "O FEI custeia a Plataforma, equipamentos de levantamento e a estruturação de novas cooperativas; investimento de longo prazo exige aprovação da Assembleia Geral (Estatuto, art. 72; Regimento, art. 119)." }
+    : { tipos: ["ata_ag", "ata_ca", "resolucao_ca"], por: "O FATES financia assistência técnica, educacional e social aos cooperados e familiares, prioritariamente a educação cooperativista (Estatuto, art. 74; Regimento, art. 118). Precisa da decisão que aprovou o gasto." };
   let aba = "resumo";
   let filtroCoop = "";
   let mesSel = null;
@@ -403,7 +415,7 @@
           ${base.despesas.length ? `<div class="tabela-wrap"><table class="tabela">
             <thead><tr><th>Data</th><th>Descrição</th><th class="num">Valor</th><th>Cobrança</th><th class="num">Pago por cooperados</th><th></th></tr></thead>
             <tbody>${base.despesas.slice().sort((a, b) => (a.data ? 0 : 1) - (b.data ? 0 : 1) || String(a.data || "").localeCompare(String(b.data || "")) || String(a.criado_em || "").localeCompare(String(b.criado_em || ""))).map((d) => `<tr><td>${d.data ? data(d.data) : '<span class="selo warn">sem data</span>'}</td>
-              <td>${esc(d.descricao)}<span class="sub">${esc(d.categoria || "")} · ${d.fonte === "fundo" ? esc(((window.Sobras && window.Sobras.FUNDOS[d.fundo]) || {}).nome || "fundo") : d.fonte === "caixa" ? "caixa geral" : "os 20%"}${d.observacao ? " · " + esc(d.observacao) : ""}</span></td>
+              <td>${esc(d.descricao)}<span class="sub">${esc(d.categoria || "")} · ${d.fonte === "fundo" ? esc(((window.Sobras && window.Sobras.FUNDOS[d.fundo]) || {}).nome || "fundo") : d.fonte === "caixa" ? "caixa geral" : "os 20%"}${d.observacao ? " · " + esc(d.observacao) : ""}${d.aprovacao ? ` · aprovada por ${esc((DOC_APROV[d.aprovacao.tipo] || {}).nome || "documento")}${d.aprovacao.numero ? " (" + esc(d.aprovacao.numero) + ")" : ""} de ${data(d.aprovacao.data)}${d.aprovacao.arquivo ? ` <button class="link-btn" type="button" data-aprov="${d.id}">ver documento</button>` : d.aprovacao.assembleia_id ? ' <a href="#assembleias">ata no site</a>' : ""}` : ""}</span></td>
               <td class="num">${moeda(d.valor)}</td>
               <td>${d.cobrar ? `Cobrada de ${d.participantes.length}<span class="sub">${moeda(Fin.centavos(d.valor / Math.max(1, d.participantes.length)))} cada</span>` : "Não cobrada<span class=\"sub\">quem pagou fica com aporte</span>"}</td>
               <td class="num">${moeda(pagoPor(d.id))}</td>
@@ -589,7 +601,9 @@
       const saldoF = window.Sobras ? window.Sobras.saldos(pubF.movimentos) : {};
       const movAntigo = d && d.fundo_mov_id ? (pubF.movimentos || []).find((x) => x.id === d.fundo_mov_id) : null;
       const dispF = (k) => Fin.centavos((saldoF[k] || 0) + (movAntigo && movAntigo.fundo === k ? -Number(movAntigo.valor) : 0));
-      const FUNDOS_DESP = ["fates", "reserva", "soberania", "fei", "apoio"];
+      const FUNDOS_DESP = ["fates", "reserva", "fei", "apoio"]; // o Fundo de Soberania só cobre retiradas (RI, art. 120)
+      const atasSite = await API.assembleias.listar().then((l) => l.filter((a) => a.ata_publicada_em)).catch(() => []);
+      const ap0 = (d && d.aprovacao) || {};
       const fonteAtual = d ? (d.fonte === "fundo" && d.fundo ? "fundo:" + d.fundo : d.fonte || "custo_op") : "custo_op";
       const ja = d ? base.pagamentos.filter((p) => p.despesa_id === d.id) : [];
       const nomeDe = (id) => (coops.find((c) => c.id === id) || {}).nome || "cooperado";
@@ -626,6 +640,20 @@
             ${FUNDOS_DESP.map((k) => `<option value="fundo:${k}" ${fonteAtual === "fundo:" + k ? "selected" : ""}>${esc((FU[k] || {}).nome || k)} (saldo ${moeda(dispF(k))})</option>`).join("")}
           </select><span class="hint" id="fd-fonte-dica"></span></div>
         </fieldset>
+        <fieldset class="painel" id="fd-aprov" style="margin:.8rem 0;padding:.8rem 1rem" hidden><legend><b>Aprovação</b></legend>
+          <p class="hint" id="fd-ap-por"></p>
+          <div class="form-grid">
+            <div class="field full"><label for="fd-ap-tipo">Documento que aprovou</label><select class="input" id="fd-ap-tipo"></select></div>
+            <div class="field"><label for="fd-ap-num">Número ou identificação</label><input class="input" id="fd-ap-num" maxlength="60" value="${esc(ap0.numero || "")}" placeholder="Ex.: Resolução nº 3/2026"></div>
+            <div class="field"><label for="fd-ap-data">Data da decisão</label><input class="input" id="fd-ap-data" type="date" value="${esc(ap0.data || "")}"></div>
+            <div class="field"><label for="fd-ap-valor">Valor aprovado (R$)</label><input class="input" id="fd-ap-valor" inputmode="decimal" value="${ap0.valor ? brl(ap0.valor) : ""}"></div>
+            <div class="field full" id="fd-ap-w-ata"><label for="fd-ap-ata">Ata publicada no site</label><select class="input" id="fd-ap-ata"><option value="">Enviar o arquivo da ata</option>${atasSite.map((a) => `<option value="${a.id}" ${ap0.assembleia_id === a.id ? "selected" : ""}>${esc(a.titulo || "Assembleia")} · ${data(String(a.data_hora).slice(0, 10))}</option>`).join("")}</select></div>
+            <div class="field full" id="fd-ap-w-arq"><label for="fd-ap-arq">Arquivo do documento assinado (PDF ou imagem, até 10 MB)</label><input class="input" id="fd-ap-arq" type="file" accept="application/pdf,image/png,image/jpeg">
+              ${ap0.arquivo ? `<span class="hint">Já anexado: ${esc(ap0.arquivo_nome || "documento")}. Envie outro só para substituir.</span>` : ""}</div>
+            <div class="field full"><label for="fd-ap-quem">Quem assinou</label><input class="input" id="fd-ap-quem" maxlength="300" value="${esc(ap0.assinantes || "")}" placeholder="Nomes de quem assinou"></div>
+          </div>
+          <label class="ciente"><input type="checkbox" id="fd-ap-ass" ${ap0.assinaturas ? "checked" : ""}> <span id="fd-ap-ass-txt"></span></label>
+        </fieldset>
         <div class="field"><label for="fd-obs">Observação</label><input class="input" id="fd-obs" maxlength="500" value="${esc(d ? d.observacao || "" : "")}"></div>
         <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="fd-ok">Salvar</button></div>`);
       const novosPags = () => [...m.el.querySelectorAll(".pag-linha")].map((l) => ({ coop: l.querySelector("[data-pg-coop]").value, valor: lerValor(l.querySelector("[data-pg-valor]").value) }));
@@ -639,6 +667,19 @@
         const cob = $("#fd-cobrar", m.el).checked;
         $("#fd-quem", m.el).hidden = cob;
         const fo = $("#fd-fonte", m.el).value;
+        const restoV = Fin.centavos(v - somaJa - novosPags().reduce((t, p) => t + p.valor, 0));
+        const req = exigeAprov(cob, cob ? "caixa" : restoV > 0.004 && fo.startsWith("fundo:") ? "fundo" : fo, fo.slice(6));
+        $("#fd-aprov", m.el).hidden = !req;
+        if (req) {
+          $("#fd-ap-por", m.el).textContent = req.por;
+          const tSel = $("#fd-ap-tipo", m.el), atual = tSel.value || ap0.tipo;
+          if (tSel.dataset.tipos !== req.tipos.join()) { tSel.innerHTML = req.tipos.map((t) => `<option value="${t}" ${t === atual ? "selected" : ""}>${DOC_APROV[t].nome}</option>`).join(""); tSel.dataset.tipos = req.tipos.join(); }
+          const t = tSel.value, viaSite = t === "ata_ag" && $("#fd-ap-ata", m.el).value;
+          $("#fd-ap-w-ata", m.el).hidden = t !== "ata_ag" || !atasSite.length;
+          $("#fd-ap-w-arq", m.el).hidden = !!viaSite;
+          $("#fd-ap-num", m.el).placeholder = t === "resolucao_ca" ? "Ex.: Resolução nº 3/2026" : t === "ata_ca" ? "Ex.: Reunião do CA de 05/11/2026" : "Ex.: AGE de 20/11/2026";
+          $("#fd-ap-ass-txt", m.el).textContent = viaSite ? "Confirmo que a ata foi assinada no site e trata desta despesa." : `Confirmo que ${DOC_APROV[t].ass}.`;
+        }
         $("#fd-fonte-dica", m.el).textContent = fo === "custo_op" ? "Sai do saldo dos 20% e entra na prestação de contas trimestral (Estatuto, art. 23, §8º)." :
           fo === "caixa" ? "Sai do dinheiro que a cooperativa tem fora dos 20% e dos fundos. Não entra na prestação dos 20%." :
           `${(FU[fo.slice(6)] || {}).texto || ""} A saída é lançada no extrato do fundo quando a despesa tiver a conta de onde saiu. Use só dentro da finalidade do fundo e com a decisão que o Regimento exige (${(FU[fo.slice(6)] || {}).base || ""}).`;
@@ -664,10 +705,33 @@
         reg.fonte = fo.startsWith("fundo:") ? "fundo" : fo; reg.fundo = fo.startsWith("fundo:") ? fo.slice(6) : null;
         const saiFundo = reg.fonte === "fundo" && reg.conta_id && resto > 0.004 ? resto : 0;
         if (saiFundo && saiFundo > dispF(reg.fundo) + 0.004) return toast(`${(FU[reg.fundo] || {}).nome || "O fundo"} tem ${moeda(dispF(reg.fundo))}; não cobre ${moeda(saiFundo)}.`, "err");
+        if (!reg.cobrar && resto <= 0.004) { reg.fonte = "custo_op"; reg.fundo = null; }
+        const req = exigeAprov(reg.cobrar, reg.fonte, reg.fundo);
+        let arqNovo = null;
+        if (req) {
+          const t = $("#fd-ap-tipo", m.el).value, viaSite = t === "ata_ag" ? $("#fd-ap-ata", m.el).value || null : null, f = $("#fd-ap-arq", m.el).files[0];
+          const ap = { tipo: t, numero: $("#fd-ap-num", m.el).value.trim() || null, data: $("#fd-ap-data", m.el).value || null, valor: lerValor($("#fd-ap-valor", m.el).value),
+            assembleia_id: viaSite, arquivo: viaSite ? null : ap0.arquivo || null, arquivo_nome: viaSite ? null : ap0.arquivo_nome || null,
+            assinaturas: $("#fd-ap-ass", m.el).checked, assinantes: $("#fd-ap-quem", m.el).value.trim() || null };
+          if (!req.tipos.includes(t)) return toast("Escolha o documento que aprovou a despesa.", "err");
+          if (!ap.data) return toast("Informe a data da decisão.", "err");
+          if (reg.data && ap.data > reg.data) return toast("A decisão é posterior à despesa: a aprovação precisa vir antes do gasto.", "err");
+          if (t === "resolucao_ca" && !ap.numero) return toast("Informe o número da Resolução (Regimento, art. 7º, §1º).", "err");
+          if (!(ap.valor + 0.005 >= reg.valor)) return toast("O valor aprovado no documento é menor que a despesa.", "err");
+          if (!viaSite && !f && !ap.arquivo) return toast("Anexe o arquivo do documento assinado.", "err");
+          if (f && f.size > 10485760) return toast("O arquivo passa de 10 MB.", "err");
+          if (!ap.assinaturas) return toast("Confirme que o documento tem as assinaturas exigidas.", "err");
+          reg.aprovacao = ap; arqNovo = !viaSite && f ? f : null;
+        } else reg.aprovacao = null;
         if (pags.length && !reg.data) return toast("Informe a data: ela vale também para os pagamentos dos cooperados.", "err");
         if (d) reg.id = d.id;
         const ok = await acao(ev.currentTarget, async () => {
-          const id = await API.fin.salvar("despesas", reg); const feitos = [];
+          let enviado = null;
+          if (arqNovo) { enviado = await API.fin.enviarAprovacao(arqNovo); reg.aprovacao.arquivo = enviado; reg.aprovacao.arquivo_nome = arqNovo.name; }
+          let id;
+          try { id = await API.fin.salvar("despesas", reg); } catch (e) { if (enviado) await API.fin.removerAprovacao(enviado).catch(() => {}); throw e; }
+          if (enviado && ap0.arquivo && ap0.arquivo !== enviado) await API.fin.removerAprovacao(ap0.arquivo).catch(() => {});
+          const feitos = [];
           try {
             for (const p of pags) feitos.push(await API.fin.salvar("pagamentos", { data: reg.data, fin_cooperado_id: p.coop, tipo: "despesa", despesa_id: id, valor: p.valor, mes_ref: null, observacao: null, origem: "tesouraria" }));
           } catch (e) {
@@ -870,10 +934,15 @@
       if ((b = t("[data-ed-desp]"))) return formDespesa(despPorId[b.dataset.edDesp]);
       if ((b = t("[data-ed-pag]"))) return formPagamento(base.pagamentos.find((x) => x.id === b.dataset.edPag));
       if ((b = t("[data-ed-coop]"))) return formCooperado(porId[b.dataset.edCoop]);
+      if ((b = t("[data-aprov]"))) {
+        const d = despPorId[b.dataset.aprov];
+        try { const url = await API.fin.linkAprovacao(d.aprovacao.arquivo); if (url && url !== "#") window.open(url, "_blank", "noopener"); else toast("No modo de demonstração o arquivo não é guardado."); } catch (e) { toast(e.message || "Não consegui abrir o documento.", "err"); }
+        return;
+      }
       if ((b = t("[data-ex-desp]"))) {
         const d = despPorId[b.dataset.exDesp];
         if (!(await confirmar(`Excluir a despesa "${d.descricao}"?${d.fundo_mov_id ? " A saída lançada no extrato do fundo também é apagada." : ""}`, "Excluir"))) return;
-        if (await acao(b, async () => { await API.fin.excluir("despesas", d.id); if (d.fundo_mov_id) await API.sobras.excluirMov(d.fundo_mov_id).catch(() => {}); return true; }, "Despesa excluída.")) recarregar();
+        if (await acao(b, async () => { await API.fin.excluir("despesas", d.id); if (d.fundo_mov_id) await API.sobras.excluirMov(d.fundo_mov_id).catch(() => {}); if (d.aprovacao && d.aprovacao.arquivo) await API.fin.removerAprovacao(d.aprovacao.arquivo).catch(() => {}); return true; }, "Despesa excluída.")) recarregar();
         return;
       }
       if ((b = t("[data-ex-pag]"))) {

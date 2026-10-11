@@ -800,7 +800,11 @@
           s.fin[tabela] = s.fin[tabela].filter((r) => r.id !== id);
           if (tabela === "cooperados") s.fin.pagamentos = s.fin.pagamentos.filter((p) => p.fin_cooperado_id !== id);
           gravar(s); return espera(true);
-        }
+        },
+        /* documento que aprovou a despesa (no demo fica só o nome) */
+        async enviarAprovacao(arquivo) { const s = ler(); exigir(s, "tes"); return espera("demo/" + Date.now() + "_" + arquivo.name); },
+        async linkAprovacao(caminho) { return "#"; },
+        async removerAprovacao(caminho) { return true; }
       },
       proj: {
         _sis(s, pid, texto) { s.projeto_mensagens = s.projeto_mensagens || []; s.projeto_mensagens.push({ id: novoId(), projeto_id: pid, autor_id: null, autor_nome: "Registro do site", tipo: "sistema", texto, criado_em: new Date().toISOString() }); },
@@ -1625,7 +1629,16 @@
           const r = await sb.from(t).delete().eq("id", id);
           if (r.error && /foreign key|violates/i.test(r.error.message || "")) falha("Esta despesa tem pagamentos lançados. Apague os pagamentos dela antes.");
           ok(r); return true;
-        }
+        },
+        async enviarAprovacao(arquivo) {
+          if (arquivo.size > 10485760) falha("O arquivo passa de 10 MB.");
+          const seguro = arquivo.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w.\-]+/g, "_");
+          const caminho = `${new Date().getFullYear()}/${Date.now()}_${seguro}`;
+          ok(await sb.storage.from("despesas").upload(caminho, arquivo, { upsert: false, contentType: arquivo.type || undefined }));
+          return caminho;
+        },
+        async linkAprovacao(caminho) { const r = await sb.storage.from("despesas").createSignedUrl(caminho, 300); ok(r); return r.data.signedUrl; },
+        async removerAprovacao(caminho) { await sb.storage.from("despesas").remove([caminho]); return true; }
       },
       proj: {
         async carregar() {
