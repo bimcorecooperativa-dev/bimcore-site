@@ -73,6 +73,10 @@
 
     cooperados: {
       titulo: "Cooperados",
+      async contador(ctx) {
+        const eu = ctx && ctx.sessao && ctx.sessao.perfil; if (!eu || !(eu.papel === "coordenacao" || eu.conselho_adm)) return 0;
+        const l = await API.admissao.situacaoCadastros(); return l.filter((x) => x.dados_status === "enviado" && x.perfil_id !== eu.id).length;
+      },
       async render(el, ctx) {
         const coops = (await API.cooperados.listar()).filter((c) => c.status === "ativo" || c.status === "desligado");
         coops.sort((a, b) => (a.status === b.status ? 0 : a.status === "ativo" ? -1 : 1) || a.nome.localeCompare(b.nome));

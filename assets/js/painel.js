@@ -41,10 +41,28 @@
     const balao = b.closest(".balao-cadastro"); if (balao) balao.remove();
     try { await API.admissao.adiarLembrete("dados_cadastrais", 7); UI.toast("Lembramos de novo em 7 dias. As retiradas continuam bloqueadas até o cadastro ser conferido."); } catch (err) {}
   });
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest("#cad-ok"); if (!b) return;
+    const balao = b.closest(".balao-cadastro"); if (balao) balao.remove();
+    try { await API.admissao.marcarLembrete("cadastro_conferido_visto", b.dataset.em); } catch (err) {}
+  });
+  /* Para quem confere (coordenação e CA): cadastros aguardando conferência */
+  async function avisoConferencia(ctx) {
+    const eu = ctx.sessao.perfil; if (!(eu.status === "ativo" && (eu.papel === "coordenacao" || eu.conselho_adm))) return "";
+    const n = (await API.admissao.situacaoCadastros().catch(() => [])).filter((x) => x.dados_status === "enviado" && x.perfil_id !== eu.id).length;
+    if (!n) return "";
+    return `<div class="notice"><b>${n === 1 ? "1 cadastro aguardando" : n + " cadastros aguardando"} conferência</b><p style="margin:.3rem 0 .5rem">Sem a conferência, o cooperado não consegue pedir retiradas. Confira com os documentos e marque como conferido ou devolva para correção.</p>
+      <a class="btn btn-primary btn-sm" href="interno.html#cooperados">Conferir agora</a></div>`;
+  }
   async function balaoCadastro(ctx) {
     if (ctx.sessao.perfil.status !== "ativo") return "";
     const f = await API.admissao.minhaFicha().catch(() => null); const st = (f && f.dados_status) || "incompleto";
-    if (st === "aprovado") return "";
+    if (st === "aprovado") {
+      const visto = await API.admissao.lembreteAte("cadastro_conferido_visto").catch(() => null);
+      if (!f.dados_conferido_em || (visto && new Date(visto) >= new Date(f.dados_conferido_em))) return "";
+      return `<div class="notice balao-cadastro"><b>Dados cadastrais ${seloCad(f)}</b><p style="margin:.3rem 0 .5rem">Seus dados cadastrais foram conferidos${f.dados_conferido_nome ? " por " + esc(f.dados_conferido_nome) : ""} em ${data(f.dados_conferido_em)}. As retiradas estão liberadas.</p>
+        <button class="btn btn-ghost btn-sm" id="cad-ok" type="button" data-em="${esc(f.dados_conferido_em)}">Entendi</button></div>`;
+    }
     if (st === "incompleto") { const ate = await API.admissao.lembreteAte("dados_cadastrais").catch(() => null); if (ate && new Date(ate) > new Date()) return ""; }
     const txt = st === "enviado" ? "Seus dados foram enviados e aguardam a conferência da coordenação ou do CA. Assim que forem conferidos, as retiradas ficam liberadas."
       : st === "devolvido" ? `A conferência devolveu seus dados para correção: ${esc((f && f.dados_motivo) || "veja em Meu perfil")}. Sem os dados cadastrais atualizados e conferidos, não é possível pedir retiradas.`
@@ -84,6 +102,7 @@
         el.innerHTML = `
           <div class="pag-cab"><div><p class="eyebrow">${esc(nomeMes)}</p><h1>Olá, ${esc((ctx.sessao.perfil.nome || "").split(" ")[0] || "cooperado")}</h1></div>
             <a class="btn btn-primary" href="#horas">Lançar horas</a></div>
+          ${await avisoConferencia(ctx)}
           ${await balaoCadastro(ctx)}
           ${await balaoSindicato(ctx)}
           ${await avisoDocumentos()}

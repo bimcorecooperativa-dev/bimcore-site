@@ -1173,6 +1173,7 @@
         async minhaFiliacao() { const s = ler(); const u = exigir(s); const f = (s.filiacao || {})[u.id]; return espera(f ? { sindicato: f } : null); },
         async salvarFiliacao(nome) { const s = ler(); const u = exigir(s); s.filiacao = s.filiacao || {}; if (nome) s.filiacao[u.id] = nome; else delete s.filiacao[u.id]; gravar(s); return espera(true); },
         async lembreteAte(chave) { const s = ler(); const u = exigir(s); const x = ((s.lembretes || {})[u.id] || {})[chave]; return espera(x || null); },
+        async marcarLembrete(chave, quando) { const s = ler(); const u = exigir(s); s.lembretes = s.lembretes || {}; s.lembretes[u.id] = s.lembretes[u.id] || {}; s.lembretes[u.id][chave] = quando || new Date().toISOString(); gravar(s); return espera(true); },
         async adiarLembrete(chave, dias) { const s = ler(); const u = exigir(s); s.lembretes = s.lembretes || {}; s.lembretes[u.id] = s.lembretes[u.id] || {}; s.lembretes[u.id][chave] = new Date(Date.now() + dias * 864e5).toISOString(); gravar(s); return espera(true); }
       },
       notif: {
@@ -1889,6 +1890,7 @@
         async minhaFiliacao() { const uid = await meuId(); const r = await sb.from("filiacao_sindical").select("*").eq("perfil_id", uid).maybeSingle(); return r.error ? null : r.data; },
         async salvarFiliacao(nome) { const uid = await meuId(); if (nome) ok(await sb.from("filiacao_sindical").upsert({ perfil_id: uid, sindicato: nome, informado_em: new Date().toISOString() })); else ok(await sb.from("filiacao_sindical").delete().eq("perfil_id", uid)); return true; },
         async lembreteAte(chave) { const uid = await meuId(); const r = await sb.from("lembretes_adiados").select("ate").eq("perfil_id", uid).eq("chave", chave).maybeSingle(); return r.error || !r.data ? null : r.data.ate; },
+        async marcarLembrete(chave, quando) { const uid = await meuId(); ok(await sb.from("lembretes_adiados").upsert({ perfil_id: uid, chave, ate: quando || new Date().toISOString() })); return true; },
         async adiarLembrete(chave, dias) { const uid = await meuId(); ok(await sb.from("lembretes_adiados").upsert({ perfil_id: uid, chave, ate: new Date(Date.now() + dias * 864e5).toISOString() })); return true; }
       },
       notif: {
