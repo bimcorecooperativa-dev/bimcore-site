@@ -252,6 +252,7 @@
           const m = UI.modal(`
             <h2>Retirada de ${esc(c.nome)}</h2>
             <p class="muted">Bruto de <b>${moeda(r.valor)}</b>. Confira os descontos e informe a data da transferência.</p>
+            <div id="pg-pix" class="hint">Buscando a chave Pix…</div>
             <div class="form-grid">
               <div class="field"><label for="pg-data">Transferência feita em</label><input class="input" id="pg-data" type="date" value="${hojeI}" max="${hojeI}"></div>
               <div class="field"><label for="pg-inss">INSS retido (R$)</label><input class="input" id="pg-inss" inputmode="decimal"></div>
@@ -262,6 +263,9 @@
             <div id="pg-quitar"></div>
             <p class="hint" id="pg-liq"></p>
             <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="pg-ok">Confirmar pagamento</button></div>`);
+          API.admissao.pixDe(r.fin_cooperado_id).then((px) => { const box = $("#pg-pix", m.el); if (!box) return;
+            box.innerHTML = px && px.chave ? `Pagar por Pix: <b>${esc({ cpf: "CPF", email: "e-mail", telefone: "telefone", aleatoria: "chave aleatória" }[px.tipo] || px.tipo || "")}</b> <code>${esc(px.chave)}</code>${px.nome ? ` · titular: ${esc(px.nome)}` : ""}${px.status !== "aprovado" ? ' <span class="selo warn">cadastro não conferido</span>' : ""} <button class="link-btn" type="button" id="pg-copiar">copiar</button>` : '<span class="selo warn">Sem chave Pix no cadastro</span> Peça ao cooperado para completar Meu perfil → Dados cadastrais.';
+            const cp = $("#pg-copiar", m.el); if (cp) cp.onclick = async () => { try { await navigator.clipboard.writeText(px.chave); toast("Chave copiada."); } catch (e) { toast("Selecione e copie a chave.", "err"); } }; }).catch(() => {});
           // cotas atrasadas: vale a escolha do cooperado (opcional), sem as que já foram pagas por outro meio
           const outras = new Set(rets.filter((x) => x.id !== r.id && x.status === "solicitada" && x.fin_cooperado_id === r.fin_cooperado_id).flatMap((x) => (x.quitar_meses || []).map((q) => q.mes)));
           const todasAbertas = Fin.atrasadas(calc[c.id], []);

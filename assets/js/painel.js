@@ -32,6 +32,26 @@
     const balao = b.closest(".balao-sindicato"); if (balao) balao.remove();
     try { await API.admissao.adiarLembrete("filiacao_sindical", 30); UI.toast("Combinado: lembramos de novo daqui a 30 dias."); } catch (err) { UI.toast("Não consegui guardar o adiamento; o lembrete pode voltar.", "err"); }
   });
+  const CONSELHOS = [["", "— escolher —"], ["CREA", "CREA"], ["CAU", "CAU"], ["CFT", "CFT"], ["CRT", "CRT"], ["CRA", "CRA"], ["CRC", "CRC"], ["CORECON", "CORECON"], ["OAB", "OAB"], ["outro", "Outro conselho"], ["nenhum", "Não tenho conselho profissional"]];
+  const cpfValido = (v) => { const c = String(v || "").replace(/\D/g, ""); if (c.length !== 11 || /^(\d)\1+$/.test(c)) return false; const dv = (n) => { let s = 0; for (let i = 0; i < n; i++) s += Number(c[i]) * (n + 1 - i); const r = (s * 10) % 11; return r === 10 ? 0 : r; }; return dv(9) === Number(c[9]) && dv(10) === Number(c[10]); };
+  const seloCad = (f) => { const st = (f && f.dados_status) || "incompleto"; return { incompleto: '<span class="selo warn">incompleto</span>', enviado: '<span class="selo info">aguardando conferência</span>', aprovado: '<span class="selo ok">conferido</span>', devolvido: '<span class="selo err">devolvido para correção</span>' }[st]; };
+  /* Lembrete dos dados cadastrais: sem eles completos e conferidos, não há retirada */
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest("#cad-adiar"); if (!b) return;
+    const balao = b.closest(".balao-cadastro"); if (balao) balao.remove();
+    try { await API.admissao.adiarLembrete("dados_cadastrais", 7); UI.toast("Lembramos de novo em 7 dias. As retiradas continuam bloqueadas até o cadastro ser conferido."); } catch (err) {}
+  });
+  async function balaoCadastro(ctx) {
+    if (ctx.sessao.perfil.status !== "ativo") return "";
+    const f = await API.admissao.minhaFicha().catch(() => null); const st = (f && f.dados_status) || "incompleto";
+    if (st === "aprovado") return "";
+    if (st === "incompleto") { const ate = await API.admissao.lembreteAte("dados_cadastrais").catch(() => null); if (ate && new Date(ate) > new Date()) return ""; }
+    const txt = st === "enviado" ? "Seus dados foram enviados e aguardam a conferência da coordenação ou do CA. Assim que forem conferidos, as retiradas ficam liberadas."
+      : st === "devolvido" ? `A conferência devolveu seus dados para correção: ${esc((f && f.dados_motivo) || "veja em Meu perfil")}. Sem os dados cadastrais atualizados e conferidos, não é possível pedir retiradas.`
+      : "Complete seus dados cadastrais (qualificação para as atas, conselho profissional e chave Pix). Sem os dados cadastrais atualizados e conferidos, não é possível pedir retiradas.";
+    return `<div class="notice ${st === "devolvido" ? "err" : st === "enviado" ? "" : "warn"} balao-cadastro"><b>Dados cadastrais ${seloCad(f)}</b><p style="margin:.3rem 0 .5rem">${txt}</p>
+      ${st !== "enviado" ? `<a class="btn btn-primary btn-sm" href="#perfil">${st === "devolvido" ? "Corrigir agora" : "Completar agora"}</a>${st === "incompleto" ? ' <button class="link-botao" id="cad-adiar" type="button">Lembrar depois</button>' : ""}` : ""}</div>`;
+  }
   async function balaoSindicato(ctx) {
     const p = ctx.sessao.perfil; const f = await API.admissao.minhaFiliacao().catch(() => null); if (f && f.sindicato) return "";
     const ate = await API.admissao.lembreteAte("filiacao_sindical").catch(() => null);
@@ -64,6 +84,7 @@
         el.innerHTML = `
           <div class="pag-cab"><div><p class="eyebrow">${esc(nomeMes)}</p><h1>Olá, ${esc((ctx.sessao.perfil.nome || "").split(" ")[0] || "cooperado")}</h1></div>
             <a class="btn btn-primary" href="#horas">Lançar horas</a></div>
+          ${await balaoCadastro(ctx)}
           ${await balaoSindicato(ctx)}
           ${await avisoDocumentos()}
           ${await window.Assembleias.anuncio()}
@@ -267,8 +288,9 @@
         const cxl = sistema ? Fin.caixaLivre(ext && ext.caixa) : null;
         // produção sai do livre da conta movimento; horas administrativas, da reserva dos 20% para a administração
         const maxPed = cr ? Math.min(cr.saldo, Fin.maxRetiradaCooperado(p.credito ? p : bruta, cxl, ext && ext.caixa ? ext.caixa.cobertura_admin : 1)) : 0;
-        const podePedir = cr && maxPed > 0.005 && maxPed + 0.005 >= parR.retirada_minima;
-        const motivoNao = !cr ? "" : cr.saldo + 0.005 < Math.max(parR.retirada_minima, 0.01) ? (cr.saldo > 0.005 ? `Seu saldo ainda não chegou ao mínimo de ${moeda(parR.retirada_minima)} para pedir retirada.` : "Sem crédito disponível no momento.")
+        const fichaRet = await API.admissao.minhaFicha().catch(() => null), cadastroOk = !!(fichaRet && fichaRet.dados_status === "aprovado");
+        const podePedir = cadastroOk && cr && maxPed > 0.005 && maxPed + 0.005 >= parR.retirada_minima;
+        const motivoNao = !cr ? "" : !cadastroOk ? `Retirada bloqueada: complete seus <a href="#perfil">dados cadastrais</a> (Meu perfil). Eles precisam estar completos e conferidos pela coordenação ou pelo CA${fichaRet && fichaRet.dados_status === "enviado" ? "; os seus já foram enviados e aguardam conferência" : ""}.` : cr.saldo + 0.005 < Math.max(parR.retirada_minima, 0.01) ? (cr.saldo > 0.005 ? `Seu saldo ainda não chegou ao mínimo de ${moeda(parR.retirada_minima)} para pedir retirada.` : "Sem crédito disponível no momento.")
           : !cxl || !cxl.informado ? "Retiradas ainda não liberadas: a tesouraria não informou o saldo da conta da cooperativa."
           : Fin.creditoAdmin(p.credito ? p : bruta).share > 0.5 ? "Seu crédito é de horas administrativas, pagas com os 20% dos contratos (Custo de Operação e Gestão). Os 20% recebidos até agora ainda não cobrem esse valor. Seu crédito continua guardado; assim que entrar recurso de contrato, o pedido é liberado."
           : "No momento o caixa da cooperativa não comporta novas retiradas. Seu crédito continua guardado; assim que entrar recurso de contrato, o pedido é liberado.";
@@ -887,7 +909,8 @@
       separador: true,
       async render(el, ctx) {
         const p = ctx.sessao.perfil;
-        const fil = await API.admissao.minhaFiliacao().catch(() => null);
+        const [fil, ficha] = await Promise.all([API.admissao.minhaFiliacao().catch(() => null), API.admissao.minhaFicha().catch(() => null)]);
+        const fv = (k) => (ficha && ficha[k]) || "";
         el.innerHTML = `
           <div class="pag-cab"><div><p class="eyebrow">Cadastro</p><h1>Meu perfil</h1></div></div>
           <section class="painel"><h2>Dados</h2>
@@ -902,6 +925,28 @@
               <div class="full"><button class="btn btn-primary" id="p-btn" type="submit">Salvar dados</button></div>
             </form>
           </section>
+          <section class="painel" id="sec-dados"><h2>Dados cadastrais ${seloCad(ficha)}</h2>
+            <p class="hint">Ficha de matrícula: vai para as atas, para a JUCERJA e para o pagamento das retiradas. Só você, a coordenação e o CA veem estes dados; a tesouraria vê apenas a chave Pix. Qualquer mudança volta para a conferência da coordenação ou do CA, e <b>sem o cadastro completo e conferido não é possível pedir retiradas</b>.</p>
+            ${ficha && ficha.dados_status === "devolvido" && ficha.dados_motivo ? `<div class="notice err"><b>Corrigir:</b> ${esc(ficha.dados_motivo)}</div>` : ""}
+            <form id="f-dados" class="form-grid" novalidate>
+              <div class="field full"><label for="dc-nome">Nome completo (como no documento)</label><input class="input" id="dc-nome" maxlength="160" value="${esc(fv("nome_completo") || p.nome || "")}"></div>
+              <div class="field"><label for="dc-nac">Nacionalidade</label><input class="input" id="dc-nac" maxlength="60" value="${esc(fv("nacionalidade") || "brasileira")}"></div>
+              <div class="field"><label for="dc-civ">Estado civil</label><select class="input" id="dc-civ">${["", "solteiro(a)", "casado(a)", "casado(a) em comunhão parcial de bens", "casado(a) em comunhão universal de bens", "casado(a) em separação de bens", "união estável", "divorciado(a)", "viúvo(a)"].map((x) => `<option value="${x}" ${fv("estado_civil") === x ? "selected" : ""}>${x || "— escolher —"}</option>`).join("")}</select></div>
+              <div class="field"><label for="dc-prof">Profissão</label><input class="input" id="dc-prof" maxlength="80" value="${esc(fv("profissao") || "")}" placeholder="Ex.: técnico em edificações"></div>
+              <div class="field"><label for="dc-nasc">Data de nascimento</label><input class="input" id="dc-nasc" type="date" value="${esc(fv("data_nascimento") || "")}"></div>
+              <div class="field"><label for="dc-cpf">CPF</label><input class="input" id="dc-cpf" inputmode="numeric" maxlength="14" value="${esc(fv("cpf") || "")}" placeholder="000.000.000-00"></div>
+              <div class="field"><label for="dc-rg">RG (número)</label><input class="input" id="dc-rg" maxlength="30" value="${esc(fv("rg") || "")}"></div>
+              <div class="field"><label for="dc-rgo">Órgão emissor do RG</label><input class="input" id="dc-rgo" maxlength="30" value="${esc(fv("rg_orgao") || "")}" placeholder="Ex.: DETRAN/RJ"></div>
+              <div class="field full"><label for="dc-end">Endereço (rua, número, complemento, bairro)</label><input class="input" id="dc-end" maxlength="200" value="${esc(fv("endereco") || "")}"></div>
+              <div class="field"><label for="dc-cid">Cidade/UF (ou cidade e país)</label><input class="input" id="dc-cid" maxlength="80" value="${esc(fv("cidade") || p.cidade || "")}" placeholder="Ex.: Araruama/RJ"></div>
+              <div class="field"><label for="dc-cep">CEP</label><input class="input" id="dc-cep" inputmode="numeric" maxlength="9" value="${esc(fv("cep") || "")}" placeholder="00000-000"><span class="hint">Mora fora do Brasil? Use o CEP do seu último endereço no Brasil ou 00000-000 e explique à coordenação.</span></div>
+              <div class="field"><label for="dc-cons">Conselho profissional</label><select class="input" id="dc-cons">${CONSELHOS.map(([v, t]) => `<option value="${v}" ${fv("conselho") === v ? "selected" : ""}>${t}</option>`).join("")}</select></div>
+              <div class="field"><label for="dc-reg">Número do registro</label><input class="input" id="dc-reg" maxlength="40" value="${esc(fv("registro_numero") || "")}"><span class="hint">Mudou de conselho (ex.: do CFT para o CREA ao se formar)? Atualize aqui e cadastre a nova habilitação em Minha experiência, para o CA validar o enquadramento.</span></div>
+              <div class="field"><label for="dc-pixt">Tipo da chave Pix (para receber as retiradas)</label><select class="input" id="dc-pixt">${[["", "— escolher —"], ["cpf", "CPF"], ["email", "E-mail"], ["telefone", "Telefone"], ["aleatoria", "Chave aleatória"]].map(([v, t]) => `<option value="${v}" ${fv("pix_tipo") === v ? "selected" : ""}>${t}</option>`).join("")}</select></div>
+              <div class="field"><label for="dc-pix">Chave Pix</label><input class="input" id="dc-pix" maxlength="120" value="${esc(fv("pix_chave") || "")}"><span class="hint">A conta precisa estar no seu nome (CPF).</span></div>
+              <div class="full"><button class="btn btn-primary" id="dc-btn" type="submit">Salvar dados cadastrais</button></div>
+            </form>
+          </section>
           <section class="painel"><h2>Trocar senha</h2>
             <form id="f-senha" class="form-grid" novalidate>
               <div class="field"><label for="s-nova">Nova senha</label><input class="input" id="s-nova" type="password" autocomplete="new-password" minlength="8"></div>
@@ -912,6 +957,20 @@
           e.preventDefault();
           const ok = await acao($("#p-btn"), () => Promise.all([API.perfil.atualizarMeu({ nome: $("#p-nome").value.trim(), telefone: $("#p-tel").value.trim(), especialidade: $("#p-esp").value.trim() }), API.admissao.salvarFiliacao($("#p-sind").value.trim() || null)]), "Dados salvos.");
           if (ok) await ctx.recarregarSessao();
+        });
+        const mascara = (v, tipo) => { const d = String(v || "").replace(/\D/g, ""); return tipo === "cpf" ? d.slice(0, 11).replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d{1,2})$/, "$1-$2") : d.slice(0, 8).replace(/(\d{5})(\d)/, "$1-$2"); };
+        $("#dc-cpf").addEventListener("input", (e) => { e.target.value = mascara(e.target.value, "cpf"); });
+        $("#dc-cep").addEventListener("input", (e) => { e.target.value = mascara(e.target.value, "cep"); });
+        const regAt = () => { const c = $("#dc-cons").value; $("#dc-reg").disabled = c === "nenhum"; if (c === "nenhum") $("#dc-reg").value = ""; };
+        $("#dc-cons").addEventListener("change", regAt); regAt();
+        $("#f-dados").addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const d = { nome_completo: $("#dc-nome").value.trim(), nacionalidade: $("#dc-nac").value.trim(), estado_civil: $("#dc-civ").value, profissao: $("#dc-prof").value.trim(), data_nascimento: $("#dc-nasc").value || null,
+            cpf: $("#dc-cpf").value.trim(), rg: $("#dc-rg").value.trim(), rg_orgao: $("#dc-rgo").value.trim(), endereco: $("#dc-end").value.trim(), cidade: $("#dc-cid").value.trim(), cep: $("#dc-cep").value.trim(),
+            conselho: $("#dc-cons").value || null, registro_numero: $("#dc-reg").value.trim(), pix_tipo: $("#dc-pixt").value || null, pix_chave: $("#dc-pix").value.trim() };
+          if (d.cpf && !cpfValido(d.cpf)) return toast("Confira o CPF: os dígitos não batem.", "err");
+          const ok = await acao($("#dc-btn"), () => API.admissao.salvarDados(d), API.fichaCompleta(d) ? "Dados salvos e enviados para conferência." : "Dados salvos. Ainda faltam campos para completar o cadastro.");
+          if (ok) { await ctx.recarregarSessao(); paginas.perfil.render(el, ctx); }
         });
         $("#f-senha").addEventListener("submit", async (e) => {
           e.preventDefault();

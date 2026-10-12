@@ -117,6 +117,14 @@
     return m || "Algo deu errado. Tente de novo.";
   };
   const falha = (e) => { throw new Error(traduzErro(e && e.message ? e.message : e)); };
+  /* Dados cadastrais completos (mesma regra da função ficha_completa no banco, migração 043) */
+  const soDig = (t) => String(t || "").replace(/\D/g, "");
+  function fichaCompleta(f) {
+    if (!f) return false; const t = (k) => String(f[k] || "").trim();
+    return !!(t("nome_completo") && t("nacionalidade") && t("estado_civil") && t("profissao") && f.data_nascimento && soDig(f.cpf).length === 11 && t("rg") && t("rg_orgao") && t("endereco") && t("cidade") && soDig(f.cep).length === 8
+      && t("conselho") && (f.conselho === "nenhum" || t("registro_numero")) && f.pix_tipo && t("pix_chave"));
+  }
+  const CAMPOS_FICHA = ["nome_completo", "nacionalidade", "estado_civil", "profissao", "data_nascimento", "cpf", "rg", "rg_orgao", "endereco", "cep", "cidade", "conselho", "registro_numero", "pix_tipo", "pix_chave"];
 
   /* ------------------------------------------------------------------ */
   /* Motor de demonstração                                               */
@@ -755,6 +763,7 @@
         async parametros() { const s = ler(); exigir(s); return espera({ ...s.fin.parametros }); },
         async solicitarRetirada(d) {
           const s = ler(); const u = exigir(s); const c = s.fin.cooperados.find((x) => x.perfil_id === u.id); if (!c) falha("Cadastro financeiro não ligado.");
+          const fx = (s.admissao_fichas || []).find((x) => x.perfil_id === u.id); if (!fx || fx.dados_status !== "aprovado") falha("Retirada bloqueada: os dados cadastrais (Meu perfil → Dados cadastrais) precisam estar completos e conferidos pela coordenação ou pelo CA.");
           s.fin.retiradas = s.fin.retiradas || [];
           s.fin.retiradas.push({ id: novoId(), fin_cooperado_id: c.id, valor: d.valor, prazo: d.prazo, quitar_meses: d.quitar_meses || null, quitar_valor: d.quitar_valor || null, status: "solicitada", solicitado_em: new Date().toISOString(), solicitado_nome: u.nome });
           gravar(s); return espera(true);
@@ -1100,6 +1109,22 @@
         _cand(u) { if (!["pendente", "entrevista", "aprovado"].includes(u.status)) falha("Esta etapa não está mais aberta."); },
         async minhaFicha() { const s = ler(); const u = this._eu(s); this._st(s); return espera(JSON.parse(JSON.stringify(s.admissao_fichas.find((x) => x.perfil_id === u.id) || null))); },
         async salvarFicha(d) { const s = ler(); const u = this._eu(s); this._cand(u); Object.assign(this._ficha(s, u.id), d); gravar(s); return espera(true); },
+        async salvarDados(d) {
+          const s = ler(); const u = this._eu(s); if (!["ativo", "pendente", "entrevista", "aprovado"].includes(u.status)) falha("permission denied");
+          const f = this._ficha(s, u.id); const mudou = CAMPOS_FICHA.some((k) => k in d && String(d[k] || "") !== String(f[k] || ""));
+          CAMPOS_FICHA.forEach((k) => { if (k in d) f[k] = d[k]; });
+          if (mudou || !f.dados_status) f.dados_status = fichaCompleta(f) ? "enviado" : "incompleto";
+          if (f.conselho) { u.registro_profissional = f.conselho === "nenhum" ? "sem conselho profissional" : f.conselho + (String(f.registro_numero || "").trim() ? " nº " + String(f.registro_numero).trim() : ""); if (f.cidade) u.cidade = f.cidade; }
+          gravar(s); return espera(true);
+        },
+        async situacaoCadastros() { const s = ler(); exigir(s); this._st(s); return espera(s.perfis.map((p) => { const f = s.admissao_fichas.find((x) => x.perfil_id === p.id); return { perfil_id: p.id, dados_status: (f && f.dados_status) || "incompleto", conferido_em: (f && f.dados_conferido_em) || null }; })); },
+        async conferirCadastro(id, aprovar, motivo) {
+          const s = ler(); const u = exigir(s); if (!(u.papel === "coordenacao" || u.conselho_adm)) falha("Só a coordenação ou o CA conferem o cadastro."); if (id === u.id) falha("Ninguém confere o próprio cadastro."); this._st(s);
+          const f = s.admissao_fichas.find((x) => x.perfil_id === id); if (!f) falha("Este cooperado ainda não preencheu os dados cadastrais.");
+          if (aprovar && !fichaCompleta(f)) falha("O cadastro está incompleto."); if (!aprovar && !String(motivo || "").trim()) falha("Diga o que precisa ser corrigido.");
+          Object.assign(f, { dados_status: aprovar ? "aprovado" : "devolvido", dados_motivo: aprovar ? null : motivo, dados_conferido_nome: u.nome, dados_conferido_em: new Date().toISOString() }); gravar(s); return espera(true);
+        },
+        async pixDe(finId) { const s = ler(); exigir(s, "tes"); this._st(s); const c = s.fin.cooperados.find((x) => x.id === finId); const f = c && s.admissao_fichas.find((x) => x.perfil_id === c.perfil_id); return espera(f ? { tipo: f.pix_tipo, chave: f.pix_chave, status: f.dados_status, nome: f.nome_completo } : null); },
         async enviarDoc(tipo, arquivo) {
           const s = ler(); const u = this._eu(s); this._cand(u);
           if (arquivo.size > 1.5 * 1024 * 1024) falha("No modo demonstração o limite é 1,5 MB por arquivo.");
@@ -1839,6 +1864,10 @@
       admissao: {
         async minhaFicha() { const uid = await meuId(); const r = await sb.from("admissao_fichas").select("*").eq("perfil_id", uid).maybeSingle(); return r.error ? null : r.data; },
         async salvarFicha(d) { const uid = await meuId(); ok(await sb.from("admissao_fichas").upsert({ ...d, perfil_id: uid })); return true; },
+        async salvarDados(d) { const uid = await meuId(); const x = {}; CAMPOS_FICHA.forEach((k) => { if (k in d) x[k] = d[k] === "" ? null : d[k]; }); ok(await sb.from("admissao_fichas").upsert({ ...x, perfil_id: uid })); return true; },
+        async situacaoCadastros() { const r = await sb.rpc("cadastros_situacao"); return r.error ? [] : r.data || []; },
+        async conferirCadastro(id, aprovar, motivo) { ok(await sb.rpc("ficha_conferir", { p_perfil: id, p_aprovar: !!aprovar, p_motivo: motivo || null })); return true; },
+        async pixDe(finId) { const r = await sb.rpc("pix_do_cooperado", { p_fin: finId }); return r.error ? null : r.data; },
         async enviarDoc(tipo, arquivo) {
           const uid = await meuId();
           const seguro = arquivo.name.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\w.\-]+/g, "_");
@@ -1928,5 +1957,6 @@
   api.AREAS = AREAS;
   api.CAMPOS_FIN = CAMPOS_FIN;
   api.STATUS_COOPERADO = STATUS_COOPERADO;
+  api.fichaCompleta = fichaCompleta;
   window.API = api;
 })();

@@ -76,6 +76,11 @@
       async render(el, ctx) {
         const coops = (await API.cooperados.listar()).filter((c) => c.status === "ativo" || c.status === "desligado");
         coops.sort((a, b) => (a.status === b.status ? 0 : a.status === "ativo" ? -1 : 1) || a.nome.localeCompare(b.nome));
+        const [situ, fichas] = await Promise.all([API.admissao.situacaoCadastros().catch(() => []), API.admissao.fichas().catch(() => [])]);
+        const stCad = (id) => ((situ.find((x) => x.perfil_id === id) || {}).dados_status) || "incompleto";
+        const SELO_CAD = { incompleto: '<span class="selo warn">incompleto</span>', enviado: '<span class="selo info">a conferir</span>', aprovado: '<span class="selo ok">conferido</span>', devolvido: '<span class="selo err">devolvido</span>' };
+        const podeConferir = ctx.sessao.perfil.papel === "coordenacao" || !!ctx.sessao.perfil.conselho_adm;
+        const conselhoNum = (c) => { const r = String(c.registro_profissional || "").trim(); return /^[A-Z]{2,8} nº .+|^sem conselho profissional$/.test(r) ? esc(r) : r ? `${esc(r)} <span class="selo warn" title="Formato antigo: o cooperado precisa informar conselho e número em Meu perfil → Dados cadastrais">a atualizar</span>` : '<span class="hint">conselho e nº não informados</span>'; };
         el.innerHTML = `
           <div class="pag-cab"><div><p class="eyebrow">Quadro social</p><h1>Cooperados</h1></div><a class="btn btn-ghost" href="#solicitacoes">Ver solicitações</a></div>
           <p class="muted">Cooperados admitidos. O papel <b>coordenação</b> dá acesso a toda a área interna; a marcação <b>Tesouraria</b> dá acesso só à aba Financeiro, para quem atualiza os valores; <b>Conselho de Administração</b> dá acesso à página Enquadramento, onde se valida formação e experiência; <b>Conselho Fiscal</b> dá leitura de todo o Financeiro e a página do Conselho Fiscal, sem poder lançar nada. Novos pedidos de entrada ficam em Solicitações de admissão.</p>
@@ -83,7 +88,7 @@
             <thead><tr><th>Nome</th><th>Área de atuação</th><th>Desde</th><th>Situação</th><th>Papel</th><th>Tesouraria</th><th>Conselho de Administração</th><th>Conselho Fiscal</th><th><span class="sr-only">Ações</span></th></tr></thead>
             <tbody>${coops.map((c) => `<tr data-id="${c.id}">
               <td><b>${esc(c.nome || "(sem nome)")}</b><span class="sub">${esc(c.email)}${c.telefone ? " · " + esc(c.telefone) : ""}</span></td>
-              <td>${esc(c.area_atuacao || c.especialidade || "—")}${c.registro_profissional ? `<span class="sub">${esc(c.registro_profissional)}</span>` : ""}</td>
+              <td>${esc(c.area_atuacao || c.especialidade || "—")}<span class="sub">${conselhoNum(c)}</span><span class="sub">Cadastro: ${SELO_CAD[stCad(c.id)]}${podeConferir && c.id !== ctx.sessao.perfil.id && ["enviado", "aprovado", "devolvido"].includes(stCad(c.id)) ? ` <button class="link-btn" type="button" data-conf="${c.id}">${stCad(c.id) === "enviado" ? "conferir" : "ver"}</button>` : ""}</span></td>
               <td class="num" style="text-align:left">${data(c.data_ingresso)}</td>
               <td><select class="input mini" data-campo="status" aria-label="Situação de ${esc(c.nome)}" ${c.id === ctx.sessao.perfil.id ? "disabled" : ""}><option value="ativo" ${c.status === "ativo" ? "selected" : ""}>ativo</option><option value="desligado" ${c.status === "desligado" ? "selected" : ""}>desligado</option></select></td>
               <td><select class="input mini" data-campo="papel" aria-label="Papel de ${esc(c.nome)}" ${c.id === ctx.sessao.perfil.id ? "disabled" : ""}><option value="cooperado" ${c.papel === "cooperado" ? "selected" : ""}>cooperado</option><option value="coordenacao" ${c.papel === "coordenacao" ? "selected" : ""}>coordenação</option></select></td>
@@ -97,6 +102,20 @@
         el.querySelectorAll("tr[data-id]").forEach(travaCargo);
         el.onchange = (e) => { if (e.target.matches('[data-campo="conselho_adm"]')) travaCargo(e.target.closest("tr")); };
         el.onclick = async (e) => {
+          const bc = e.target.closest("[data-conf]");
+          if (bc) {
+            const c = coops.find((x) => x.id === bc.dataset.conf), f = fichas.find((x) => x.perfil_id === c.id) || {};
+            const CIV = (k, r) => `<div><dt>${r}</dt><dd>${esc(f[k] || "—")}</dd></div>`;
+            const m = UI.modal(`<h2>Dados cadastrais · ${esc(c.nome)}</h2>
+              <p class="muted">Situação: ${SELO_CAD[stCad(c.id)]}${f.dados_conferido_nome ? ` · última conferência por ${esc(f.dados_conferido_nome)} em ${dataHora(f.dados_conferido_em)}` : ""}</p>
+              <dl class="sol-dados">${CIV("nome_completo", "Nome completo")}${CIV("nacionalidade", "Nacionalidade")}${CIV("estado_civil", "Estado civil")}${CIV("profissao", "Profissão")}<div><dt>Nascimento</dt><dd>${f.data_nascimento ? data(f.data_nascimento) : "—"}</dd></div>${CIV("cpf", "CPF")}<div><dt>RG</dt><dd>${esc([f.rg, f.rg_orgao].filter(Boolean).join(" · ") || "—")}</dd></div>${CIV("endereco", "Endereço")}${CIV("cidade", "Cidade")}${CIV("cep", "CEP")}<div><dt>Conselho</dt><dd>${esc(f.conselho === "nenhum" ? "sem conselho" : [f.conselho, f.registro_numero].filter(Boolean).join(" nº ") || "—")}</dd></div><div><dt>Pix</dt><dd>${esc([f.pix_tipo, f.pix_chave].filter(Boolean).join(": ") || "—")}</dd></div></dl>
+              <p class="hint">Confira com os documentos (RG, CPF, comprovante de residência e registro no conselho). A chave Pix precisa ser de conta no nome do cooperado.</p>
+              <div class="field"><label for="cf-mot">Se for devolver, diga o que corrigir</label><input class="input" id="cf-mot" maxlength="300"></div>
+              <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Fechar</button><button class="btn btn-danger btn-sm" id="cf-dev">Devolver para correção</button><button class="btn btn-primary btn-sm" id="cf-ok">Conferido</button></div>`);
+            $("#cf-ok", m.el).onclick = async (ev) => { if (await acao(ev.currentTarget, () => API.admissao.conferirCadastro(c.id, true, null), "Cadastro conferido: retiradas liberadas para este cooperado.")) { m.fechar(); paginas.cooperados.render(el, ctx); } };
+            $("#cf-dev", m.el).onclick = async (ev) => { const mot = $("#cf-mot", m.el).value.trim(); if (!mot) return toast("Diga o que precisa ser corrigido.", "err"); if (await acao(ev.currentTarget, () => API.admissao.conferirCadastro(c.id, false, mot), "Cadastro devolvido. O cooperado vê o motivo no Início.")) { m.fechar(); paginas.cooperados.render(el, ctx); } };
+            return;
+          }
           const b = e.target.closest("[data-salvar]"); if (!b) return;
           const tr = b.closest("tr");
           const dados = { status: tr.querySelector('[data-campo="status"]').value, papel: tr.querySelector('[data-campo="papel"]').value, tesouraria: tr.querySelector('[data-campo="tesouraria"]').checked, conselho_fiscal: tr.querySelector('[data-campo="conselho_fiscal"]').checked,
