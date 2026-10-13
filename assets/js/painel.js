@@ -76,6 +76,22 @@
     const x = b.closest(".balao-app"); if (x) x.remove();
     try { await API.admissao.adiarLembrete("app_celular", 60); } catch (err) {}
   });
+  /* No app, convite para ativar a biometria (uma vez; "agora não" esconde por 60 dias) */
+  document.addEventListener("click", async (e) => {
+    const on = e.target.closest("#bioc-on"), dep = e.target.closest("#bioc-depois"); if (!on && !dep) return;
+    const x = (on || dep).closest(".balao-bio");
+    if (dep) { if (x) x.remove(); try { await API.admissao.adiarLembrete("biometria_convite", 60); } catch (err) {} return; }
+    try { const s = await API.getSession(); await window.Sessao.ativarBio(s.perfil); if (x) x.remove(); UI.toast("Biometria ativada. Quando o app bloquear, use o Face ID ou a digital."); }
+    catch (err) { UI.toast("A biometria não foi ativada. Você pode tentar de novo em Meu perfil.", "err"); }
+  });
+  async function balaoBio(ctx) {
+    const S = window.Sessao; if (!S || !S.APP) return "";
+    const b = S.bio(); if (b && b.perfil_id === ctx.sessao.perfil.id) return "";
+    if (!(await S.bioDisponivel())) return "";
+    const ate = await API.admissao.lembreteAte("biometria_convite").catch(() => null); if (ate && new Date(ate) > new Date()) return "";
+    return `<div class="notice balao-bio"><b>Entrar com Face ID ou digital</b><p style="margin:.3rem 0 .5rem">O app bloqueia depois de 5 minutos sem uso. Ative a biometria para desbloquear sem digitar a senha.</p>
+      <button class="btn btn-primary btn-sm" id="bioc-on" type="button">Ativar agora</button> <button class="link-botao" id="bioc-depois" type="button">Agora não</button></div>`;
+  }
   async function balaoApp() {
     const celular = /Android|iPhone|iPad|iPod/.test(navigator.userAgent || "");
     const app = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
@@ -119,6 +135,7 @@
           ${await avisoConferencia(ctx)}
           ${await balaoCadastro(ctx)}
           ${await balaoApp()}
+          ${await balaoBio(ctx)}
           ${await balaoSindicato(ctx)}
           ${await avisoDocumentos()}
           ${await window.Assembleias.anuncio()}
@@ -1008,6 +1025,7 @@
               <div class="full"><button class="btn btn-primary" id="dc-btn" type="submit">Salvar dados cadastrais</button></div>
             </form>
           </section>
+          <section class="painel" id="sec-bio" hidden><h2>Biometria neste aparelho</h2><div id="bio-corpo"></div></section>
           <section class="painel"><h2>Trocar senha</h2>
             <form id="f-senha" class="form-grid" novalidate>
               <div class="field"><label for="s-nova">Nova senha</label><input class="input" id="s-nova" type="password" autocomplete="new-password" minlength="8"></div>
@@ -1033,6 +1051,17 @@
           const ok = await acao($("#dc-btn"), () => API.admissao.salvarDados(d), API.fichaCompleta(d) ? "Dados salvos e enviados para conferência." : "Dados salvos. Ainda faltam campos para completar o cadastro.");
           if (ok) { await ctx.recarregarSessao(); paginas.perfil.render(el, ctx); }
         });
+        (async () => {
+          const S = window.Sessao; if (!S || !(await S.bioDisponivel())) return;
+          const sec = $("#sec-bio"), corpo = $("#bio-corpo"); sec.hidden = false;
+          const desenhar = () => { const b = S.bio(), minha = b && b.perfil_id === p.id;
+            corpo.innerHTML = `<p class="hint">${S.APP ? "No app, a tela bloqueia depois de 5 minutos sem uso." : "No navegador, a sessão termina por inatividade se você não marcou Manter conectado."} Com a biometria ativada, o app desbloqueia com o Face ID ou a digital do celular, sem digitar a senha. A digital e o rosto ficam só no aparelho: o site nunca os recebe.</p>
+              ${minha ? `<p><span class="selo ok">ativada</span> desde ${data(b.em)}</p><button class="btn btn-ghost btn-sm" id="bio-off" type="button">Desativar neste aparelho</button>` : '<button class="btn btn-primary btn-sm" id="bio-on" type="button">Ativar Face ID ou digital</button>'}`;
+            const on = $("#bio-on"), off = $("#bio-off");
+            if (on) on.onclick = async () => { if (await acao(on, () => S.ativarBio(p), "Biometria ativada neste aparelho.")) desenhar(); };
+            if (off) off.onclick = () => { S.desativarBio(); toast("Biometria desativada neste aparelho."); desenhar(); }; };
+          desenhar();
+        })();
         $("#f-senha").addEventListener("submit", async (e) => {
           e.preventDefault();
           const s = $("#s-nova").value;

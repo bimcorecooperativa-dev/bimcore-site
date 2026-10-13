@@ -11,14 +11,14 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="BIMCORE">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <link rel="icon" href="favicon.ico" sizes="any">
 <link rel="icon" href="favicon.png" type="image/png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="assets/css/base.css?v=202610131836">
-<link rel="stylesheet" href="assets/css/app.css?v=202610131836">
+<link rel="stylesheet" href="assets/css/base.css?v=202610131849">
+<link rel="stylesheet" href="assets/css/app.css?v=202610131849">
 </head>
 <body>
 <main class="login-pagina">
@@ -38,6 +38,8 @@
       <form id="form-entrar" novalidate>
         <div class="field"><label for="e-email">E-mail</label><input class="input" id="e-email" type="email" autocomplete="email" required></div>
         <div class="field"><label for="e-senha">Senha</label><input class="input" id="e-senha" type="password" autocomplete="current-password" required></div>
+        <label class="ciente" id="e-manter-l"><input type="checkbox" id="e-manter"> <span>Manter conectado neste computador</span></label>
+        <p class="hint" id="e-manter-h">Sem marcar, a sessão termina depois de 30 minutos sem uso ou ao fechar o navegador. Não marque em computador compartilhado.</p>
         <button class="btn btn-primary" type="submit" id="e-btn">Entrar</button>
         <div class="linha-link"><button type="button" class="link-botao" id="esqueci">Esqueci minha senha</button><button type="button" class="link-botao" id="nao-confirmei">Não consegui confirmar o e-mail</button><a href="index.html">Voltar ao site</a></div>
       </form>
@@ -107,9 +109,10 @@
 </main>
 <div class="toast-wrap" id="toasts" aria-live="polite"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="assets/js/config.js?v=202610131836"></script>
-<script src="assets/js/api.js?v=202610131836"></script>
-<script src="assets/js/ui.js?v=202610131836"></script>
-<script src="assets/js/entrar.js?v=202610131836"></script>
+<script src="assets/js/config.js?v=202610131849"></script>
+<script src="assets/js/api.js?v=202610131849"></script>
+<script src="assets/js/ui.js?v=202610131849"></script>
+<script src="assets/js/sessao.js?v=202610131849"></script>
+<script src="assets/js/entrar.js?v=202610131849"></script>
 </body>
 </html>

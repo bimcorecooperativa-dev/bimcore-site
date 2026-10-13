@@ -157,9 +157,9 @@ select.mini { padding: 0.4rem 0.5rem; font-size: 0.85rem; width: auto; }
   .app-nav-botao[aria-expanded="true"] i { transform: rotate(-135deg); margin-top: 4px; }
   .app-nav, .app-nav.aberta {
     position: fixed; left: 0; right: 0; top: calc(56px + 48px + env(safe-area-inset-top, 0px)); z-index: 30;
-    display: none; flex-direction: column; overflow: visible; gap: 0.15rem;
-    max-height: calc(100vh - 120px); overflow-y: auto;
-    background: var(--bg-2); border-bottom: 1px solid var(--line-2); padding: 0.4rem 0.8rem 0.9rem;
+    display: none; flex-direction: column; gap: 0.15rem;
+    bottom: 0; max-height: none; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+    background: var(--bg-2); border-bottom: 1px solid var(--line-2); padding: 0.4rem 0.8rem calc(1.5rem + env(safe-area-inset-bottom, 0px));
     box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
   }
   .app-nav.aberta { display: flex; }
@@ -410,4 +410,14 @@ form.aval { border-top: 1px solid var(--line); padding-top: .8rem; margin-top: .
 .app-qr > div { width: 160px; height: 160px; background: #fff; border-radius: 10px; padding: 6px; }
 .app-qr svg { width: 100%; height: 100%; }
 .app-qr p { flex: 1 1 220px; margin: 0; }
-@media (display-mode: standalone) { body { padding-top: env(safe-area-inset-top); } }
+@media (max-width: 860px) { body.nav-aberta { overflow: hidden; } }
+/* Tela de bloqueio do app (inatividade) */
+body.travado { overflow: hidden; }
+body.travado > *:not(.trava):not(.toast-wrap) { filter: blur(14px); pointer-events: none; user-select: none; }
+.trava { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: calc(24px + env(safe-area-inset-top, 0px)) 24px calc(24px + env(safe-area-inset-bottom, 0px)); background: rgba(7, 13, 22, 0.92); }
+.trava-in { width: min(360px, 100%); text-align: center; display: grid; gap: 0.8rem; justify-items: center; }
+.trava-in img { border-radius: 18px; }
+.trava-in h1 { margin: 0; font-size: 1.4rem; }
+.trava-in p { margin: 0; color: var(--muted); }
+.trava-in .btn { width: 100%; }
+.trava-msg { color: var(--err) !important; min-height: 1.2em; }

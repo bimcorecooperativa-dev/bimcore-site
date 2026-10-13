@@ -21,6 +21,7 @@
     const ca = p.status === "ativo" && !!p.conselho_adm;
     const interno = tes || fiscal || ca;
     if (opcoes.area === "interno" && !interno) { location.replace("painel.html"); return; }
+    if (window.Sessao) window.Sessao.vigiar();
 
     window.UI.barraDemo();
     const paginas = opcoes.filtrar ? opcoes.filtrar(opcoes.paginas, { coord, tes, fiscal, ca }) : opcoes.paginas;
@@ -48,8 +49,8 @@
       </div>`;
 
     const navBotao = $("#app-nav-botao");
-    const fecharNav = () => { $("#app-nav").classList.remove("aberta"); navBotao.setAttribute("aria-expanded", "false"); };
-    navBotao.addEventListener("click", () => { const nav = $("#app-nav"); nav.style.top = Math.round(navBotao.getBoundingClientRect().bottom) + "px"; const ab = nav.classList.toggle("aberta"); navBotao.setAttribute("aria-expanded", String(ab)); });
+    const fecharNav = () => { $("#app-nav").classList.remove("aberta"); navBotao.setAttribute("aria-expanded", "false"); document.body.classList.remove("nav-aberta"); };
+    navBotao.addEventListener("click", () => { const nav = $("#app-nav"); nav.style.top = Math.round(navBotao.getBoundingClientRect().bottom) + "px"; const ab = nav.classList.toggle("aberta"); navBotao.setAttribute("aria-expanded", String(ab)); document.body.classList.toggle("nav-aberta", ab); if (ab) nav.scrollTop = 0; });
     window.addEventListener("scroll", () => { if ($("#app-nav").classList.contains("aberta")) $("#app-nav").style.top = Math.round(navBotao.getBoundingClientRect().bottom) + "px"; }, { passive: true });
     $("#app-nav").addEventListener("click", (e) => { if (e.target.closest("a")) fecharNav(); });
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") fecharNav(); });
@@ -68,7 +69,7 @@
     };
     new MutationObserver(() => rotularTabelas($("#pagina"))).observe($("#pagina"), { childList: true, subtree: true });
 
-    $("#sair").addEventListener("click", async () => { await API.signOut(); location.replace("entrar.html"); });
+    $("#sair").addEventListener("click", async () => { if (window.Sessao) return window.Sessao.sair(); await API.signOut(); location.replace("entrar.html"); });
 
     const ctx = {
       sessao, coord, tes, fiscal, ca, leitura: fiscal && !tes,

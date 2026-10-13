@@ -40,7 +40,7 @@
     e.preventDefault();
     const email = $("#c-email").value.trim(), cod = $("#c-codigo").value.replace(/\D/g, "");
     if (!email || cod.length < 6) return avisar("Informe o e-mail e o código de 6 dígitos.", "err");
-    if (await acao($("#c-btn"), () => API.confirmarCodigo(email, cod))) { avisar("E-mail confirmado.", "ok"); const s = await API.getSession().catch(() => null); if (s) location.replace(destino(s)); else mostrar("entrar"); }
+    if (await acao($("#c-btn"), () => API.confirmarCodigo(email, cod))) { avisar("E-mail confirmado.", "ok"); const s = await API.getSession().catch(() => null); if (s) { window.Sessao && window.Sessao.aoEntrar(false); location.replace(destino(s)); } else mostrar("entrar"); }
   });
   // volta do link do e-mail com erro (link expirado, já usado ou aberto em outro aparelho)
   const hashErro = new URLSearchParams(location.hash.replace(/^#/, "")).get("error_code") || new URLSearchParams(location.search).get("error_code");
@@ -48,6 +48,11 @@
 
   if (API.demo) $("#demo-contas").hidden = false;
   if (location.hash === "#cadastro") mostrar("cadastro");
+  // App instalado: não há "manter conectado" (o app bloqueia sozinho e abre com a biometria)
+  if (window.Sessao && window.Sessao.APP) { const l = $("#e-manter-l"), h = $("#e-manter-h"); if (l) l.hidden = true; if (h) h.textContent = "No app, a tela bloqueia depois de 5 minutos sem uso e abre com a biometria do celular (ative em Meu perfil)."; }
+  const saiu = new URLSearchParams(location.search).get("saiu");
+  if (saiu === "inatividade") avisar("Sua sessão foi encerrada por inatividade. Entre de novo.", "warn");
+  if (saiu === "bloqueio") avisar("Entre com seu e-mail e senha para continuar.", "warn");
 
   const destino = (s) => (s && s.perfil && s.perfil.papel === "coordenacao" && s.perfil.status === "ativo" ? "interno.html" : "painel.html");
 
@@ -63,7 +68,7 @@
     if (!email || !senha) return avisar("Preencha e-mail e senha.", "err");
     let naoConfirmado = false;
     const ok = await acao($("#e-btn"), async () => { try { return await API.signIn(email, senha); } catch (er) { if (/confirm/i.test(er.message || "")) naoConfirmado = true; throw er; } });
-    if (ok) location.replace(destino(await API.getSession()));
+    if (ok) { window.Sessao && window.Sessao.aoEntrar($("#e-manter").checked); location.replace(destino(await API.getSession())); }
     else if (naoConfirmado) abrirConfirmar(email, "Seu e-mail ainda não foi confirmado. Peça um novo e-mail de confirmação abaixo.", "warn");
   });
 
@@ -108,6 +113,6 @@
     const s = $("#n-senha").value;
     if (s.length < 8) return avisar("A senha precisa ter pelo menos 8 caracteres.", "err");
     const ok = await acao($("#n-btn"), () => API.updatePassword(s));
-    if (ok) { toast("Senha alterada."); history.replaceState(null, "", location.pathname); location.replace(destino(await API.getSession())); }
+    if (ok) { toast("Senha alterada."); history.replaceState(null, "", location.pathname); window.Sessao && window.Sessao.aoEntrar(false); location.replace(destino(await API.getSession())); }
   });
 })();
