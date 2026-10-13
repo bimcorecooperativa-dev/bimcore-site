@@ -70,6 +70,20 @@
     return `<div class="notice ${st === "devolvido" ? "err" : st === "enviado" ? "" : "warn"} balao-cadastro"><b>Dados cadastrais ${seloCad(f)}</b><p style="margin:.3rem 0 .5rem">${txt}</p>
       ${st !== "enviado" ? `<a class="btn btn-primary btn-sm" href="#perfil">${st === "devolvido" ? "Corrigir agora" : "Completar agora"}</a>${st === "incompleto" ? ' <button class="link-botao" id="cad-adiar" type="button">Lembrar depois</button>' : ""}` : ""}</div>`;
   }
+  /* Convite para instalar o app (só no celular, fora do app; "agora não" esconde por 60 dias) */
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest("#app-depois"); if (!b) return;
+    const x = b.closest(".balao-app"); if (x) x.remove();
+    try { await API.admissao.adiarLembrete("app_celular", 60); } catch (err) {}
+  });
+  async function balaoApp() {
+    const celular = /Android|iPhone|iPad|iPod/.test(navigator.userAgent || "");
+    const app = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+    if (!celular || app) return "";
+    const ate = await API.admissao.lembreteAte("app_celular").catch(() => null); if (ate && new Date(ate) > new Date()) return "";
+    return `<div class="notice balao-app"><b>Use a BIMCORE como app no celular</b><p style="margin:.3rem 0 .5rem">Instale a área do cooperado na tela inicial: abre em tela cheia, com ícone próprio, sem loja de aplicativos.</p>
+      <a class="btn btn-primary btn-sm" href="#app">Como instalar</a> <button class="link-botao" id="app-depois" type="button">Agora não</button></div>`;
+  }
   async function balaoSindicato(ctx) {
     const p = ctx.sessao.perfil; const f = await API.admissao.minhaFiliacao().catch(() => null); if (f && f.sindicato) return "";
     const ate = await API.admissao.lembreteAte("filiacao_sindical").catch(() => null);
@@ -104,6 +118,7 @@
             <a class="btn btn-primary" href="#horas">Lançar horas</a></div>
           ${await avisoConferencia(ctx)}
           ${await balaoCadastro(ctx)}
+          ${await balaoApp()}
           ${await balaoSindicato(ctx)}
           ${await avisoDocumentos()}
           ${await window.Assembleias.anuncio()}
@@ -921,6 +936,33 @@
     manual: {
       titulo: "Manual do site",
       async render(el) { return window.Manual.render(el); }
+    },
+
+    app: {
+      titulo: "App no celular",
+      async render(el) {
+        const ua = navigator.userAgent || "", ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1), android = /Android/.test(ua);
+        const app = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+        const link = "https://bimcore.com.br/painel.html?app=1";
+        const passosIos = `<ol class="asm-passos"><li>Abra <b>bimcore.com.br/painel.html</b> no <b>Safari</b> (no iPhone, a instalação é feita pelo Safari).</li><li>Toque no botão <b>Compartilhar</b> (o quadrado com a seta para cima).</li><li>Role e toque em <b>Adicionar à Tela de Início</b>, depois em <b>Adicionar</b>.</li><li>Abra pelo ícone da BIMCORE e entre com seu e-mail e senha uma vez.</li></ol>`;
+        const passosAndroid = `<div class="sol-acoes"><button class="btn btn-primary" id="app-instalar" ${window.BIMCORE_INSTALAR ? "" : "hidden"}>Instalar o app</button></div>
+          <ol class="asm-passos"><li>Abra <b>bimcore.com.br/painel.html</b> no <b>Chrome</b>.</li><li>Toque em <b>Instalar o app</b> acima ou, se o botão não aparecer, no menu <b>⋮</b> → <b>Instalar app</b> (ou <b>Adicionar à tela inicial</b>).</li><li>Abra pelo ícone da BIMCORE e entre com seu e-mail e senha uma vez.</li></ol>`;
+        el.innerHTML = `
+          <div class="pag-cab"><div><p class="eyebrow">Celular</p><h1>App no celular</h1></div></div>
+          <section class="painel">
+            ${app ? '<div class="notice"><b>Você já está usando o app da BIMCORE.</b> Ele se atualiza sozinho sempre que o site muda.</div>' : ""}
+            <p class="muted">O app da BIMCORE é a própria área do cooperado instalada no celular, com ícone na tela inicial e tela cheia, sem passar pela App Store nem pelo Google Play. Tudo o que existe no site funciona no app: horas, projetos, conta e retiradas, assembleias com vídeo e votação, documentos. Ele se atualiza sozinho e só abre com o seu login de cooperado.</p>
+            ${!app ? (ios ? `<h2>iPhone</h2>${passosIos}` : android ? `<h2>Android</h2>${passosAndroid}` : `<div class="app-qr"><div id="app-qr" aria-label="QR code para abrir no celular"></div><p>Aponte a câmera do celular para o código, ou abra <b>bimcore.com.br/painel.html</b> no navegador do celular. Depois siga os passos abaixo.</p></div>
+              <h2>Android</h2>${passosAndroid}<h2>iPhone</h2>${passosIos}`) : ""}
+            <p class="hint">Os dados continuam no servidor da cooperativa; o app não guarda seus dados no aparelho. Para sair, use Sair no menu. Se perder o celular, troque a senha em Meu perfil.</p>
+          </section>`;
+        const bt = $("#app-instalar");
+        const mostrar = () => { if (bt) bt.hidden = !window.BIMCORE_INSTALAR; };
+        document.addEventListener("bimcore-instalavel", mostrar);
+        if (bt) bt.onclick = async () => { const ev = window.BIMCORE_INSTALAR; if (!ev) return; ev.prompt(); const r = await ev.userChoice.catch(() => null); window.BIMCORE_INSTALAR = null; mostrar(); if (r && r.outcome === "accepted") toast("App instalado. Ele aparece na tela inicial do celular."); };
+        const qr = $("#app-qr");
+        if (qr) { try { if (!window.qrcode) await new Promise((ok, erro) => { const sc = document.createElement("script"); sc.src = "assets/vendor/qrcode-generator-1.4.4.js"; sc.onload = ok; sc.onerror = erro; document.head.appendChild(sc); }); const q = window.qrcode(0, "M"); q.addData(link); q.make(); qr.innerHTML = q.createSvgTag({ cellSize: 5, margin: 2, scalable: true }); } catch (e) { qr.textContent = link; } }
+      }
     },
 
     perfil: {

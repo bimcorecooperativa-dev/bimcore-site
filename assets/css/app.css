@@ -405,3 +405,9 @@ form.aval { border-top: 1px solid var(--line); padding-top: .8rem; margin-top: .
 .asm-assin li .sub { display: block; }
 .asm-assin li.ok > b::after { content: " ✓"; color: var(--ok); }
 .asm-assin li.vez > b { color: var(--warn); }
+/* App no celular: QR code para abrir no telefone */
+.app-qr { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; margin: .6rem 0 1rem; }
+.app-qr > div { width: 160px; height: 160px; background: #fff; border-radius: 10px; padding: 6px; }
+.app-qr svg { width: 100%; height: 100%; }
+.app-qr p { flex: 1 1 220px; margin: 0; }
+@media (display-mode: standalone) { body { padding-top: env(safe-area-inset-top); } }

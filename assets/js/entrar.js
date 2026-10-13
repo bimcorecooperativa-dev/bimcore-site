@@ -1,5 +1,11 @@
 /* Login, cadastro e recuperação de senha */
 (function () {
+
+  /* App no celular (PWA): registra o service worker e guarda o convite de instalação do Android/Chrome */
+  if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("/sw.js").catch(() => {});
+  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); window.BIMCORE_INSTALAR = e; document.dispatchEvent(new Event("bimcore-instalavel")); });
+  window.addEventListener("appinstalled", () => { window.BIMCORE_INSTALAR = null; try { localStorage.setItem("bimcore-app-instalado", "1"); } catch (e) {} });
+
   "use strict";
   const { $, acao, toast } = window.UI;
   const API = window.API;
