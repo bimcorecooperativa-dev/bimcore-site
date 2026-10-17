@@ -116,7 +116,8 @@ table.tabela { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
 .doc-acoes { display: flex; gap: 0.5rem; }
 
 /* Modal */
-.modal-fundo { position: fixed; inset: 0; background: rgba(3, 7, 13, 0.7); display: grid; place-items: center; z-index: 200; padding: 1rem; }
+.modal-fundo { position: fixed; inset: 0; background: rgba(3, 7, 13, 0.7); display: grid; place-items: center; z-index: 200; padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom)); overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+body.modal-aberto { overflow: hidden; }
 .modal { background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 10px; padding: 1.4rem; width: min(100%, 26rem); display: grid; gap: 1.2rem; }
 .modal-acoes { display: flex; justify-content: flex-end; gap: 0.6rem; }
 
@@ -198,7 +199,7 @@ select.mini { padding: 0.4rem 0.5rem; font-size: 0.85rem; width: auto; }
 }
 
 /* Pix e abatimento */
-.modal.modal-largo { width: min(100%, 30rem); max-height: calc(100vh - 2rem); overflow-y: auto; }
+.modal.modal-largo { width: min(100%, 30rem); margin: auto 0; }
 .modal h2 { font-size: 1.2rem; }
 .pix-qr { background: #fff; border-radius: 8px; padding: 0.6rem; width: min(100%, 15rem); justify-self: center; }
 .pix-qr svg { display: block; width: 100%; height: auto; }

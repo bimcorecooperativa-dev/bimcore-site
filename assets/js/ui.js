@@ -55,11 +55,11 @@
       <p id="modal-t">${UI.esc(texto)}</p>
       <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-r="0">Cancelar</button><button class="btn btn-danger btn-sm" data-r="1">${UI.esc(rotuloOk || "Confirmar")}</button></div>
     </div>`;
-    const fim = (v) => { d.remove(); document.removeEventListener("keydown", esc); ok(v); };
+    const fim = (v) => { d.remove(); document.removeEventListener("keydown", esc); if (!document.querySelector(".modal-fundo")) document.body.classList.remove("modal-aberto"); ok(v); };
     const esc = (e) => { if (e.key === "Escape") fim(false); };
     d.addEventListener("click", (e) => { if (e.target === d) fim(false); const b = e.target.closest("[data-r]"); if (b) fim(b.dataset.r === "1"); });
     document.addEventListener("keydown", esc);
-    document.body.appendChild(d);
+    document.body.appendChild(d); document.body.classList.add("modal-aberto");
     d.querySelector('[data-r="0"]').focus();
   });
 
@@ -68,12 +68,13 @@
     const d = document.createElement("div");
     d.className = "modal-fundo";
     d.innerHTML = `<div class="modal modal-largo" role="dialog" aria-modal="true">${html}</div>`;
-    const fechar = () => { d.remove(); document.removeEventListener("keydown", esc); if (aoFechar) aoFechar(); };
+    const fechar = () => { d.remove(); document.removeEventListener("keydown", esc); if (!document.querySelector(".modal-fundo")) document.body.classList.remove("modal-aberto"); if (aoFechar) aoFechar(); };
     const esc = (e) => { if (e.key === "Escape") fechar(); };
     d.addEventListener("click", (e) => { if (e.target === d || e.target.closest("[data-fechar]")) fechar(); });
     document.addEventListener("keydown", esc);
-    document.body.appendChild(d);
-    const foco = d.querySelector("input, button:not([data-fechar])"); if (foco) foco.focus();
+    document.body.appendChild(d); document.body.classList.add("modal-aberto");
+    const toque = window.matchMedia("(pointer: coarse)").matches;   // no celular, não abrir o teclado sozinho
+    const foco = d.querySelector(toque ? "button:not([data-fechar])" : "input, button:not([data-fechar])"); if (foco) foco.focus({ preventScroll: true });
     return { el: d.querySelector(".modal"), fechar };
   };
 
