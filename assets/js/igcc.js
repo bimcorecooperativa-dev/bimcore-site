@@ -10,7 +10,8 @@
     ["pares", "Avaliação entre pares", "peso_pares", "Média das notas que a equipe deu ao concluir os projetos (qualidade, prazos, colaboração e conformidade com o BEP)."],
     ["retrabalho", "Sem retrabalho", "peso_retrabalho", "Começa em 100; cada apontamento que procedeu contra o seu trabalho tira 10 pontos (impeditivo tira 20). Janela maior (RI 137)."],
     ["assembleias", "Participação nas assembleias", "peso_assembleia", "Presença nas assembleias realizadas desde o seu ingresso. O RI 137 pede pelo menos 2/3."],
-    ["contribuicoes", "Contribuições", "peso_contrib", "Biblioteca de objetos BIM, leitura, indicação de cooperados ou de contratos, registradas pelo Conselho de Administração (cada ponto vale 10, até 100)."]
+    ["contribuicoes", "Contribuições", "peso_contrib", "Biblioteca de objetos BIM, leitura, indicação de cooperados ou de contratos, registradas pelo Conselho de Administração (cada ponto vale 10, até 100)."],
+    ["formacao", "Formação", "peso_formacao", "Trilhas e cursos essenciais e recomendados para a sua função (aba Formação) concluídos com certificado conferido ÷ os indicados. Só conta no índice quando o CA fixar um peso maior que zero por Resolução."]
   ];
   const nota = (v) => (v == null ? '<span class="hint">sem dados</span>' : `<b>${Number(v).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}</b>`);
   const cor = (v) => (v == null ? "" : v >= 75 ? "ok" : v >= 50 ? "warn" : "err");
@@ -19,12 +20,13 @@
     pares: `${x.pares.avaliacoes} avaliação(ões)`,
     retrabalho: `${x.retrabalho.apontamentos} apontamento(s) procedente(s) em ${x.periodo_retrabalho} meses`,
     assembleias: `${x.assembleias.presente} de ${x.assembleias.realizadas} · ${x.assembleias.reunioes_disciplina} Reunião(ões) de Disciplina`,
-    contribuicoes: `${x.contribuicoes.pontos} ponto(s)`
+    contribuicoes: `${x.contribuicoes.pontos} ponto(s)`,
+    formacao: x.formacao ? `${x.formacao.conferidas} de ${x.formacao.indicadas} conferida(s)` : "—"
   }[k]);
 
   function htmlComponentes(x, par) {
     return `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Componente</th><th class="num">Peso</th><th class="num">Nota (0 a 100)</th><th>Base</th></tr></thead>
-      <tbody>${COMP.map(([k, t, pk, h]) => `<tr><td>${esc(t)} ${UI.info(h, t)}</td><td class="num">${par ? Number(par[pk]).toLocaleString("pt-BR") : ""}</td><td class="num">${nota(x[k].nota)}</td><td>${esc(det(k, x))}</td></tr>`).join("")}</tbody></table></div>
+      <tbody>${COMP.map(([k, t, pk, h]) => `<tr><td>${esc(t)} ${UI.info(h, t)}</td><td class="num">${par ? Number(par[pk]).toLocaleString("pt-BR") : ""}</td><td class="num">${nota((x[k] || {}).nota)}</td><td>${esc(det(k, x))}</td></tr>`).join("")}</tbody></table></div>
       <p class="hint">Componentes sem dados ficam de fora e os pesos dos demais são redistribuídos. Período: últimos ${x.periodo_meses} meses (retrabalho: ${x.periodo_retrabalho}).</p>`;
   }
 
@@ -51,12 +53,12 @@
       <p class="muted">Índice de cada cooperado (Regimento, arts. 92 e 137). O Conselho Fiscal valida o índice todo trimestre (Plano Quinquenal, 5.5). Média da cooperativa: <b>${media == null ? "—" : media.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}</b>.</p>
       <section class="painel"><h2>Cooperados</h2>
         <div class="tabela-wrap"><table class="tabela"><thead><tr><th>Cooperado</th><th class="num">Índice</th>${COMP.map(([, t]) => `<th class="num">${esc(t)}</th>`).join("")}<th></th></tr></thead>
-          <tbody>${lista.map((l) => `<tr><td>${esc(l.nome)}</td><td class="num">${l.dados.indice == null ? "—" : `<span class="selo ${cor(l.dados.indice)}">${Number(l.dados.indice).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}</span>`}</td>${COMP.map(([k]) => `<td class="num">${nota(l.dados[k].nota)}</td>`).join("")}<td class="acoes-celula"><button class="btn btn-ghost btn-sm" data-ver="${l.perfil_id}">Detalhar</button></td></tr>`).join("")}</tbody></table></div>
+          <tbody>${lista.map((l) => `<tr><td>${esc(l.nome)}</td><td class="num">${l.dados.indice == null ? "—" : `<span class="selo ${cor(l.dados.indice)}">${Number(l.dados.indice).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}</span>`}</td>${COMP.map(([k]) => `<td class="num">${nota((l.dados[k] || {}).nota)}</td>`).join("")}<td class="acoes-celula"><button class="btn btn-ghost btn-sm" data-ver="${l.perfil_id}">Detalhar</button></td></tr>`).join("")}</tbody></table></div>
       </section>
       <section class="painel"><h2>Pesos e período</h2>
         <p class="hint">Os pesos são fixados por Resolução do Conselho de Administração e divulgados com antecedência (RI 137, §2º). Os valores abaixo são uma proposta inicial.</p>
         <form id="ig-par" class="form-grid" novalidate>
-          ${COMP.map(([, t, pk]) => `<div class="field"><label for="ig-${pk}">${esc(t)}</label><input class="input" id="ig-${pk}" type="number" min="0" max="100" step="1" value="${Number(par[pk])}"${ca ? "" : " disabled"}></div>`).join("")}
+          ${COMP.map(([, t, pk]) => `<div class="field"><label for="ig-${pk}">${esc(t)}</label><input class="input" id="ig-${pk}" type="number" min="0" max="100" step="1" value="${Number(par[pk] || 0)}"${ca ? "" : " disabled"}></div>`).join("")}
           <div class="field"><label for="ig-meses">Período (meses)</label><input class="input" id="ig-meses" type="number" min="3" max="36" value="${par.meses}"${ca ? "" : " disabled"}></div>
           <div class="field"><label for="ig-mr">Período do retrabalho (meses)</label><input class="input" id="ig-mr" type="number" min="3" max="36" value="${par.meses_retrabalho}"${ca ? "" : " disabled"}></div>
           <div class="field full"><label for="ig-res">Resolução do CA que aprovou</label><input class="input" id="ig-res" maxlength="200" value="${esc(par.resolucao || "")}" placeholder="Ex.: Resolução CA nº 01/2027"${ca ? "" : " disabled"}></div>

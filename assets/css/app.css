@@ -427,3 +427,4 @@ body.travado > *:not(.trava):not(.toast-wrap) { filter: blur(14px); pointer-even
 .curso h3 { margin: 0.2rem 0 0; font-size: 1.02rem; }
 .curso p { margin: 0; }
 .curso-cab { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.curso-prox { border-color: var(--sapphire); box-shadow: 0 0 0 1px var(--sapphire) inset; }

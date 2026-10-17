@@ -959,70 +959,114 @@
       titulo: "Formação",
       async render(el, ctx) {
         const eu = ctx.sessao.perfil, g = eu.status === "ativo" && (eu.papel === "coordenacao" || !!eu.conselho_adm);
-        const [cursos, prog, todosProg, pessoas] = await Promise.all([API.formacao.listar(), API.formacao.meuProgresso().catch(() => []), g ? API.formacao.progressoTodos().catch(() => []) : [], g ? API.cooperados.listar().catch(() => []) : []]);
+        const [cursos, prog, todosProg, pessoas, igcc] = await Promise.all([API.formacao.listar(), API.formacao.meuProgresso().catch(() => []), g ? API.formacao.progressoTodos().catch(() => []) : [], g ? API.cooperados.listar().catch(() => []) : [], API.igcc && API.igcc.parametros ? API.igcc.parametros().catch(() => null) : null]);
         const PUB = { todos: "todos os cooperados", ca: "Conselho de Administração", cf: "Conselho Fiscal", tesouraria: "tesouraria", coordenacao: "coordenação" };
         const PRI = { 1: ["Essencial", "err"], 2: ["Recomendado", "warn"], 3: ["Complementar", ""] };
-        const meus = ["todos"]; if (eu.conselho_adm) meus.push("ca"); if (eu.conselho_fiscal) meus.push("cf"); if (eu.tesouraria) meus.push("tesouraria"); if (eu.papel === "coordenacao") meus.push("coordenacao");
-        const ativos = cursos.filter((c) => c.ativo !== false).sort((x, y) => x.prioridade - y.prioridade || (x.ordem || 0) - (y.ordem || 0));
-        const paraMim = ativos.filter((c) => (c.publicos || ["todos"]).some((p) => meus.includes(p)));
+        const NIV = { basico: "Básico", intermediario: "Intermediário", avancado: "Avançado" }, ORD = { basico: 1, intermediario: 2, avancado: 3 };
+        const CONF = { pendente: ["certificado em conferência", "warn"], conferido: ["certificado conferido", "ok"], recusado: ["certificado não aceito", "err"] };
+        const funcoes = (p) => { const f = ["todos"]; if (p.conselho_adm) f.push("ca"); if (p.conselho_fiscal) f.push("cf"); if (p.tesouraria) f.push("tesouraria"); if (p.papel === "coordenacao") f.push("coordenacao"); return f; };
+        const meus = funcoes(eu);
+        const ativos = cursos.filter((c) => c.ativo !== false).sort((x, y) => x.prioridade - y.prioridade || (ORD[x.nivel] || 0) - (ORD[y.nivel] || 0) || (x.ordem || 0) - (y.ordem || 0));
+        const indicadoPara = (c, p, f) => (c.publicos || ["todos"]).some((x) => f.includes(x)) || (c.cooperados || []).includes(p.id);
+        const paraMim = ativos.filter((c) => indicadoPara(c, eu, meus));
         const outros = ativos.filter((c) => !paraMim.includes(c));
         const st = (id) => prog.find((x) => x.curso_id === id);
+        const conta = paraMim.filter((c) => c.prioridade <= 2), contaOk = conta.filter((c) => (st(c.id) || {}).conferencia === "conferido").length;
         const ess = paraMim.filter((c) => c.prioridade === 1), essOk = ess.filter((c) => (st(c.id) || {}).status === "concluido").length;
         const nome = (id) => (pessoas.find((p) => p.id === id) || {}).nome || "cooperado";
+        const peso = igcc ? Number(igcc.peso_formacao || 0) : 0;
+        /* próximo nível: em cada tema, o primeiro nível que eu ainda não concluí */
+        const proximo = new Set(); [...new Set(paraMim.map((c) => c.tema || ""))].forEach((t) => { const p = paraMim.filter((c) => (c.tema || "") === t && c.nivel && (st(c.id) || {}).status !== "concluido").sort((a, b) => ORD[a.nivel] - ORD[b.nivel])[0]; if (p) proximo.add(p.id); });
         const cartao = (c) => { const x = st(c.id); const [pt, pc] = PRI[c.prioridade] || PRI[2]; const pub = (c.publicos || ["todos"]).filter((p) => p !== "todos").map((p) => PUB[p]);
-          return `<article class="curso"><div class="curso-cab"><span class="selo ${pc}">${pt}</span>${x ? (x.status === "concluido" ? `<span class="selo ok">concluído${x.concluido_em ? " em " + data(x.concluido_em) : ""}</span>` : '<span class="selo info">fazendo</span>') : ""}</div>
-            <h3>${esc(c.titulo)}</h3><p class="hint">${esc([c.plataforma, c.carga_horaria, c.tema].filter(Boolean).join(" · "))}${pub.length ? " · indicado para " + esc(pub.join(", ")) : ""}</p>
+          const cf = x && x.conferencia ? CONF[x.conferencia] : null; const cert = x && (x.certificado_arquivo || x.certificado_link);
+          return `<article class="curso${proximo.has(c.id) ? " curso-prox" : ""}"><div class="curso-cab"><span class="selo ${pc}">${pt}</span>${c.tipo === "trilha" ? '<span class="selo info">trilha</span>' : ""}${c.nivel ? `<span class="selo">${NIV[c.nivel]}</span>` : ""}${proximo.has(c.id) ? '<span class="selo info">seu próximo passo</span>' : ""}
+              ${x ? (x.status === "concluido" ? `<span class="selo ok">concluído${x.concluido_em ? " em " + data(x.concluido_em) : ""}</span>` : '<span class="selo info">fazendo</span>') : ""}${cf ? `<span class="selo ${cf[1]}">${cf[0]}</span>` : ""}</div>
+            <h3>${esc(c.titulo)}</h3><p class="hint">${esc([c.plataforma, c.carga_horaria, c.tema].filter(Boolean).join(" · "))}${pub.length ? " · indicado para " + esc(pub.join(", ")) : ""}${(c.cooperados || []).includes(eu.id) ? " · indicado para você" : ""}</p>
             ${c.descricao ? `<p>${esc(c.descricao)}</p>` : ""}
-            <div class="sol-acoes"><a class="btn btn-primary btn-sm" href="${esc(c.link)}" target="_blank" rel="noopener">Abrir o curso</a>
-              ${!x ? `<button class="btn btn-ghost btn-sm" data-fazendo="${c.id}">Estou fazendo</button>` : ""}${!x || x.status !== "concluido" ? `<button class="btn btn-ghost btn-sm" data-conclui="${c.id}">Concluí</button>` : ""}
-              ${x && x.certificado_link ? `<a class="btn btn-ghost btn-sm" href="${esc(x.certificado_link)}" target="_blank" rel="noopener">Meu certificado</a>` : ""}${x ? `<button class="link-btn" type="button" data-desm="${c.id}">desfazer</button>` : ""}
+            ${x && x.conferencia === "recusado" && x.conferencia_motivo ? `<p class="hint">Motivo: ${esc(x.conferencia_motivo)}. Envie o certificado de novo em “Concluí”.</p>` : ""}
+            ${x && x.status === "concluido" && !cert ? '<p class="hint">Envie o certificado para a conclusão ser conferida.</p>' : ""}
+            <div class="sol-acoes"><a class="btn btn-primary btn-sm" href="${esc(c.link)}" target="_blank" rel="noopener">Abrir ${c.tipo === "trilha" ? "a trilha" : "o curso"}</a>
+              ${!x ? `<button class="btn btn-ghost btn-sm" data-fazendo="${c.id}">Estou fazendo</button>` : ""}${!x || x.status !== "concluido" || !cert || x.conferencia === "recusado" ? `<button class="btn btn-ghost btn-sm" data-conclui="${c.id}">${x && x.status === "concluido" ? "Enviar certificado" : "Concluí"}</button>` : ""}
+              ${cert ? `<button class="btn btn-ghost btn-sm" type="button" data-cert="${eu.id}|${c.id}">Meu certificado</button>` : ""}${x && x.conferencia !== "conferido" ? `<button class="link-btn" type="button" data-desm="${c.id}">desfazer</button>` : ""}
               ${g ? `<button class="link-btn" type="button" data-edc="${c.id}">editar</button>` : ""}</div></article>`; };
+        /* gestão: certificados a conferir e evolução por tema */
+        const aConferir = g ? todosProg.filter((x) => x.status === "concluido" && x.conferencia === "pendente") : [];
+        const temas = [...new Set(ativos.filter((c) => c.nivel).map((c) => c.tema || "Outros"))];
+        const ativosP = pessoas.filter((p) => p.status === "ativo");
+        const evol = (p, t) => { const ok = ativos.filter((c) => (c.tema || "Outros") === t && c.nivel && todosProg.some((x) => x.perfil_id === p.id && x.curso_id === c.id && x.conferencia === "conferido")).sort((a, b) => ORD[b.nivel] - ORD[a.nivel])[0];
+          const fazendo = ativos.some((c) => (c.tema || "Outros") === t && todosProg.some((x) => x.perfil_id === p.id && x.curso_id === c.id && x.status === "fazendo"));
+          return ok ? `<span class="selo ok">${NIV[ok.nivel]}</span>` : fazendo ? '<span class="selo info">começou</span>' : '<span class="hint">—</span>'; };
+        const indic = (p) => { const f = funcoes(p); const al = ativos.filter((c) => c.prioridade <= 2 && indicadoPara(c, p, f)); const okk = al.filter((c) => todosProg.some((x) => x.perfil_id === p.id && x.curso_id === c.id && x.conferencia === "conferido")).length; return `${okk} de ${al.length}`; };
         el.innerHTML = `
-          <div class="pag-cab"><div><p class="eyebrow">Educação cooperativista</p><h1>Formação</h1></div>${g ? '<button class="btn btn-primary" id="fc-novo">Indicar curso</button>' : ""}</div>
-          <p class="muted">Cursos gratuitos indicados pela cooperativa, em plataformas como o CapacitaCoop (Sistema OCB/Sescoop), que emite certificado. A ordem segue a prioridade para a sua função na BIMCORE. Marque o que está fazendo e o que concluiu (Regimento, Título XIII).</p>
-          ${ess.length ? `<div class="kpis"><div class="kpi"><span class="rot">Essenciais para você</span><span class="val">${essOk} de ${ess.length}</span><span class="det">concluídos</span></div></div>` : ""}
+          <div class="pag-cab"><div><p class="eyebrow">Educação cooperativista</p><h1>Formação</h1></div>${g ? '<button class="btn btn-primary" id="fc-novo">Indicar curso ou trilha</button>' : ""}</div>
+          <p class="muted">Cursos e trilhas gratuitos indicados pela cooperativa, em plataformas como o CapacitaCoop (Sistema OCB/Sescoop), que emite certificado. As trilhas vão do nível básico ao avançado: comece pelo básico de cada tema. Ao concluir, envie o certificado; a coordenação ou o CA confere (Regimento, Título XIII).</p>
+          <div class="kpis">${ess.length ? `<div class="kpi"><span class="rot">Essenciais para você</span><span class="val">${essOk} de ${ess.length}</span><span class="det">concluídos</span></div>` : ""}
+            ${conta.length ? `<div class="kpi"><span class="rot">Formação no IGCC</span><span class="val">${contaOk} de ${conta.length}</span><span class="det">${peso > 0 ? `conferidos · peso ${peso}` : "conferidos · ainda sem peso no índice (definido pelo CA)"}</span></div>` : ""}</div>
           <section class="painel"><h2>Para você</h2>${paraMim.length ? `<div class="cursos">${paraMim.map(cartao).join("")}</div>` : '<p class="vazio">Nenhum curso indicado ainda.</p>'}</section>
           ${outros.length ? `<section class="painel"><h2>Outros cursos indicados</h2><div class="cursos">${outros.map(cartao).join("")}</div></section>` : ""}
-          ${g ? `<section class="painel"><h2>Acompanhamento</h2><p class="hint">Só a coordenação e o CA veem esta lista.</p>
+          ${g ? `<section class="painel"><h2>Certificados a conferir</h2><p class="hint">Abra o certificado e confira nome, curso e carga horária. Ninguém confere o próprio.</p>
+            ${aConferir.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Cooperado</th><th>Curso</th><th>Concluído em</th><th></th></tr></thead><tbody>
+            ${aConferir.map((x) => { const c = cursos.find((k) => k.id === x.curso_id) || {}; const k = x.perfil_id + "|" + x.curso_id; return `<tr><td>${esc(nome(x.perfil_id))}</td><td>${esc(c.titulo || "")}${c.nivel ? `<span class="sub">${NIV[c.nivel]}</span>` : ""}</td><td>${x.concluido_em ? data(x.concluido_em) : "—"}</td>
+              <td class="sol-acoes"><button class="btn btn-ghost btn-sm" data-cert="${k}">Ver certificado</button>${x.perfil_id === eu.id ? '<span class="hint">seu: outra pessoa confere</span>' : `<button class="btn btn-primary btn-sm" data-conf="${k}">Conferido</button><button class="btn btn-ghost btn-sm" data-recusa="${k}">Recusar</button>`}</td></tr>`; }).join("")}
+            </tbody></table></div>` : '<p class="vazio">Nenhum certificado esperando conferência.</p>'}</section>
+          ${temas.length && ativosP.length ? `<section class="painel"><h2>Evolução dos cooperados</h2><p class="hint">Maior nível com certificado conferido em cada tema. “Indicados” conta os essenciais e recomendados da função de cada um (é o que entra no IGCC).</p>
+            <div class="tabela-wrap"><table class="tabela"><thead><tr><th>Cooperado</th>${temas.map((t) => `<th>${esc(t)}</th>`).join("")}<th class="num">Indicados conferidos</th></tr></thead><tbody>
+            ${ativosP.map((p) => `<tr><td>${esc(p.nome)}</td>${temas.map((t) => `<td>${evol(p, t)}</td>`).join("")}<td class="num">${indic(p)}</td></tr>`).join("")}</tbody></table></div></section>` : ""}
+          <section class="painel"><h2>Acompanhamento por curso</h2><p class="hint">Só a coordenação e o CA veem esta lista.</p>
             <div class="tabela-wrap"><table class="tabela"><thead><tr><th>Curso</th><th class="num">Fazendo</th><th>Concluíram</th></tr></thead><tbody>
-            ${ativos.map((c) => { const ps = todosProg.filter((x) => x.curso_id === c.id); const ok = ps.filter((x) => x.status === "concluido"); return `<tr><td>${esc(c.titulo)}<span class="sub">${(PRI[c.prioridade] || PRI[2])[0]}</span></td><td class="num">${ps.length - ok.length}</td><td>${ok.length ? esc(ok.map((x) => nome(x.perfil_id)).join(", ")) : '<span class="hint">ninguém ainda</span>'}</td></tr>`; }).join("")}
-            </tbody></table></div></section>` : ""}`;
+            ${ativos.map((c) => { const ps = todosProg.filter((x) => x.curso_id === c.id); const ok = ps.filter((x) => x.status === "concluido"); return `<tr><td>${esc(c.titulo)}<span class="sub">${(PRI[c.prioridade] || PRI[2])[0]}${c.nivel ? " · " + NIV[c.nivel] : ""}</span></td><td class="num">${ps.length - ok.length}</td><td>${ok.length ? ok.map((x) => esc(nome(x.perfil_id)) + (x.conferencia === "conferido" ? " ✓" : "")).join(", ") : '<span class="hint">ninguém ainda</span>'}</td></tr>`; }).join("")}
+            </tbody></table></div><p class="hint">✓ = certificado conferido.</p></section>` : ""}`;
         const recarregar = () => paginas.formacao.render(el, ctx);
         const formCurso = (c) => {
-          c = c || { prioridade: 2, publicos: ["todos"], ordem: 100 };
-          const m = UI.modal(`<h2>${c.id ? "Editar curso" : "Indicar curso"}</h2><div class="form-grid">
-            <div class="field full"><label for="fc-t">Nome do curso</label><input class="input" id="fc-t" maxlength="200" value="${esc(c.titulo || "")}"></div>
+          c = c || { prioridade: 2, publicos: ["todos"], ordem: 100, tipo: "curso" };
+          const m = UI.modal(`<h2>${c.id ? "Editar indicação" : "Indicar curso ou trilha"}</h2><div class="form-grid">
+            <div class="field full"><label for="fc-t">Nome</label><input class="input" id="fc-t" maxlength="200" value="${esc(c.titulo || "")}"></div>
             <div class="field full"><label for="fc-l">Link</label><input class="input" id="fc-l" type="url" value="${esc(c.link || "")}" placeholder="https://capacita.coop.br/..."></div>
+            <div class="field"><label for="fc-ti">Tipo</label><select class="input" id="fc-ti"><option value="curso" ${c.tipo !== "trilha" ? "selected" : ""}>Curso</option><option value="trilha" ${c.tipo === "trilha" ? "selected" : ""}>Trilha</option></select></div>
+            <div class="field"><label for="fc-n">Nível</label><select class="input" id="fc-n"><option value="">sem nível</option>${Object.entries(NIV).map(([k, t]) => `<option value="${k}" ${c.nivel === k ? "selected" : ""}>${t}</option>`).join("")}</select></div>
             <div class="field"><label for="fc-p">Plataforma</label><input class="input" id="fc-p" maxlength="80" value="${esc(c.plataforma || "")}" placeholder="CapacitaCoop"></div>
             <div class="field"><label for="fc-c">Carga horária</label><input class="input" id="fc-c" maxlength="30" value="${esc(c.carga_horaria || "")}" placeholder="10 h"></div>
             <div class="field"><label for="fc-tm">Tema</label><input class="input" id="fc-tm" maxlength="60" value="${esc(c.tema || "")}" placeholder="Cooperativismo, Governança…"></div>
             <div class="field"><label for="fc-pr">Prioridade</label><select class="input" id="fc-pr">${[1, 2, 3].map((n) => `<option value="${n}" ${c.prioridade === n ? "selected" : ""}>${PRI[n][0]}</option>`).join("")}</select></div>
             <div class="field full"><label for="fc-d">Por que fazer (aparece para o cooperado)</label><input class="input" id="fc-d" maxlength="400" value="${esc(c.descricao || "")}"></div>
             <div class="field full"><label>Indicado para</label><div class="part-lista">${Object.entries(PUB).map(([k, t]) => `<label class="ciente"><input type="checkbox" data-pub value="${k}" ${(c.publicos || []).includes(k) ? "checked" : ""}> <span>${t}</span></label>`).join("")}</div></div>
+            ${pessoas.length ? `<div class="field full"><label>E também para estes cooperados (opcional)</label><div class="part-lista">${pessoas.filter((p) => p.status === "ativo").map((p) => `<label class="ciente"><input type="checkbox" data-coop value="${p.id}" ${(c.cooperados || []).includes(p.id) ? "checked" : ""}> <span>${esc(p.nome)}</span></label>`).join("")}</div></div>` : ""}
             <div class="field"><label for="fc-o">Ordem dentro da prioridade</label><input class="input" id="fc-o" type="number" min="1" value="${c.ordem || 100}"></div></div>
+            <p class="hint">Essenciais e recomendados contam na Formação do IGCC de quem foram indicados; complementares não.</p>
             <div class="modal-acoes">${c.id ? '<button class="btn btn-danger btn-sm" id="fc-del">Remover</button>' : ""}<button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="fc-ok">Salvar</button></div>`);
           $("#fc-ok", m.el).onclick = async (ev) => {
             const d = { id: c.id, titulo: $("#fc-t", m.el).value.trim(), link: $("#fc-l", m.el).value.trim(), plataforma: $("#fc-p", m.el).value.trim() || null, carga_horaria: $("#fc-c", m.el).value.trim() || null, tema: $("#fc-tm", m.el).value.trim() || null,
+              tipo: $("#fc-ti", m.el).value, nivel: $("#fc-n", m.el).value || null, cooperados: [...m.el.querySelectorAll("[data-coop]:checked")].map((i) => i.value),
               prioridade: Number($("#fc-pr", m.el).value), descricao: $("#fc-d", m.el).value.trim() || null, publicos: [...m.el.querySelectorAll("[data-pub]:checked")].map((i) => i.value), ordem: Number($("#fc-o", m.el).value) || 100 };
-            if (d.titulo.length < 3) return toast("Informe o nome do curso.", "err"); if (!/^https?:\/\//.test(d.link)) return toast("Informe o link do curso (https://…).", "err"); if (!d.publicos.length) d.publicos = ["todos"];
+            if (d.titulo.length < 3) return toast("Informe o nome.", "err"); if (!/^https?:\/\//.test(d.link)) return toast("Informe o link (https://…).", "err"); if (!d.publicos.length && !d.cooperados.length) d.publicos = ["todos"];
             if (!d.id) delete d.id;
-            if (await acao(ev.currentTarget, () => API.formacao.salvar(d), "Curso salvo.")) { m.fechar(); recarregar(); } };
-          if (c.id) $("#fc-del", m.el).onclick = async (ev) => { if (!(await confirmar("Remover este curso da lista? O progresso marcado pelos cooperados também sai.", "Remover"))) return; if (await acao(ev.currentTarget, () => API.formacao.excluir(c.id), "Curso removido.")) { m.fechar(); recarregar(); } };
+            if (await acao(ev.currentTarget, () => API.formacao.salvar(d), "Indicação salva.")) { m.fechar(); recarregar(); } };
+          if (c.id) $("#fc-del", m.el).onclick = async (ev) => { if (!(await confirmar("Remover esta indicação? O progresso marcado pelos cooperados também sai.", "Remover"))) return; if (await acao(ev.currentTarget, () => API.formacao.excluir(c.id), "Indicação removida.")) { m.fechar(); recarregar(); } };
         };
         const nv = $("#fc-novo"); if (nv) nv.onclick = () => formCurso(null);
+        const progDe = (k) => { const [p, c] = k.split("|"); return (p === eu.id ? prog : todosProg).find((x) => x.perfil_id === p && x.curso_id === c) || prog.find((x) => x.curso_id === c); };
         el.onclick = async (e) => {
           const b = e.target.closest("button"); if (!b) return;
           if (b.dataset.edc) return formCurso(cursos.find((c) => c.id === b.dataset.edc));
+          if (b.dataset.cert) { const x = progDe(b.dataset.cert); if (!x) return;
+            if (x.certificado_arquivo) { try { const u = await API.formacao.linkCertificado(x.certificado_arquivo); window.open(u, "_blank", "noopener"); } catch (er) { toast("Não foi possível abrir o arquivo.", "err"); } }
+            else if (x.certificado_link) window.open(x.certificado_link, "_blank", "noopener"); return; }
+          if (b.dataset.conf) { const [p, c] = b.dataset.conf.split("|"); if (await acao(b, () => API.formacao.conferir(p, c, true, null), "Certificado conferido.")) recarregar(); return; }
+          if (b.dataset.recusa) { const [p, c] = b.dataset.recusa.split("|");
+            const m = UI.modal(`<h2>Recusar certificado</h2><div class="field"><label for="rc-m">Motivo (o cooperado vai ver)</label><input class="input" id="rc-m" maxlength="300" placeholder="Ex.: o certificado é de outro curso"></div>
+              <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-danger btn-sm" id="rc-ok">Recusar</button></div>`);
+            $("#rc-ok", m.el).onclick = async (ev) => { const mo = $("#rc-m", m.el).value.trim(); if (!mo) return toast("Diga o motivo.", "err"); if (await acao(ev.currentTarget, () => API.formacao.conferir(p, c, false, mo), "Certificado recusado.")) { m.fechar(); recarregar(); } }; return; }
           if (b.dataset.fazendo) { if (await acao(b, () => API.formacao.marcar(b.dataset.fazendo, "fazendo"), "Bom estudo!")) recarregar(); return; }
           if (b.dataset.desm) { if (await acao(b, () => API.formacao.desmarcar(b.dataset.desm), "Marcação desfeita.")) recarregar(); return; }
           if (b.dataset.conclui) {
-            const id = b.dataset.conclui;
-            const m = UI.modal(`<h2>Concluí o curso</h2><div class="form-grid"><div class="field"><label for="cc-d">Concluído em</label><input class="input" id="cc-d" type="date" value="${hoje()}" max="${hoje()}"></div>
-              <div class="field full"><label for="cc-l">Link do certificado (opcional)</label><input class="input" id="cc-l" type="url" placeholder="https://..."></div></div>
-              <p class="hint">O certificado do CapacitaCoop fica na sua conta na plataforma; você pode colar o link aqui para guardar.</p>
+            const id = b.dataset.conclui, x = st(id) || {};
+            const m = UI.modal(`<h2>Concluí</h2><div class="form-grid"><div class="field"><label for="cc-d">Concluído em</label><input class="input" id="cc-d" type="date" value="${x.concluido_em || hoje()}" max="${hoje()}"></div>
+              <div class="field full"><label for="cc-a">Certificado (PDF ou imagem, até 10 MB)</label><input class="input" id="cc-a" type="file" accept="application/pdf,image/*"></div>
+              <div class="field full"><label for="cc-l">ou o link do certificado</label><input class="input" id="cc-l" type="url" placeholder="https://..." value="${esc(x.certificado_link || "")}"></div></div>
+              <p class="hint">No CapacitaCoop, o certificado fica em “Meus certificados”: baixe o PDF e envie aqui. Sem certificado, a conclusão fica registrada mas não é conferida nem conta no IGCC.</p>
               <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="cc-ok">Salvar</button></div>`);
-            $("#cc-ok", m.el).onclick = async (ev) => { const l = $("#cc-l", m.el).value.trim(); if (l && !/^https?:\/\//.test(l)) return toast("O link precisa começar com https://", "err");
-              if (await acao(ev.currentTarget, () => API.formacao.marcar(id, "concluido", $("#cc-d", m.el).value || null, l || null), "Parabéns pela conclusão!")) { m.fechar(); recarregar(); } };
+            $("#cc-ok", m.el).onclick = async (ev) => { const l = $("#cc-l", m.el).value.trim(), arq = $("#cc-a", m.el).files[0]; if (l && !/^https?:\/\//.test(l)) return toast("O link precisa começar com https://", "err");
+              if (await acao(ev.currentTarget, async () => { const cam = arq ? await API.formacao.enviarCertificado(arq) : null; return API.formacao.marcar(id, "concluido", $("#cc-d", m.el).value || null, arq ? null : l || null, cam); }, arq || l ? "Certificado enviado para conferência." : "Conclusão registrada.")) { m.fechar(); recarregar(); } };
           }
         };
       }

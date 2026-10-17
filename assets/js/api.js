@@ -1059,7 +1059,7 @@
         }
       },
       igcc: {
-        _par(s) { s.igcc_parametros = s.igcc_parametros || { peso_eficiencia: 30, peso_pares: 25, peso_retrabalho: 15, peso_assembleia: 15, peso_contrib: 15, meses: 12, meses_retrabalho: 24, resolucao: null }; s.igcc_registros = s.igcc_registros || []; return s.igcc_parametros; },
+        _par(s) { s.igcc_parametros = s.igcc_parametros || { peso_eficiencia: 30, peso_pares: 25, peso_retrabalho: 15, peso_assembleia: 15, peso_contrib: 15, peso_formacao: 0, meses: 12, meses_retrabalho: 24, resolucao: null }; s.igcc_registros = s.igcc_registros || []; return s.igcc_parametros; },
         _calc(s, pid) {
           const par = this._par(s); const hoje = new Date(); const ini = new Date(hoje); ini.setMonth(ini.getMonth() - par.meses); const iniR = new Date(hoje); iniR.setMonth(iniR.getMonth() - par.meses_retrabalho);
           const di = ini.toISOString().slice(0, 10), dr = iniR.toISOString().slice(0, 10); const regs = s.igcc_registros.filter((r) => r.perfil_id === pid);
@@ -1079,10 +1079,14 @@
           const sAsm = asm.length ? Math.round(pres / asm.length * 1000) / 10 : null;
           const nCon = regs.filter((r) => r.componente === "contribuicao" && r.data >= di).reduce((t, r) => t + Number(r.quantidade), 0); const sCon = Math.min(100, nCon * 10);
           const nDisc = regs.filter((r) => r.componente === "disciplina" && r.data >= di).reduce((t, r) => t + Number(r.quantidade), 0);
-          let tot = 0, pes = 0; [[sEf, par.peso_eficiencia], [sPar, par.peso_pares], [sRet, par.peso_retrabalho], [sAsm, par.peso_assembleia]].forEach(([v, w]) => { if (v != null) { tot += v * w; pes += Number(w); } });
+          const fun = ["todos"]; if (pf.conselho_adm) fun.push("ca"); if (pf.conselho_fiscal) fun.push("cf"); if (pf.tesouraria) fun.push("tesouraria"); if (pf.papel === "coordenacao") fun.push("coordenacao");
+          const alvo = (s.cursos || []).filter((c) => c.ativo !== false && c.prioridade <= 2 && ((c.publicos || ["todos"]).some((x) => fun.includes(x)) || (c.cooperados || []).includes(pid)));
+          const fOk = alvo.filter((c) => (s.cursos_prog || []).some((g) => g.perfil_id === pid && g.curso_id === c.id && g.status === "concluido" && g.conferencia === "conferido")).length;
+          const sFor = alvo.length ? Math.min(100, Math.round(fOk / alvo.length * 1000) / 10) : null;
+          let tot = 0, pes = 0; [[sEf, par.peso_eficiencia], [sPar, par.peso_pares], [sRet, par.peso_retrabalho], [sAsm, par.peso_assembleia], [Number(par.peso_formacao || 0) > 0 ? sFor : null, par.peso_formacao || 0]].forEach(([v, w]) => { if (v != null) { tot += v * w; pes += Number(w); } });
           if (pes > 0 || nCon > 0) { tot += sCon * par.peso_contrib; pes += Number(par.peso_contrib); }
           return { indice: pes ? Math.round(tot / pes * 10) / 10 : null, eficiencia: { nota: sEf, previstas: prev, realizadas: real }, pares: { nota: sPar, avaliacoes: av.length }, retrabalho: { nota: sRet, apontamentos: nRet },
-            assembleias: { nota: sAsm, realizadas: asm.length, presente: pres, reunioes_disciplina: nDisc }, contribuicoes: { nota: sCon, pontos: nCon }, periodo_meses: par.meses, periodo_retrabalho: par.meses_retrabalho };
+            assembleias: { nota: sAsm, realizadas: asm.length, presente: pres, reunioes_disciplina: nDisc }, contribuicoes: { nota: sCon, pontos: nCon }, formacao: { nota: sFor, indicadas: alvo.length, conferidas: fOk }, periodo_meses: par.meses, periodo_retrabalho: par.meses_retrabalho };
         },
         async meu() { const s = ler(); const u = exigir(s); return espera(this._calc(s, u.id)); },
         async todos() { const s = ler(); const u = exigir(s); if (!(u.conselho_adm || u.conselho_fiscal)) falha("O índice completo é visto pelo Conselho de Administração e pelo Conselho Fiscal."); return espera(s.perfis.filter((p) => p.status === "ativo").map((p) => ({ perfil_id: p.id, nome: p.nome, dados: this._calc(s, p.id) })).sort((a, b) => a.nome.localeCompare(b.nome))); },
@@ -1180,7 +1184,10 @@
         _st(s) { s.cursos = s.cursos || [
           { id: "c1", titulo: "Fundamentos do Cooperativismo", plataforma: "CapacitaCoop (via WhatsApp)", link: "https://capacita.coop.br/cursos-whatsapp/fundamentos-do-cooperativismo", descricao: "Os princípios e valores do cooperativismo, em aulas curtas.", carga_horaria: "30 min", tema: "Cooperativismo", publicos: ["todos"], prioridade: 1, ordem: 10, ativo: true },
           { id: "c2", titulo: "Entendendo a Sociedade Cooperativa", plataforma: "CapacitaCoop", link: "https://capacita.coop.br/cursos-studion/entendendo-a-sociedade-cooperativa", descricao: "Como a cooperativa funciona.", carga_horaria: "10 h", tema: "Cooperativismo", publicos: ["todos"], prioridade: 1, ordem: 20, ativo: true },
-          { id: "c3", titulo: "Noções Contábeis e Tributárias das Cooperativas", plataforma: "CapacitaCoop (via WhatsApp)", link: "https://capacita.coop.br/cursos-whatsapp/nocoes-contabeis-e-tributarias-das-cooperativas", descricao: "O básico para entender a prestação de contas.", carga_horaria: "30 min", tema: "Gestão e finanças", publicos: ["tesouraria", "cf", "ca"], prioridade: 1, ordem: 40, ativo: true }
+          { id: "c3", titulo: "Noções Contábeis e Tributárias das Cooperativas", plataforma: "CapacitaCoop (via WhatsApp)", link: "https://capacita.coop.br/cursos-whatsapp/nocoes-contabeis-e-tributarias-das-cooperativas", descricao: "O básico para entender a prestação de contas.", carga_horaria: "30 min", tema: "Gestão e finanças", publicos: ["tesouraria", "cf", "ca"], prioridade: 1, ordem: 40, ativo: true },
+          { id: "c4", tipo: "trilha", nivel: "basico", titulo: "Governança Participativa", plataforma: "CapacitaCoop (trilha)", link: "https://capacita.coop.br/", descricao: "Como o cooperado participa das decisões.", carga_horaria: "15 h", tema: "Governança", publicos: ["todos"], prioridade: 2, ordem: 50, ativo: true },
+          { id: "c5", tipo: "trilha", nivel: "basico", titulo: "Conselheiros Administrativos: Desafios da Primeira Gestão", plataforma: "CapacitaCoop (trilha)", link: "https://capacita.coop.br/", descricao: "Para quem está no primeiro mandato no CA.", carga_horaria: "44 h", tema: "Governança", publicos: ["ca"], prioridade: 1, ordem: 60, ativo: true },
+          { id: "c6", tipo: "trilha", nivel: "avancado", titulo: "Preparatório Certificação Conselheiros de Administração", plataforma: "CapacitaCoop (trilha)", link: "https://capacita.coop.br/", descricao: "Preparação para a certificação de conselheiros.", carga_horaria: "45 h", tema: "Governança", publicos: ["ca"], prioridade: 2, ordem: 70, ativo: true }
         ]; s.cursos_prog = s.cursos_prog || []; },
         _g(u) { return u.status === "ativo" && (u.papel === "coordenacao" || !!u.conselho_adm); },
         async listar() { const s = ler(); exigir(s); this._st(s); return espera(JSON.parse(JSON.stringify(s.cursos))); },
@@ -1188,8 +1195,14 @@
           if (c.id) Object.assign(s.cursos.find((x) => x.id === c.id), c); else s.cursos.push({ ativo: true, ordem: 100, ...c, id: novoId(), criado_nome: u.nome, criado_em: new Date().toISOString() }); gravar(s); return espera(true); },
         async excluir(id) { const s = ler(); const u = exigir(s); if (!this._g(u)) falha("permission denied"); this._st(s); s.cursos = s.cursos.filter((x) => x.id !== id); s.cursos_prog = s.cursos_prog.filter((x) => x.curso_id !== id); gravar(s); return espera(true); },
         async meuProgresso() { const s = ler(); const u = exigir(s); this._st(s); return espera(JSON.parse(JSON.stringify(s.cursos_prog.filter((x) => x.perfil_id === u.id)))); },
-        async marcar(curso_id, status, concluido_em, certificado_link) { const s = ler(); const u = exigir(s); this._st(s); s.cursos_prog = s.cursos_prog.filter((x) => !(x.perfil_id === u.id && x.curso_id === curso_id));
-          s.cursos_prog.push({ perfil_id: u.id, curso_id, status, concluido_em: status === "concluido" ? concluido_em || new Date().toISOString().slice(0, 10) : null, certificado_link: certificado_link || null, atualizado_em: new Date().toISOString() }); gravar(s); return espera(true); },
+        async marcar(curso_id, status, concluido_em, certificado_link, certificado_arquivo) { const s = ler(); const u = exigir(s); this._st(s); s.cursos_prog = s.cursos_prog.filter((x) => !(x.perfil_id === u.id && x.curso_id === curso_id));
+          const temCert = !!(certificado_link || certificado_arquivo);
+          s.cursos_prog.push({ perfil_id: u.id, curso_id, status, concluido_em: status === "concluido" ? concluido_em || new Date().toISOString().slice(0, 10) : null, certificado_link: certificado_link || null, certificado_arquivo: certificado_arquivo || null, conferencia: status === "concluido" && temCert ? "pendente" : null, atualizado_em: new Date().toISOString() }); gravar(s); return espera(true); },
+        async enviarCertificado(arquivo) { const s = ler(); exigir(s); if (arquivo.size > 1.5 * 1024 * 1024) falha("No modo demonstração o limite é 1,5 MB."); return espera(await new Promise((ok, erro) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = erro; r.readAsDataURL(arquivo); })); },
+        async linkCertificado(caminho) { return caminho; },
+        async conferir(perfil, curso, aprovar, motivo) { const s = ler(); const u = exigir(s); if (!this._g(u)) falha("Só a coordenação ou o CA conferem certificados."); if (perfil === u.id) falha("Ninguém confere o próprio certificado."); if (!aprovar && !String(motivo || "").trim()) falha("Diga por que o certificado não foi aceito.");
+          this._st(s); const g = s.cursos_prog.find((x) => x.perfil_id === perfil && x.curso_id === curso && x.status === "concluido"); if (!g) falha("Conclusão não encontrada.");
+          Object.assign(g, { conferencia: aprovar ? "conferido" : "recusado", conferencia_motivo: aprovar ? null : motivo, conferido_nome: u.nome, conferido_em: new Date().toISOString() }); gravar(s); return espera(true); },
         async desmarcar(curso_id) { const s = ler(); const u = exigir(s); this._st(s); s.cursos_prog = s.cursos_prog.filter((x) => !(x.perfil_id === u.id && x.curso_id === curso_id)); gravar(s); return espera(true); },
         async progressoTodos() { const s = ler(); const u = exigir(s); if (!this._g(u)) return espera([]); this._st(s); return espera(JSON.parse(JSON.stringify(s.cursos_prog))); }
       },
@@ -1915,7 +1928,11 @@
         async salvar(c) { const x = { ...c }; delete x.id; delete x.criado_em; if (c.id) ok(await sb.from("cursos_indicados").update(x).eq("id", c.id)); else ok(await sb.from("cursos_indicados").insert(x)); return true; },
         async excluir(id) { ok(await sb.from("cursos_indicados").delete().eq("id", id)); return true; },
         async meuProgresso() { const uid = await meuId(); const r = await sb.from("cursos_progresso").select("*").eq("perfil_id", uid); return r.error ? [] : r.data; },
-        async marcar(curso_id, status, concluido_em, certificado_link) { const uid = await meuId(); ok(await sb.from("cursos_progresso").upsert({ perfil_id: uid, curso_id, status, concluido_em: status === "concluido" ? concluido_em || new Date().toISOString().slice(0, 10) : null, certificado_link: certificado_link || null, atualizado_em: new Date().toISOString() })); return true; },
+        async marcar(curso_id, status, concluido_em, certificado_link, certificado_arquivo) { const uid = await meuId(); ok(await sb.from("cursos_progresso").upsert({ perfil_id: uid, curso_id, status, concluido_em: status === "concluido" ? concluido_em || new Date().toISOString().slice(0, 10) : null, certificado_link: certificado_link || null, certificado_arquivo: certificado_arquivo || null })); return true; },
+        async enviarCertificado(arquivo) { if (arquivo.size > 10485760) falha("O arquivo passa de 10 MB."); const uid = await meuId(); const seguro = arquivo.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w.\-]+/g, "_"); const caminho = `${uid}/${Date.now()}_${seguro}`;
+          ok(await sb.storage.from("certificados").upload(caminho, arquivo, { upsert: false, contentType: arquivo.type || undefined })); return caminho; },
+        async linkCertificado(caminho) { const r = await sb.storage.from("certificados").createSignedUrl(caminho, 300); ok(r); return r.data.signedUrl; },
+        async conferir(perfil, curso, aprovar, motivo) { ok(await sb.rpc("curso_conferir", { p_perfil: perfil, p_curso: curso, p_aprovar: !!aprovar, p_motivo: motivo || null })); return true; },
         async desmarcar(curso_id) { const uid = await meuId(); ok(await sb.from("cursos_progresso").delete().eq("perfil_id", uid).eq("curso_id", curso_id)); return true; },
         async progressoTodos() { const r = await sb.from("cursos_progresso").select("*"); return r.error ? [] : r.data; }
       },
