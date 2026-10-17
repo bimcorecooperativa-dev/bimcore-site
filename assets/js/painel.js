@@ -955,6 +955,79 @@
       async render(el) { return window.Manual.render(el); }
     },
 
+    formacao: {
+      titulo: "Formação",
+      async render(el, ctx) {
+        const eu = ctx.sessao.perfil, g = eu.status === "ativo" && (eu.papel === "coordenacao" || !!eu.conselho_adm);
+        const [cursos, prog, todosProg, pessoas] = await Promise.all([API.formacao.listar(), API.formacao.meuProgresso().catch(() => []), g ? API.formacao.progressoTodos().catch(() => []) : [], g ? API.cooperados.listar().catch(() => []) : []]);
+        const PUB = { todos: "todos os cooperados", ca: "Conselho de Administração", cf: "Conselho Fiscal", tesouraria: "tesouraria", coordenacao: "coordenação" };
+        const PRI = { 1: ["Essencial", "err"], 2: ["Recomendado", "warn"], 3: ["Complementar", ""] };
+        const meus = ["todos"]; if (eu.conselho_adm) meus.push("ca"); if (eu.conselho_fiscal) meus.push("cf"); if (eu.tesouraria) meus.push("tesouraria"); if (eu.papel === "coordenacao") meus.push("coordenacao");
+        const ativos = cursos.filter((c) => c.ativo !== false).sort((x, y) => x.prioridade - y.prioridade || (x.ordem || 0) - (y.ordem || 0));
+        const paraMim = ativos.filter((c) => (c.publicos || ["todos"]).some((p) => meus.includes(p)));
+        const outros = ativos.filter((c) => !paraMim.includes(c));
+        const st = (id) => prog.find((x) => x.curso_id === id);
+        const ess = paraMim.filter((c) => c.prioridade === 1), essOk = ess.filter((c) => (st(c.id) || {}).status === "concluido").length;
+        const nome = (id) => (pessoas.find((p) => p.id === id) || {}).nome || "cooperado";
+        const cartao = (c) => { const x = st(c.id); const [pt, pc] = PRI[c.prioridade] || PRI[2]; const pub = (c.publicos || ["todos"]).filter((p) => p !== "todos").map((p) => PUB[p]);
+          return `<article class="curso"><div class="curso-cab"><span class="selo ${pc}">${pt}</span>${x ? (x.status === "concluido" ? `<span class="selo ok">concluído${x.concluido_em ? " em " + data(x.concluido_em) : ""}</span>` : '<span class="selo info">fazendo</span>') : ""}</div>
+            <h3>${esc(c.titulo)}</h3><p class="hint">${esc([c.plataforma, c.carga_horaria, c.tema].filter(Boolean).join(" · "))}${pub.length ? " · indicado para " + esc(pub.join(", ")) : ""}</p>
+            ${c.descricao ? `<p>${esc(c.descricao)}</p>` : ""}
+            <div class="sol-acoes"><a class="btn btn-primary btn-sm" href="${esc(c.link)}" target="_blank" rel="noopener">Abrir o curso</a>
+              ${!x ? `<button class="btn btn-ghost btn-sm" data-fazendo="${c.id}">Estou fazendo</button>` : ""}${!x || x.status !== "concluido" ? `<button class="btn btn-ghost btn-sm" data-conclui="${c.id}">Concluí</button>` : ""}
+              ${x && x.certificado_link ? `<a class="btn btn-ghost btn-sm" href="${esc(x.certificado_link)}" target="_blank" rel="noopener">Meu certificado</a>` : ""}${x ? `<button class="link-btn" type="button" data-desm="${c.id}">desfazer</button>` : ""}
+              ${g ? `<button class="link-btn" type="button" data-edc="${c.id}">editar</button>` : ""}</div></article>`; };
+        el.innerHTML = `
+          <div class="pag-cab"><div><p class="eyebrow">Educação cooperativista</p><h1>Formação</h1></div>${g ? '<button class="btn btn-primary" id="fc-novo">Indicar curso</button>' : ""}</div>
+          <p class="muted">Cursos gratuitos indicados pela cooperativa, em plataformas como o CapacitaCoop (Sistema OCB/Sescoop), que emite certificado. A ordem segue a prioridade para a sua função na BIMCORE. Marque o que está fazendo e o que concluiu (Regimento, Título XIII).</p>
+          ${ess.length ? `<div class="kpis"><div class="kpi"><span class="rot">Essenciais para você</span><span class="val">${essOk} de ${ess.length}</span><span class="det">concluídos</span></div></div>` : ""}
+          <section class="painel"><h2>Para você</h2>${paraMim.length ? `<div class="cursos">${paraMim.map(cartao).join("")}</div>` : '<p class="vazio">Nenhum curso indicado ainda.</p>'}</section>
+          ${outros.length ? `<section class="painel"><h2>Outros cursos indicados</h2><div class="cursos">${outros.map(cartao).join("")}</div></section>` : ""}
+          ${g ? `<section class="painel"><h2>Acompanhamento</h2><p class="hint">Só a coordenação e o CA veem esta lista.</p>
+            <div class="tabela-wrap"><table class="tabela"><thead><tr><th>Curso</th><th class="num">Fazendo</th><th>Concluíram</th></tr></thead><tbody>
+            ${ativos.map((c) => { const ps = todosProg.filter((x) => x.curso_id === c.id); const ok = ps.filter((x) => x.status === "concluido"); return `<tr><td>${esc(c.titulo)}<span class="sub">${(PRI[c.prioridade] || PRI[2])[0]}</span></td><td class="num">${ps.length - ok.length}</td><td>${ok.length ? esc(ok.map((x) => nome(x.perfil_id)).join(", ")) : '<span class="hint">ninguém ainda</span>'}</td></tr>`; }).join("")}
+            </tbody></table></div></section>` : ""}`;
+        const recarregar = () => paginas.formacao.render(el, ctx);
+        const formCurso = (c) => {
+          c = c || { prioridade: 2, publicos: ["todos"], ordem: 100 };
+          const m = UI.modal(`<h2>${c.id ? "Editar curso" : "Indicar curso"}</h2><div class="form-grid">
+            <div class="field full"><label for="fc-t">Nome do curso</label><input class="input" id="fc-t" maxlength="200" value="${esc(c.titulo || "")}"></div>
+            <div class="field full"><label for="fc-l">Link</label><input class="input" id="fc-l" type="url" value="${esc(c.link || "")}" placeholder="https://capacita.coop.br/..."></div>
+            <div class="field"><label for="fc-p">Plataforma</label><input class="input" id="fc-p" maxlength="80" value="${esc(c.plataforma || "")}" placeholder="CapacitaCoop"></div>
+            <div class="field"><label for="fc-c">Carga horária</label><input class="input" id="fc-c" maxlength="30" value="${esc(c.carga_horaria || "")}" placeholder="10 h"></div>
+            <div class="field"><label for="fc-tm">Tema</label><input class="input" id="fc-tm" maxlength="60" value="${esc(c.tema || "")}" placeholder="Cooperativismo, Governança…"></div>
+            <div class="field"><label for="fc-pr">Prioridade</label><select class="input" id="fc-pr">${[1, 2, 3].map((n) => `<option value="${n}" ${c.prioridade === n ? "selected" : ""}>${PRI[n][0]}</option>`).join("")}</select></div>
+            <div class="field full"><label for="fc-d">Por que fazer (aparece para o cooperado)</label><input class="input" id="fc-d" maxlength="400" value="${esc(c.descricao || "")}"></div>
+            <div class="field full"><label>Indicado para</label><div class="part-lista">${Object.entries(PUB).map(([k, t]) => `<label class="ciente"><input type="checkbox" data-pub value="${k}" ${(c.publicos || []).includes(k) ? "checked" : ""}> <span>${t}</span></label>`).join("")}</div></div>
+            <div class="field"><label for="fc-o">Ordem dentro da prioridade</label><input class="input" id="fc-o" type="number" min="1" value="${c.ordem || 100}"></div></div>
+            <div class="modal-acoes">${c.id ? '<button class="btn btn-danger btn-sm" id="fc-del">Remover</button>' : ""}<button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="fc-ok">Salvar</button></div>`);
+          $("#fc-ok", m.el).onclick = async (ev) => {
+            const d = { id: c.id, titulo: $("#fc-t", m.el).value.trim(), link: $("#fc-l", m.el).value.trim(), plataforma: $("#fc-p", m.el).value.trim() || null, carga_horaria: $("#fc-c", m.el).value.trim() || null, tema: $("#fc-tm", m.el).value.trim() || null,
+              prioridade: Number($("#fc-pr", m.el).value), descricao: $("#fc-d", m.el).value.trim() || null, publicos: [...m.el.querySelectorAll("[data-pub]:checked")].map((i) => i.value), ordem: Number($("#fc-o", m.el).value) || 100 };
+            if (d.titulo.length < 3) return toast("Informe o nome do curso.", "err"); if (!/^https?:\/\//.test(d.link)) return toast("Informe o link do curso (https://…).", "err"); if (!d.publicos.length) d.publicos = ["todos"];
+            if (!d.id) delete d.id;
+            if (await acao(ev.currentTarget, () => API.formacao.salvar(d), "Curso salvo.")) { m.fechar(); recarregar(); } };
+          if (c.id) $("#fc-del", m.el).onclick = async (ev) => { if (!(await confirmar("Remover este curso da lista? O progresso marcado pelos cooperados também sai.", "Remover"))) return; if (await acao(ev.currentTarget, () => API.formacao.excluir(c.id), "Curso removido.")) { m.fechar(); recarregar(); } };
+        };
+        const nv = $("#fc-novo"); if (nv) nv.onclick = () => formCurso(null);
+        el.onclick = async (e) => {
+          const b = e.target.closest("button"); if (!b) return;
+          if (b.dataset.edc) return formCurso(cursos.find((c) => c.id === b.dataset.edc));
+          if (b.dataset.fazendo) { if (await acao(b, () => API.formacao.marcar(b.dataset.fazendo, "fazendo"), "Bom estudo!")) recarregar(); return; }
+          if (b.dataset.desm) { if (await acao(b, () => API.formacao.desmarcar(b.dataset.desm), "Marcação desfeita.")) recarregar(); return; }
+          if (b.dataset.conclui) {
+            const id = b.dataset.conclui;
+            const m = UI.modal(`<h2>Concluí o curso</h2><div class="form-grid"><div class="field"><label for="cc-d">Concluído em</label><input class="input" id="cc-d" type="date" value="${hoje()}" max="${hoje()}"></div>
+              <div class="field full"><label for="cc-l">Link do certificado (opcional)</label><input class="input" id="cc-l" type="url" placeholder="https://..."></div></div>
+              <p class="hint">O certificado do CapacitaCoop fica na sua conta na plataforma; você pode colar o link aqui para guardar.</p>
+              <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="cc-ok">Salvar</button></div>`);
+            $("#cc-ok", m.el).onclick = async (ev) => { const l = $("#cc-l", m.el).value.trim(); if (l && !/^https?:\/\//.test(l)) return toast("O link precisa começar com https://", "err");
+              if (await acao(ev.currentTarget, () => API.formacao.marcar(id, "concluido", $("#cc-d", m.el).value || null, l || null), "Parabéns pela conclusão!")) { m.fechar(); recarregar(); } };
+          }
+        };
+      }
+    },
+
     app: {
       titulo: "App no celular",
       async render(el) {

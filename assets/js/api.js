@@ -1176,6 +1176,23 @@
         async marcarLembrete(chave, quando) { const s = ler(); const u = exigir(s); s.lembretes = s.lembretes || {}; s.lembretes[u.id] = s.lembretes[u.id] || {}; s.lembretes[u.id][chave] = quando || new Date().toISOString(); gravar(s); return espera(true); },
         async adiarLembrete(chave, dias) { const s = ler(); const u = exigir(s); s.lembretes = s.lembretes || {}; s.lembretes[u.id] = s.lembretes[u.id] || {}; s.lembretes[u.id][chave] = new Date(Date.now() + dias * 864e5).toISOString(); gravar(s); return espera(true); }
       },
+      formacao: {
+        _st(s) { s.cursos = s.cursos || [
+          { id: "c1", titulo: "Fundamentos do Cooperativismo", plataforma: "CapacitaCoop (via WhatsApp)", link: "https://capacita.coop.br/cursos-whatsapp/fundamentos-do-cooperativismo", descricao: "Os princípios e valores do cooperativismo, em aulas curtas.", carga_horaria: "30 min", tema: "Cooperativismo", publicos: ["todos"], prioridade: 1, ordem: 10, ativo: true },
+          { id: "c2", titulo: "Entendendo a Sociedade Cooperativa", plataforma: "CapacitaCoop", link: "https://capacita.coop.br/cursos-studion/entendendo-a-sociedade-cooperativa", descricao: "Como a cooperativa funciona.", carga_horaria: "10 h", tema: "Cooperativismo", publicos: ["todos"], prioridade: 1, ordem: 20, ativo: true },
+          { id: "c3", titulo: "Noções Contábeis e Tributárias das Cooperativas", plataforma: "CapacitaCoop (via WhatsApp)", link: "https://capacita.coop.br/cursos-whatsapp/nocoes-contabeis-e-tributarias-das-cooperativas", descricao: "O básico para entender a prestação de contas.", carga_horaria: "30 min", tema: "Gestão e finanças", publicos: ["tesouraria", "cf", "ca"], prioridade: 1, ordem: 40, ativo: true }
+        ]; s.cursos_prog = s.cursos_prog || []; },
+        _g(u) { return u.status === "ativo" && (u.papel === "coordenacao" || !!u.conselho_adm); },
+        async listar() { const s = ler(); exigir(s); this._st(s); return espera(JSON.parse(JSON.stringify(s.cursos))); },
+        async salvar(c) { const s = ler(); const u = exigir(s); if (!this._g(u)) falha("Só a coordenação ou o CA indicam cursos."); this._st(s); if (!/^https?:\/\//.test(c.link || "")) falha("Informe o link do curso (começando com https://).");
+          if (c.id) Object.assign(s.cursos.find((x) => x.id === c.id), c); else s.cursos.push({ ativo: true, ordem: 100, ...c, id: novoId(), criado_nome: u.nome, criado_em: new Date().toISOString() }); gravar(s); return espera(true); },
+        async excluir(id) { const s = ler(); const u = exigir(s); if (!this._g(u)) falha("permission denied"); this._st(s); s.cursos = s.cursos.filter((x) => x.id !== id); s.cursos_prog = s.cursos_prog.filter((x) => x.curso_id !== id); gravar(s); return espera(true); },
+        async meuProgresso() { const s = ler(); const u = exigir(s); this._st(s); return espera(JSON.parse(JSON.stringify(s.cursos_prog.filter((x) => x.perfil_id === u.id)))); },
+        async marcar(curso_id, status, concluido_em, certificado_link) { const s = ler(); const u = exigir(s); this._st(s); s.cursos_prog = s.cursos_prog.filter((x) => !(x.perfil_id === u.id && x.curso_id === curso_id));
+          s.cursos_prog.push({ perfil_id: u.id, curso_id, status, concluido_em: status === "concluido" ? concluido_em || new Date().toISOString().slice(0, 10) : null, certificado_link: certificado_link || null, atualizado_em: new Date().toISOString() }); gravar(s); return espera(true); },
+        async desmarcar(curso_id) { const s = ler(); const u = exigir(s); this._st(s); s.cursos_prog = s.cursos_prog.filter((x) => !(x.perfil_id === u.id && x.curso_id === curso_id)); gravar(s); return espera(true); },
+        async progressoTodos() { const s = ler(); const u = exigir(s); if (!this._g(u)) return espera([]); this._st(s); return espera(JSON.parse(JSON.stringify(s.cursos_prog))); }
+      },
       notif: {
         async listar() { const s = ler(); const u = exigir(s); const c = s.fin.cooperados.find((x) => x.perfil_id === u.id);
           const todos = u.papel === "coordenacao" || u.conselho_adm || u.conselho_fiscal || u.tesouraria;
@@ -1892,6 +1909,15 @@
         async lembreteAte(chave) { const uid = await meuId(); const r = await sb.from("lembretes_adiados").select("ate").eq("perfil_id", uid).eq("chave", chave).maybeSingle(); return r.error || !r.data ? null : r.data.ate; },
         async marcarLembrete(chave, quando) { const uid = await meuId(); ok(await sb.from("lembretes_adiados").upsert({ perfil_id: uid, chave, ate: quando || new Date().toISOString() })); return true; },
         async adiarLembrete(chave, dias) { const uid = await meuId(); ok(await sb.from("lembretes_adiados").upsert({ perfil_id: uid, chave, ate: new Date(Date.now() + dias * 864e5).toISOString() })); return true; }
+      },
+      formacao: {
+        async listar() { const r = await sb.from("cursos_indicados").select("*").order("prioridade").order("ordem"); return r.error ? [] : r.data; },
+        async salvar(c) { const x = { ...c }; delete x.id; delete x.criado_em; if (c.id) ok(await sb.from("cursos_indicados").update(x).eq("id", c.id)); else ok(await sb.from("cursos_indicados").insert(x)); return true; },
+        async excluir(id) { ok(await sb.from("cursos_indicados").delete().eq("id", id)); return true; },
+        async meuProgresso() { const uid = await meuId(); const r = await sb.from("cursos_progresso").select("*").eq("perfil_id", uid); return r.error ? [] : r.data; },
+        async marcar(curso_id, status, concluido_em, certificado_link) { const uid = await meuId(); ok(await sb.from("cursos_progresso").upsert({ perfil_id: uid, curso_id, status, concluido_em: status === "concluido" ? concluido_em || new Date().toISOString().slice(0, 10) : null, certificado_link: certificado_link || null, atualizado_em: new Date().toISOString() })); return true; },
+        async desmarcar(curso_id) { const uid = await meuId(); ok(await sb.from("cursos_progresso").delete().eq("perfil_id", uid).eq("curso_id", curso_id)); return true; },
+        async progressoTodos() { const r = await sb.from("cursos_progresso").select("*"); return r.error ? [] : r.data; }
       },
       notif: {
         async listar() { const r = await sb.from("fin_notificacoes").select("*").order("criado_em", { ascending: false }).limit(500); return r.error ? [] : r.data; },

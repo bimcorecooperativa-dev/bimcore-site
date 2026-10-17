@@ -421,3 +421,9 @@ body.travado > *:not(.trava):not(.toast-wrap) { filter: blur(14px); pointer-even
 .trava-in p { margin: 0; color: var(--muted); }
 .trava-in .btn { width: 100%; }
 .trava-msg { color: var(--err) !important; min-height: 1.2em; }
+/* Formação: cartões de cursos indicados */
+.cursos { display: grid; gap: 0.8rem; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.curso { border: 1px solid var(--line); border-radius: var(--radius); padding: 0.9rem 1rem; background: var(--panel-2); display: grid; gap: 0.35rem; align-content: start; }
+.curso h3 { margin: 0.2rem 0 0; font-size: 1.02rem; }
+.curso p { margin: 0; }
+.curso-cab { display: flex; gap: 0.4rem; flex-wrap: wrap; }
