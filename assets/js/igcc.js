@@ -10,8 +10,9 @@
     ["pares", "Avaliação entre pares", "peso_pares", "Média das notas que a equipe deu ao concluir os projetos (qualidade, prazos, colaboração e conformidade com o BEP)."],
     ["retrabalho", "Sem retrabalho", "peso_retrabalho", "Começa em 100; cada apontamento que procedeu contra o seu trabalho tira 10 pontos (impeditivo tira 20). Janela maior (RI 137)."],
     ["assembleias", "Participação nas assembleias", "peso_assembleia", "Presença nas assembleias realizadas desde o seu ingresso. O RI 137 pede pelo menos 2/3."],
-    ["contribuicoes", "Contribuições", "peso_contrib", "Biblioteca de objetos BIM, leitura, indicação de cooperados ou de contratos, registradas pelo Conselho de Administração (cada ponto vale 10, até 100)."],
-    ["formacao", "Formação", "peso_formacao", "Trilhas e cursos essenciais e recomendados para a sua função (aba Formação) concluídos com certificado conferido ÷ os indicados. Só conta no índice quando o CA fixar um peso maior que zero por Resolução."]
+    ["contribuicoes", "Contribuições", "peso_contrib", "Biblioteca de objetos BIM, indicação de cooperados ou de contratos, registradas pelo Conselho de Administração (cada ponto vale 10, até 100)."],
+    ["formacao", "Formação", "peso_formacao", "Trilhas e cursos essenciais e recomendados para a sua função (aba Formação) concluídos com certificado conferido ÷ os indicados. Só conta no índice quando o CA fixar um peso maior que zero por Resolução."],
+    ["leitura", "Leitura", "peso_leitura", "Tempo de leitura dos livros da Biblioteca registrado no cronômetro: 1 ponto a cada 10 minutos (no máximo 90 min por sessão e 180 min por dia). A nota é pontos ÷ meta do período. Só conta no índice quando o CA fixar um peso maior que zero."]
   ];
   const nota = (v) => (v == null ? '<span class="hint">sem dados</span>' : `<b>${Number(v).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}</b>`);
   const cor = (v) => (v == null ? "" : v >= 75 ? "ok" : v >= 50 ? "warn" : "err");
@@ -21,7 +22,8 @@
     retrabalho: `${x.retrabalho.apontamentos} apontamento(s) procedente(s) em ${x.periodo_retrabalho} meses`,
     assembleias: `${x.assembleias.presente} de ${x.assembleias.realizadas} · ${x.assembleias.reunioes_disciplina} Reunião(ões) de Disciplina`,
     contribuicoes: `${x.contribuicoes.pontos} ponto(s)`,
-    formacao: x.formacao ? `${x.formacao.conferidas} de ${x.formacao.indicadas} conferida(s)` : "—"
+    formacao: x.formacao ? `${x.formacao.conferidas} de ${x.formacao.indicadas} conferida(s)` : "—",
+    leitura: x.leitura ? `${x.leitura.pontos} de ${x.leitura.meta} ponto(s) · ${UI.horas(Number(x.leitura.minutos) / 60)} lidas` : "—"
   }[k]);
 
   function htmlComponentes(x, par) {
@@ -59,6 +61,7 @@
         <p class="hint">Os pesos são fixados por Resolução do Conselho de Administração e divulgados com antecedência (RI 137, §2º). Os valores abaixo são uma proposta inicial.</p>
         <form id="ig-par" class="form-grid" novalidate>
           ${COMP.map(([, t, pk]) => `<div class="field"><label for="ig-${pk}">${esc(t)}</label><input class="input" id="ig-${pk}" type="number" min="0" max="100" step="1" value="${Number(par[pk] || 0)}"${ca ? "" : " disabled"}></div>`).join("")}
+          <div class="field"><label for="ig-ml">Meta de leitura (pontos no período)</label><input class="input" id="ig-ml" type="number" min="1" max="1000" value="${Number(par.meta_leitura || 60)}"${ca ? "" : " disabled"}></div>
           <div class="field"><label for="ig-meses">Período (meses)</label><input class="input" id="ig-meses" type="number" min="3" max="36" value="${par.meses}"${ca ? "" : " disabled"}></div>
           <div class="field"><label for="ig-mr">Período do retrabalho (meses)</label><input class="input" id="ig-mr" type="number" min="3" max="36" value="${par.meses_retrabalho}"${ca ? "" : " disabled"}></div>
           <div class="field full"><label for="ig-res">Resolução do CA que aprovou</label><input class="input" id="ig-res" maxlength="200" value="${esc(par.resolucao || "")}" placeholder="Ex.: Resolução CA nº 01/2027"${ca ? "" : " disabled"}></div>
@@ -86,7 +89,7 @@
       $("#ig-par").addEventListener("submit", async (e) => {
         e.preventDefault(); const d = {}; COMP.forEach(([, , pk]) => { d[pk] = Number($("#ig-" + pk).value) || 0; });
         if (!Object.values(d).some((v) => v > 0)) return toast("Pelo menos um peso precisa ser maior que zero.", "err");
-        Object.assign(d, { meses: Number($("#ig-meses").value) || 12, meses_retrabalho: Number($("#ig-mr").value) || 24, resolucao: $("#ig-res").value.trim() || null });
+        Object.assign(d, { meta_leitura: Number($("#ig-ml").value) || 60, meses: Number($("#ig-meses").value) || 12, meses_retrabalho: Number($("#ig-mr").value) || 24, resolucao: $("#ig-res").value.trim() || null });
         if (await acao($("#ig-par-btn"), () => API.igcc.salvarParametros(d), "Pesos salvos.")) renderTodos(el, ctx);
       });
       $("#ig-reg").addEventListener("submit", async (e) => {

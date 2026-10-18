@@ -196,7 +196,6 @@
 
     financeiro: {
       titulo: "Financeiro",
-      separador: true,
       async contador(ctx) { if (ctx && ctx.leitura) return 0; const m = await API.movimentos.todos(); return m.filter((x) => x.status === "aguardando").length; },
       async render(el, ctx) {
         const parFin = await API.fin.parametros().catch(() => ({ modo: "planilha" }));
@@ -601,6 +600,16 @@
   window.App.iniciar({
     area: "interno",
     paginas,
+    /* menu organizado pelos órgãos e funções do Estatuto: quadro social, produção, finanças, fiscalização e comunicação */
+    menu: [
+      "visao",
+      { id: "quadro", titulo: "Quadro social", itens: ["cooperados", "solicitacoes", "livro", "enquadramento"] },
+      { id: "producao-g", titulo: "Produção", itens: ["projetos", "producao", "igcc"] },
+      { id: "financas", titulo: "Financeiro", itens: ["financeiro", "notificacoes"] },
+      "conselho",
+      { id: "comunicacao", titulo: "Comunicação", itens: ["comunicados", "mensagens", "documentos"] },
+      { id: "ajuda", titulo: "Manual do site", itens: ["manual"], separador: true }
+    ],
     filtrar: (todas, { coord, tes, fiscal, ca }) => {
       if (coord) return todas;
       const out = {};

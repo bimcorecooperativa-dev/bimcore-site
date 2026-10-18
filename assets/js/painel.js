@@ -955,8 +955,131 @@
       async render(el) { return window.Manual.render(el); }
     },
 
+    biblioteca: {
+      titulo: "Biblioteca",
+      async sinal() { const a = await API.biblioteca.aberta(); return a ? { cor: "warn", texto: "Cronômetro de leitura ligado" } : null; },
+      async render(el, ctx) {
+        const eu = ctx.sessao.perfil, g = eu.status === "ativo" && (eu.papel === "coordenacao" || !!eu.conselho_adm);
+        const [livros, minhas, aberta, par, todas, pessoas] = await Promise.all([API.biblioteca.listar(), API.biblioteca.minhas().catch(() => ({ sessoes: [], leituras: [] })), API.biblioteca.aberta().catch(() => null),
+          API.igcc && API.igcc.parametros ? API.igcc.parametros().catch(() => null) : null, g ? API.biblioteca.todas().catch(() => ({ sessoes: [], leituras: [] })) : null, g ? API.cooperados.listar().catch(() => []) : []]);
+        const meses = par ? Number(par.meses || 12) : 12, meta = par ? Number(par.meta_leitura || 60) : 60, peso = par ? Number(par.peso_leitura || 0) : 0;
+        const desde = Date.now() - meses * 30.44 * 864e5;
+        const doPeriodo = (ss) => ss.filter((x) => x.fim && new Date(x.inicio) >= desde);
+        const minutos = (ss) => ss.reduce((t, x) => t + Number(x.minutos || 0), 0);
+        const meuMin = minutos(doPeriodo(minhas.sessoes)), meusPts = Math.floor(meuMin / 10);
+        const ativos = livros.filter((l) => l.ativo !== false).sort((a, b) => (a.ordem || 0) - (b.ordem || 0));
+        const leit = (id) => minhas.leituras.find((x) => x.livro_id === id) || {};
+        const livroDe = (id) => livros.find((l) => l.id === id) || {};
+        const hm = (m) => { m = Math.round(Number(m) || 0); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? " " + (m % 60) + " min" : ""}`; };
+        const relogio = (ms) => { const t = Math.max(0, Math.floor(ms / 1000)); const h = Math.floor(t / 3600), mi = Math.floor((t % 3600) / 60), se = t % 60; return `${h}:${String(mi).padStart(2, "0")}:${String(se).padStart(2, "0")}`; };
+        const cartao = (l) => { const r = leit(l.id), arq = l.arquivos || {}, pct = l.paginas && r.pagina ? Math.min(100, Math.round(r.pagina / l.paginas * 100)) : 0;
+          const tempo = minutos(minhas.sessoes.filter((x) => x.livro_id === l.id && x.fim));
+          return `<article class="livro"><div class="curso-cab">${l.tema ? `<span class="selo info">${esc(l.tema)}</span>` : ""}${r.concluido_em ? `<span class="selo ok">lido em ${data(r.concluido_em)}</span>` : ""}${aberta && aberta.livro_id === l.id ? '<span class="selo warn">lendo agora</span>' : ""}</div>
+            <h3>${esc(l.titulo)}</h3><p class="hint">${esc([l.autor, l.tradutor ? "trad. " + l.tradutor : "", l.ano, l.paginas ? l.paginas + " páginas" : ""].filter(Boolean).join(" · "))}</p>
+            ${l.descricao ? `<p>${esc(l.descricao)}</p>` : ""}
+            ${r.pagina || tempo ? `<div class="livro-barra" title="${pct}%"><i style="width:${pct}%"></i></div><p class="hint">${r.pagina ? `Você parou na página ${r.pagina}${l.paginas ? " de " + l.paginas : ""}` : "Ainda sem página registrada"} · ${hm(tempo)} de leitura</p>` : ""}
+            <div class="sol-acoes">
+              ${!aberta ? `<button class="btn btn-primary btn-sm" data-ler="${l.id}">Começar a ler</button>` : ""}
+              ${arq.pdf ? `<button class="btn btn-ghost btn-sm" data-abrir="${l.id}|pdf">Abrir PDF</button><button class="btn btn-ghost btn-sm" data-baixar="${l.id}|pdf">Baixar PDF</button>` : ""}
+              ${arq.epub ? `<button class="btn btn-ghost btn-sm" data-baixar="${l.id}|epub">Baixar EPUB</button>` : ""}
+              ${!arq.pdf && !arq.epub ? '<span class="hint">Arquivo ainda não enviado.</span>' : ""}
+              <button class="link-btn" type="button" data-concl="${l.id}">${r.concluido_em ? "desmarcar como lido" : "terminei este livro"}</button>
+              ${g ? `<button class="link-btn" type="button" data-env="${l.id}|pdf">${arq.pdf ? "trocar" : "enviar"} PDF</button><button class="link-btn" type="button" data-env="${l.id}|epub">${arq.epub ? "trocar" : "enviar"} EPUB</button><button class="link-btn" type="button" data-edl="${l.id}">editar</button>` : ""}
+            </div></article>`; };
+        const crono = aberta ? `<section class="cronometro" id="crono"><div class="painel-cab"><h2>Lendo: ${esc(livroDe(aberta.livro_id).titulo || "livro")}</h2><span class="hint">desde ${dataHora(aberta.inicio)}</span></div>
+            <div class="tempo" id="crono-t">${relogio(Date.now() - new Date(aberta.inicio))}</div>
+            <p class="hint" id="crono-h">O cronômetro continua contando mesmo se você sair do site para ler no leitor de PDF ou de EPUB. Cada sessão conta no máximo 90 minutos, e cada dia no máximo 180.</p>
+            <div class="sol-acoes"><button class="btn btn-primary btn-sm" id="crono-parar">Parar e registrar</button>${(livroDe(aberta.livro_id).arquivos || {}).pdf ? `<button class="btn btn-ghost btn-sm" data-abrir="${aberta.livro_id}|pdf">Abrir PDF</button>` : ""}<button class="link-btn" type="button" id="crono-desc">descartar esta leitura</button></div></section>`
+          : `<section class="cronometro"><h2>Cronômetro de leitura</h2><div class="tempo parado">0:00:00</div><p class="hint">Escolha um livro e toque em <b>Começar a ler</b>. Ao terminar, toque em <b>Parar e registrar</b> e diga a página em que parou. Cada 10 minutos lidos vale 1 ponto.</p></section>`;
+        const hist = minhas.sessoes.filter((x) => x.fim).sort((a, b) => new Date(b.inicio) - new Date(a.inicio)).slice(0, 10);
+        let gest = "";
+        if (g && todas) {
+          const lin = pessoas.filter((p) => p.status === "ativo").map((p) => { const ss = todas.sessoes.filter((x) => x.perfil_id === p.id && x.fim); const mi = minutos(doPeriodo(ss)); const ult = ss.sort((a, b) => new Date(b.inicio) - new Date(a.inicio))[0];
+            return { p, mi, pts: Math.floor(mi / 10), liv: todas.leituras.filter((x) => x.perfil_id === p.id && x.concluido_em).length, ult }; }).sort((a, b) => b.mi - a.mi);
+          gest = `<section class="painel"><h2>Leitura dos cooperados</h2><p class="hint">Só a coordenação e o CA veem esta lista. Últimos ${meses} meses.</p>
+            <div class="tabela-wrap"><table class="tabela"><thead><tr><th>Cooperado</th><th class="num">Tempo</th><th class="num">Pontos</th><th class="num">Livros lidos</th><th>Última leitura</th></tr></thead><tbody>
+            ${lin.map((x) => `<tr><td>${esc(x.p.nome)}</td><td class="num">${hm(x.mi)}</td><td class="num">${x.pts} de ${meta}</td><td class="num">${x.liv}</td><td>${x.ult ? `${data(x.ult.inicio)} · ${esc(livroDe(x.ult.livro_id).titulo || "")}${x.ult.pagina ? " · p. " + x.ult.pagina : ""}` : '<span class="hint">ainda não leu</span>'}</td></tr>`).join("")}
+            </tbody></table></div></section>`;
+        }
+        el.innerHTML = `
+          <div class="pag-cab"><div><p class="eyebrow">Educação cooperativista</p><h1>Biblioteca</h1></div>${g ? '<button class="btn btn-primary" id="lv-novo">Cadastrar livro</button>' : ""}</div>
+          <p class="muted">Livros que a cooperativa considera importantes para os cooperados, para ler aqui ou baixar em PDF ou EPUB. São só para uso dos cooperados: não repasse os arquivos. Educação, formação e informação é o 5º princípio do cooperativismo (Regimento, Título XIII).</p>
+          <div class="kpis"><div class="kpi"><span class="rot">Seus pontos de leitura</span><span class="val">${meusPts} de ${meta}</span><span class="det">últimos ${meses} meses · 1 ponto a cada 10 min</span></div>
+            <div class="kpi"><span class="rot">Tempo lido</span><span class="val">${hm(meuMin)}</span><span class="det">${peso > 0 ? `conta no IGCC com peso ${peso}` : "ainda sem peso no IGCC (definido pelo CA)"}</span></div>
+            <div class="kpi"><span class="rot">Livros lidos</span><span class="val">${minhas.leituras.filter((x) => x.concluido_em).length}</span><span class="det">de ${ativos.length} na biblioteca</span></div></div>
+          ${crono}
+          <section class="painel"><h2>Livros</h2>${ativos.length ? `<div class="livros">${ativos.map(cartao).join("")}</div>` : '<p class="vazio">Nenhum livro na biblioteca ainda.</p>'}</section>
+          ${hist.length ? `<section class="painel"><h2>Suas últimas leituras</h2><div class="tabela-wrap"><table class="tabela"><thead><tr><th>Dia</th><th>Livro</th><th class="num">Tempo contado</th><th class="num">Parou na página</th></tr></thead><tbody>
+            ${hist.map((x) => `<tr><td>${dataHora(x.inicio)}</td><td>${esc(livroDe(x.livro_id).titulo || "")}${x.nota ? `<span class="sub">${esc(x.nota)}</span>` : ""}</td><td class="num">${hm(x.minutos)}</td><td class="num">${x.pagina || "—"}</td></tr>`).join("")}</tbody></table></div></section>` : ""}
+          ${gest}`;
+        const recarregar = async () => { await paginas.biblioteca.render(el, ctx); if (ctx.atualizarContadores) ctx.atualizarContadores(); };
+        /* relógio */
+        if (aberta) { const t0 = new Date(aberta.inicio).getTime(); const tick = () => { const t = $("#crono-t"); if (!t || !t.isConnected) return clearInterval(iv); const ms = Date.now() - t0; t.textContent = relogio(ms);
+            if (ms > 90 * 60000) $("#crono-h").textContent = "Passou de 90 minutos: o que ler daqui em diante nesta sessão não conta. Pare e registre, e comece outra se continuar lendo."; };
+          const iv = setInterval(tick, 1000); }
+        /* abrir e baixar: a janela abre antes de buscar o link, para o celular não bloquear */
+        const abrir = async (id, fmt, baixar) => { const l = livroDe(id); const cam = (l.arquivos || {})[fmt]; if (!cam) return;
+          const nomeArq = `${l.titulo}.${fmt}`.replace(/[\\/:*?"<>|]/g, "");
+          if (API.demo) { const a = document.createElement("a"); a.href = cam; if (baixar) a.download = nomeArq; else a.target = "_blank"; document.body.appendChild(a); a.click(); a.remove(); return; }
+          const w = baixar ? null : window.open("", "_blank");
+          try { const u = await API.biblioteca.linkArquivo(cam, baixar ? nomeArq : null); if (w) w.location.href = u; else location.href = u; }
+          catch (er) { if (w) w.close(); toast("Não foi possível abrir o arquivo.", "err"); } };
+        const formLivro = (l) => { l = l || { ordem: 100 };
+          const m = UI.modal(`<h2>${l.id ? "Editar livro" : "Cadastrar livro"}</h2><div class="form-grid">
+            <div class="field full"><label for="lv-t">Título</label><input class="input" id="lv-t" maxlength="200" value="${esc(l.titulo || "")}"></div>
+            <div class="field"><label for="lv-a">Autor</label><input class="input" id="lv-a" maxlength="120" value="${esc(l.autor || "")}"></div>
+            <div class="field"><label for="lv-tr">Tradução</label><input class="input" id="lv-tr" maxlength="120" value="${esc(l.tradutor || "")}"></div>
+            <div class="field"><label for="lv-an">Ano / edição</label><input class="input" id="lv-an" maxlength="60" value="${esc(l.ano || "")}"></div>
+            <div class="field"><label for="lv-p">Páginas (do PDF)</label><input class="input" id="lv-p" type="number" min="1" value="${l.paginas || ""}"></div>
+            <div class="field"><label for="lv-tm">Tema</label><input class="input" id="lv-tm" maxlength="60" value="${esc(l.tema || "")}" placeholder="História do cooperativismo"></div>
+            <div class="field"><label for="lv-o">Ordem</label><input class="input" id="lv-o" type="number" min="1" value="${l.ordem || 100}"></div>
+            <div class="field full"><label for="lv-d">Por que ler (aparece para o cooperado)</label><input class="input" id="lv-d" maxlength="500" value="${esc(l.descricao || "")}"></div></div>
+            <p class="hint">Depois de salvar, envie os arquivos pelos links “enviar PDF” e “enviar EPUB” no cartão do livro. Eles ficam num depósito fechado, que só os cooperados acessam.</p>
+            <div class="modal-acoes">${l.id ? '<button class="btn btn-danger btn-sm" id="lv-del">Remover</button>' : ""}<button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="lv-ok">Salvar</button></div>`);
+          $("#lv-ok", m.el).onclick = async (ev) => { const d = { id: l.id, titulo: $("#lv-t", m.el).value.trim(), autor: $("#lv-a", m.el).value.trim() || null, tradutor: $("#lv-tr", m.el).value.trim() || null, ano: $("#lv-an", m.el).value.trim() || null,
+              paginas: Number($("#lv-p", m.el).value) || null, tema: $("#lv-tm", m.el).value.trim() || null, ordem: Number($("#lv-o", m.el).value) || 100, descricao: $("#lv-d", m.el).value.trim() || null };
+            if (d.titulo.length < 2) return toast("Informe o título.", "err"); if (!d.id) delete d.id;
+            if (await acao(ev.currentTarget, () => API.biblioteca.salvar(d), "Livro salvo.")) { m.fechar(); recarregar(); } };
+          if (l.id) $("#lv-del", m.el).onclick = async (ev) => { if (!(await confirmar("Remover este livro e os arquivos dele? O tempo de leitura registrado também sai.", "Remover"))) return; if (await acao(ev.currentTarget, () => API.biblioteca.excluir(l.id), "Livro removido.")) { m.fechar(); recarregar(); } }; };
+        const nv = $("#lv-novo"); if (nv) nv.onclick = () => formLivro(null);
+        const parar = $("#crono-parar");
+        if (parar) parar.onclick = () => { const l = livroDe(aberta.livro_id), r = leit(aberta.livro_id);
+          const m = UI.modal(`<h2>Registrar leitura</h2><p class="muted">${esc(l.titulo || "")} · ${hm((Date.now() - new Date(aberta.inicio)) / 60000)}</p><div class="form-grid">
+              <div class="field"><label for="rl-tipo">Onde você parou</label><select class="input" id="rl-tipo"><option value="pag">Página (PDF)</option><option value="pct">Porcentagem (EPUB)</option></select></div>
+              <div class="field"><label for="rl-v" id="rl-rot">Página</label><input class="input" id="rl-v" type="number" min="1" max="${l.paginas || 9999}" value="${r.pagina || ""}" inputmode="numeric"></div>
+              <div class="field full"><label for="rl-n">O que achou mais importante (opcional)</label><input class="input" id="rl-n" maxlength="300"></div></div>
+              <p class="hint">No EPUB a numeração de páginas muda com o tamanho da letra; por isso, informe a porcentagem que o leitor mostra.</p>
+              <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Continuar lendo</button><button class="btn btn-primary btn-sm" id="rl-ok">Registrar</button></div>`);
+          $("#rl-tipo", m.el).onchange = (e) => { const pct = e.target.value === "pct"; $("#rl-rot", m.el).textContent = pct ? "Porcentagem lida" : "Página"; $("#rl-v", m.el).max = pct ? 100 : l.paginas || 9999; $("#rl-v", m.el).value = ""; };
+          $("#rl-ok", m.el).onclick = async (ev) => { let v = Number($("#rl-v", m.el).value); const pct = $("#rl-tipo", m.el).value === "pct";
+            if (!v || v < 1) return toast(pct ? "Informe a porcentagem." : "Informe a página em que parou.", "err");
+            if (pct) { if (v > 100) return toast("A porcentagem vai até 100.", "err"); v = Math.max(1, Math.round(v / 100 * (l.paginas || 100))); }
+            const b = ev.currentTarget; b.disabled = true;
+            try { const res = await API.biblioteca.parar(aberta.id, v, $("#rl-n", m.el).value);
+              m.fechar(); toast(res.contados > 0 ? `Leitura registrada: ${hm(res.contados)}${res.contados < res.bruto ? " contados (limite de 90 min por sessão ou 180 por dia)" : ""}.` : "Leitura registrada. Menos de 2 minutos não conta tempo.");
+              if (l.paginas && v >= l.paginas && !r.concluido_em) await API.biblioteca.concluir(l.id, true).catch(() => {});
+              recarregar(); } catch (er) { b.disabled = false; toast(er.message, "err"); } }; };
+        const desc = $("#crono-desc");
+        if (desc) desc.onclick = async (ev) => { if (!(await confirmar("Descartar esta leitura? O tempo não será registrado.", "Descartar"))) return; if (await acao(ev.currentTarget, () => API.biblioteca.descartar(aberta.id), "Leitura descartada.")) recarregar(); };
+        el.onclick = async (e) => {
+          const b = e.target.closest("button"); if (!b) return;
+          if (b.dataset.edl) return formLivro(livros.find((l) => l.id === b.dataset.edl));
+          if (b.dataset.abrir) { const [id, f] = b.dataset.abrir.split("|"); return abrir(id, f, false); }
+          if (b.dataset.baixar) { const [id, f] = b.dataset.baixar.split("|"); return abrir(id, f, true); }
+          if (b.dataset.ler) { const id = b.dataset.ler; if (await acao(b, () => API.biblioteca.iniciar(id), "Cronômetro ligado. Boa leitura!")) { await recarregar(); const l = livroDe(id); if ((l.arquivos || {}).pdf && !API.demo) { /* o PDF abre pelo botão, para o celular não bloquear */ } const c = $("#crono"); if (c) c.scrollIntoView({ behavior: "smooth", block: "start" }); } return; }
+          if (b.dataset.concl) { const id = b.dataset.concl, sim = !leit(id).concluido_em; if (await acao(b, () => API.biblioteca.concluir(id, sim), sim ? "Parabéns pela leitura!" : "Marcação desfeita.")) recarregar(); return; }
+          if (b.dataset.env) { const [id, fmt] = b.dataset.env.split("|");
+            const inp = document.createElement("input"); inp.type = "file"; inp.accept = fmt === "pdf" ? "application/pdf,.pdf" : "application/epub+zip,.epub";
+            inp.onchange = async () => { const f = inp.files[0]; if (!f) return; if (!f.name.toLowerCase().endsWith("." + fmt)) return toast(`Escolha um arquivo .${fmt}.`, "err");
+              if (await acao(b, () => API.biblioteca.enviarArquivo(id, fmt, f), `${fmt.toUpperCase()} enviado.`)) recarregar(); };
+            inp.click(); return; }
+        };
+      }
+    },
+
     formacao: {
       titulo: "Formação",
+      subtitulo: "Cursos e trilhas",
       async render(el, ctx) {
         const eu = ctx.sessao.perfil, g = eu.status === "ativo" && (eu.papel === "coordenacao" || !!eu.conselho_adm);
         const [cursos, prog, todosProg, pessoas, igcc] = await Promise.all([API.formacao.listar(), API.formacao.meuProgresso().catch(() => []), g ? API.formacao.progressoTodos().catch(() => []) : [], g ? API.cooperados.listar().catch(() => []) : [], API.igcc && API.igcc.parametros ? API.igcc.parametros().catch(() => null) : null]);
@@ -1201,6 +1324,20 @@
   window.App.iniciar({
     area: "cooperado",
     paginas,
+    /* menu agrupado por assunto, seguindo o Estatuto e o Regimento: trabalho, conta, participação (órgãos sociais),
+       transparência (prestação de contas), educação (5º princípio, Título XIII), índice, documentos e perfil */
+    menu: [
+      "inicio",
+      { id: "trabalho", titulo: "Meu trabalho", itens: ["projetos", "horas", "experiencia"] },
+      "conta",
+      { id: "participacao", titulo: "Participação", itens: ["assembleias", "propostas", "denuncia"] },
+      { id: "transparencia-g", titulo: "Transparência", itens: ["transparencia", "demonstrativos", "mapa"] },
+      { id: "educacao", titulo: "Educação", itens: ["formacao", "biblioteca"] },
+      "indice",
+      { id: "docs", titulo: "Documentos", itens: ["documentos", "livro"] },
+      { id: "eu", titulo: "Perfil e ajuda", itens: ["perfil", "app", "manual"], separador: true }
+    ],
+    apelidos: { educacao: "formacao", leitura: "biblioteca", livros: "biblioteca" },
     async antes(ctx, el) {
       const p = ctx.sessao.perfil;
       if (p.status === "ativo") return false;

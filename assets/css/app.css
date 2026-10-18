@@ -429,3 +429,23 @@ body.travado > *:not(.trava):not(.toast-wrap) { filter: blur(14px); pointer-even
 .curso p { margin: 0; }
 .curso-cab { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .curso-prox { border-color: var(--sapphire); box-shadow: 0 0 0 1px var(--sapphire) inset; }
+
+/* abas dos grupos do menu (acima da página) */
+.grupo-abas { display: flex; gap: 0.35rem; margin: 0 0 1.3rem; padding: 0.3rem; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; width: max-content; max-width: 100%; }
+.grupo-abas::-webkit-scrollbar { display: none; }
+.grupo-abas a { flex: none; display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.45rem 0.95rem; border-radius: 999px; color: var(--muted); text-decoration: none; font: 600 0.88rem var(--body); white-space: nowrap; }
+.grupo-abas a:hover { color: var(--fg); }
+.grupo-abas a[aria-current="page"] { color: var(--fg); background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line-2); }
+.grupo-abas .sinal { margin-left: 0.2rem; }
+
+/* biblioteca e cronômetro de leitura */
+.livros { display: grid; gap: 0.9rem; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.livro { border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem; background: var(--panel-2); display: grid; gap: 0.5rem; align-content: start; }
+.livro h3 { margin: 0; font-size: 1.05rem; }
+.livro p { margin: 0; }
+.livro-barra { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.livro-barra i { display: block; height: 100%; background: var(--cyan); }
+.cronometro { border: 1px solid var(--cyan); border-radius: var(--radius); padding: 1rem 1.1rem; background: var(--panel-2); display: grid; gap: 0.6rem; margin-bottom: 1.2rem; }
+.cronometro .tempo { font: 600 2.4rem/1 var(--mono, monospace); letter-spacing: 0.02em; }
+.cronometro .tempo.parado { color: var(--muted); }
+.cronometro { scroll-margin-top: 140px; }

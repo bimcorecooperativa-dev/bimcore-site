@@ -1059,7 +1059,7 @@
         }
       },
       igcc: {
-        _par(s) { s.igcc_parametros = s.igcc_parametros || { peso_eficiencia: 30, peso_pares: 25, peso_retrabalho: 15, peso_assembleia: 15, peso_contrib: 15, peso_formacao: 0, meses: 12, meses_retrabalho: 24, resolucao: null }; s.igcc_registros = s.igcc_registros || []; return s.igcc_parametros; },
+        _par(s) { s.igcc_parametros = s.igcc_parametros || { peso_eficiencia: 30, peso_pares: 25, peso_retrabalho: 15, peso_assembleia: 15, peso_contrib: 15, peso_formacao: 0, peso_leitura: 0, meta_leitura: 60, meses: 12, meses_retrabalho: 24, resolucao: null }; s.igcc_registros = s.igcc_registros || []; return s.igcc_parametros; },
         _calc(s, pid) {
           const par = this._par(s); const hoje = new Date(); const ini = new Date(hoje); ini.setMonth(ini.getMonth() - par.meses); const iniR = new Date(hoje); iniR.setMonth(iniR.getMonth() - par.meses_retrabalho);
           const di = ini.toISOString().slice(0, 10), dr = iniR.toISOString().slice(0, 10); const regs = s.igcc_registros.filter((r) => r.perfil_id === pid);
@@ -1082,11 +1082,14 @@
           const fun = ["todos"]; if (pf.conselho_adm) fun.push("ca"); if (pf.conselho_fiscal) fun.push("cf"); if (pf.tesouraria) fun.push("tesouraria"); if (pf.papel === "coordenacao") fun.push("coordenacao");
           const alvo = (s.cursos || []).filter((c) => c.ativo !== false && c.prioridade <= 2 && ((c.publicos || ["todos"]).some((x) => fun.includes(x)) || (c.cooperados || []).includes(pid)));
           const fOk = alvo.filter((c) => (s.cursos_prog || []).some((g) => g.perfil_id === pid && g.curso_id === c.id && g.status === "concluido" && g.conferencia === "conferido")).length;
+          const desde = Date.now() - (par.meses || 12) * 30.44 * 864e5, lMin = (s.leit_sess || []).filter((x) => x.perfil_id === pid && x.fim && new Date(x.inicio) >= desde).reduce((t, x) => t + Number(x.minutos || 0), 0);
+          const lPts = Math.floor(lMin / 10), lMeta = Number(par.meta_leitura || 60), sLei = lMeta > 0 ? Math.min(100, Math.round(lPts / lMeta * 1000) / 10) : null;
+          const lLiv = (s.leituras || []).filter((x) => x.perfil_id === pid && x.concluido_em).length;
           const sFor = alvo.length ? Math.min(100, Math.round(fOk / alvo.length * 1000) / 10) : null;
-          let tot = 0, pes = 0; [[sEf, par.peso_eficiencia], [sPar, par.peso_pares], [sRet, par.peso_retrabalho], [sAsm, par.peso_assembleia], [Number(par.peso_formacao || 0) > 0 ? sFor : null, par.peso_formacao || 0]].forEach(([v, w]) => { if (v != null) { tot += v * w; pes += Number(w); } });
+          let tot = 0, pes = 0; [[sEf, par.peso_eficiencia], [sPar, par.peso_pares], [sRet, par.peso_retrabalho], [sAsm, par.peso_assembleia], [Number(par.peso_formacao || 0) > 0 ? sFor : null, par.peso_formacao || 0], [Number(par.peso_leitura || 0) > 0 ? sLei : null, par.peso_leitura || 0]].forEach(([v, w]) => { if (v != null) { tot += v * w; pes += Number(w); } });
           if (pes > 0 || nCon > 0) { tot += sCon * par.peso_contrib; pes += Number(par.peso_contrib); }
           return { indice: pes ? Math.round(tot / pes * 10) / 10 : null, eficiencia: { nota: sEf, previstas: prev, realizadas: real }, pares: { nota: sPar, avaliacoes: av.length }, retrabalho: { nota: sRet, apontamentos: nRet },
-            assembleias: { nota: sAsm, realizadas: asm.length, presente: pres, reunioes_disciplina: nDisc }, contribuicoes: { nota: sCon, pontos: nCon }, formacao: { nota: sFor, indicadas: alvo.length, conferidas: fOk }, periodo_meses: par.meses, periodo_retrabalho: par.meses_retrabalho };
+            assembleias: { nota: sAsm, realizadas: asm.length, presente: pres, reunioes_disciplina: nDisc }, contribuicoes: { nota: sCon, pontos: nCon }, formacao: { nota: sFor, indicadas: alvo.length, conferidas: fOk }, leitura: { nota: sLei, minutos: lMin, pontos: lPts, meta: lMeta, livros: lLiv }, periodo_meses: par.meses, periodo_retrabalho: par.meses_retrabalho };
         },
         async meu() { const s = ler(); const u = exigir(s); return espera(this._calc(s, u.id)); },
         async todos() { const s = ler(); const u = exigir(s); if (!(u.conselho_adm || u.conselho_fiscal)) falha("O índice completo é visto pelo Conselho de Administração e pelo Conselho Fiscal."); return espera(s.perfis.filter((p) => p.status === "ativo").map((p) => ({ perfil_id: p.id, nome: p.nome, dados: this._calc(s, p.id) })).sort((a, b) => a.nome.localeCompare(b.nome))); },
@@ -1179,6 +1182,35 @@
         async lembreteAte(chave) { const s = ler(); const u = exigir(s); const x = ((s.lembretes || {})[u.id] || {})[chave]; return espera(x || null); },
         async marcarLembrete(chave, quando) { const s = ler(); const u = exigir(s); s.lembretes = s.lembretes || {}; s.lembretes[u.id] = s.lembretes[u.id] || {}; s.lembretes[u.id][chave] = quando || new Date().toISOString(); gravar(s); return espera(true); },
         async adiarLembrete(chave, dias) { const s = ler(); const u = exigir(s); s.lembretes = s.lembretes || {}; s.lembretes[u.id] = s.lembretes[u.id] || {}; s.lembretes[u.id][chave] = new Date(Date.now() + dias * 864e5).toISOString(); gravar(s); return espera(true); }
+      },
+      biblioteca: {
+        _st(s) { s.livros = s.livros || [{ id: "l1", titulo: "Os 28 Tecelões de Rochdale", autor: "George Jacob Holyoake", tradutor: "Archimedes Taborda", ano: "1933 (edição atualizada)", descricao: "A história dos tecelões que fundaram, em 1844, a cooperativa de Rochdale, de onde vêm os princípios do cooperativismo.", tema: "História do cooperativismo", paginas: 79, arquivos: {}, ordem: 10, ativo: true }];
+          s.leit_sess = s.leit_sess || []; s.leituras = s.leituras || []; },
+        _g(u) { return u.status === "ativo" && (u.papel === "coordenacao" || !!u.conselho_adm); },
+        async listar() { const s = ler(); exigir(s); this._st(s); return espera(JSON.parse(JSON.stringify(s.livros))); },
+        async salvar(l) { const s = ler(); const u = exigir(s); if (!this._g(u)) falha("Só a coordenação ou o CA cadastram livros."); this._st(s);
+          if (l.id) Object.assign(s.livros.find((x) => x.id === l.id), l); else s.livros.push({ ativo: true, ordem: 100, arquivos: {}, ...l, id: novoId(), criado_nome: u.nome }); gravar(s); return espera(true); },
+        async excluir(id) { const s = ler(); const u = exigir(s); if (!this._g(u)) falha("permission denied"); this._st(s); s.livros = s.livros.filter((x) => x.id !== id); s.leit_sess = s.leit_sess.filter((x) => x.livro_id !== id); s.leituras = s.leituras.filter((x) => x.livro_id !== id); gravar(s); return espera(true); },
+        async enviarArquivo(livro, formato, arquivo) { const s = ler(); const u = exigir(s); if (!this._g(u)) falha("Só a coordenação ou o CA enviam livros."); if (arquivo.size > 1.5 * 1024 * 1024) falha("No modo demonstração o limite é 1,5 MB.");
+          const url = await new Promise((ok, erro) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = erro; r.readAsDataURL(arquivo); });
+          this._st(s); const l = s.livros.find((x) => x.id === livro); l.arquivos = { ...(l.arquivos || {}), [formato]: url }; gravar(s); return espera(true); },
+        async linkArquivo(caminho) { return caminho; },
+        async aberta() { const s = ler(); const u = exigir(s); this._st(s); return espera(s.leit_sess.find((x) => x.perfil_id === u.id && !x.fim) || null); },
+        async iniciar(livro) { const s = ler(); const u = exigir(s); this._st(s); if (s.leit_sess.some((x) => x.perfil_id === u.id && !x.fim)) falha("Já existe um cronômetro ligado. Pare ou descarte a leitura em andamento.");
+          const id = novoId(); s.leit_sess.push({ id, perfil_id: u.id, livro_id: livro, inicio: new Date().toISOString(), fim: null }); gravar(s); return espera(id); },
+        async parar(sessao, pagina, nota) { const s = ler(); const u = exigir(s); this._st(s); const x = s.leit_sess.find((k) => k.id === sessao && k.perfil_id === u.id && !k.fim); if (!x) falha("Leitura não encontrada ou já encerrada.");
+          if (!pagina || pagina < 1) falha("Informe a página em que você parou."); const l = s.livros.find((k) => k.id === x.livro_id); if (l && l.paginas && pagina > l.paginas) falha(`O livro tem ${l.paginas} páginas.`);
+          const bruto = (Date.now() - new Date(x.inicio)) / 60000, dia = new Date(x.inicio).toLocaleDateString("sv", { timeZone: "America/Sao_Paulo" });
+          const hoje = s.leit_sess.filter((k) => k.perfil_id === u.id && k.fim && new Date(k.inicio).toLocaleDateString("sv", { timeZone: "America/Sao_Paulo" }) === dia).reduce((t, k) => t + Number(k.minutos || 0), 0);
+          let conta = Math.max(0, Math.min(bruto, 90, 180 - hoje)); if (bruto < 2) conta = 0;
+          Object.assign(x, { fim: new Date().toISOString(), minutos: Math.round(conta * 10) / 10, pagina, nota: (nota || "").trim() || null });
+          let r = s.leituras.find((k) => k.perfil_id === u.id && k.livro_id === x.livro_id); if (!r) { r = { perfil_id: u.id, livro_id: x.livro_id }; s.leituras.push(r); } r.pagina = Math.max(r.pagina || 0, pagina);
+          gravar(s); return espera({ bruto: Math.round(bruto * 10) / 10, contados: x.minutos, limite_dia: bruto >= 2 && conta < Math.min(bruto, 90) }); },
+        async descartar(sessao) { const s = ler(); const u = exigir(s); this._st(s); s.leit_sess = s.leit_sess.filter((k) => !(k.id === sessao && k.perfil_id === u.id && !k.fim)); gravar(s); return espera(true); },
+        async concluir(livro, sim) { const s = ler(); const u = exigir(s); this._st(s); let r = s.leituras.find((k) => k.perfil_id === u.id && k.livro_id === livro); if (!r) { r = { perfil_id: u.id, livro_id: livro }; s.leituras.push(r); }
+          r.concluido_em = sim ? new Date().toLocaleDateString("sv", { timeZone: "America/Sao_Paulo" }) : null; gravar(s); return espera(true); },
+        async minhas() { const s = ler(); const u = exigir(s); this._st(s); return espera(JSON.parse(JSON.stringify({ sessoes: s.leit_sess.filter((x) => x.perfil_id === u.id), leituras: s.leituras.filter((x) => x.perfil_id === u.id) }))); },
+        async todas() { const s = ler(); exigir(s); this._st(s); return espera(JSON.parse(JSON.stringify({ sessoes: s.leit_sess, leituras: s.leituras }))); }
       },
       formacao: {
         _st(s) { s.cursos = s.cursos || [
@@ -1922,6 +1954,25 @@
         async lembreteAte(chave) { const uid = await meuId(); const r = await sb.from("lembretes_adiados").select("ate").eq("perfil_id", uid).eq("chave", chave).maybeSingle(); return r.error || !r.data ? null : r.data.ate; },
         async marcarLembrete(chave, quando) { const uid = await meuId(); ok(await sb.from("lembretes_adiados").upsert({ perfil_id: uid, chave, ate: quando || new Date().toISOString() })); return true; },
         async adiarLembrete(chave, dias) { const uid = await meuId(); ok(await sb.from("lembretes_adiados").upsert({ perfil_id: uid, chave, ate: new Date(Date.now() + dias * 864e5).toISOString() })); return true; }
+      },
+      biblioteca: {
+        async listar() { const r = await sb.from("livros").select("*").order("ordem"); return r.error ? [] : r.data; },
+        async salvar(l) { const x = { ...l }; delete x.id; delete x.criado_em; if (l.id) ok(await sb.from("livros").update(x).eq("id", l.id)); else ok(await sb.from("livros").insert(x)); return true; },
+        async excluir(id) { const l = ok(await sb.from("livros").select("arquivos").eq("id", id).single()); const cams = Object.values(l.arquivos || {}); if (cams.length) await sb.storage.from("biblioteca").remove(cams); ok(await sb.from("livros").delete().eq("id", id)); return true; },
+        async enviarArquivo(livro, formato, arquivo) { if (arquivo.size > 52428800) falha("O arquivo passa de 50 MB.");
+          const caminho = `${livro}/${formato}-${Date.now()}.${formato}`;
+          ok(await sb.storage.from("biblioteca").upload(caminho, arquivo, { upsert: false, contentType: formato === "epub" ? "application/epub+zip" : "application/pdf" }));
+          const l = ok(await sb.from("livros").select("arquivos").eq("id", livro).single()); const antigo = (l.arquivos || {})[formato];
+          ok(await sb.from("livros").update({ arquivos: { ...(l.arquivos || {}), [formato]: caminho } }).eq("id", livro));
+          if (antigo) await sb.storage.from("biblioteca").remove([antigo]); return true; },
+        async linkArquivo(caminho, nomeBaixar) { const r = await sb.storage.from("biblioteca").createSignedUrl(caminho, 600, nomeBaixar ? { download: nomeBaixar } : undefined); ok(r); return r.data.signedUrl; },
+        async aberta() { const uid = await meuId(); const r = await sb.from("leitura_sessoes").select("*").eq("perfil_id", uid).is("fim", null).maybeSingle(); return r.error ? null : r.data; },
+        async iniciar(livro) { const r = await sb.rpc("leitura_iniciar", { p_livro: livro }); ok(r); return r.data; },
+        async parar(sessao, pagina, nota) { const r = await sb.rpc("leitura_parar", { p_sessao: sessao, p_pagina: pagina, p_nota: nota || null }); ok(r); return r.data; },
+        async descartar(sessao) { ok(await sb.rpc("leitura_descartar", { p_sessao: sessao })); return true; },
+        async concluir(livro, sim) { ok(await sb.rpc("leitura_concluir", { p_livro: livro, p_concluido: !!sim })); return true; },
+        async minhas() { const uid = await meuId(); const [a, b] = await Promise.all([sb.from("leitura_sessoes").select("*").eq("perfil_id", uid).order("inicio", { ascending: false }).limit(500), sb.from("leituras").select("*").eq("perfil_id", uid)]); return { sessoes: a.data || [], leituras: b.data || [] }; },
+        async todas() { const [a, b] = await Promise.all([sb.from("leitura_sessoes").select("*").order("inicio", { ascending: false }).limit(5000), sb.from("leituras").select("*")]); return { sessoes: a.data || [], leituras: b.data || [] }; }
       },
       formacao: {
         async listar() { const r = await sb.from("cursos_indicados").select("*").order("prioridade").order("ordem"); return r.error ? [] : r.data; },
