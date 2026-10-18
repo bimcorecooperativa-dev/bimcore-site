@@ -1,7 +1,7 @@
 /* BIMCORE — app da área do cooperado (PWA).
    Sempre busca a versão mais nova na rede; o cache só serve quando o celular está sem internet.
    Nada do banco (Supabase) nem de outros sites passa por aqui: dados pessoais não ficam guardados no aparelho. */
-const CACHE = "bimcore-app-v4";
+const CACHE = "bimcore-app-v5";
 const OFFLINE = "/offline.html";
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll([OFFLINE, "/assets/app/icone-192.png"])).then(() => self.skipWaiting())); });
 self.addEventListener("activate", (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });

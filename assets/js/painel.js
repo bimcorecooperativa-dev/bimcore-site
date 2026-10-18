@@ -1329,9 +1329,9 @@
     menu: [
       "inicio",
       { id: "trabalho", titulo: "Meu trabalho", itens: ["projetos", "horas", "experiencia"] },
-      "conta",
+      { id: "minha-conta", titulo: "Minha conta", itens: ["conta", "demonstrativos"] },
       { id: "participacao", titulo: "Participação", itens: ["assembleias", "propostas", "denuncia"] },
-      { id: "transparencia-g", titulo: "Transparência", itens: ["transparencia", "demonstrativos", "mapa"] },
+      { id: "transparencia-g", titulo: "Transparência", itens: ["transparencia", "mapa"] },
       { id: "educacao", titulo: "Educação", itens: ["formacao", "biblioteca"] },
       "indice",
       { id: "docs", titulo: "Documentos", itens: ["documentos", "livro"] },
