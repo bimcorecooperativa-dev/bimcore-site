@@ -1183,6 +1183,11 @@
         async marcarLembrete(chave, quando) { const s = ler(); const u = exigir(s); s.lembretes = s.lembretes || {}; s.lembretes[u.id] = s.lembretes[u.id] || {}; s.lembretes[u.id][chave] = quando || new Date().toISOString(); gravar(s); return espera(true); },
         async adiarLembrete(chave, dias) { const s = ler(); const u = exigir(s); s.lembretes = s.lembretes || {}; s.lembretes[u.id] = s.lembretes[u.id] || {}; s.lembretes[u.id][chave] = new Date(Date.now() + dias * 864e5).toISOString(); gravar(s); return espera(true); }
       },
+      push: {
+        async chave() { return null; },
+        async inscrever() { return espera(true); },
+        async remover() { return espera(true); }
+      },
       biblioteca: {
         _st(s) { s.livros = s.livros || [{ id: "l1", titulo: "Os 28 Tecelões de Rochdale", autor: "George Jacob Holyoake", tradutor: "Archimedes Taborda", ano: "1933 (edição atualizada)", descricao: "A história dos tecelões que fundaram, em 1844, a cooperativa de Rochdale, de onde vêm os princípios do cooperativismo.", tema: "História do cooperativismo", paginas: 79, arquivos: {}, ordem: 10, ativo: true }];
           s.leit_sess = s.leit_sess || []; s.leituras = s.leituras || []; },
@@ -1954,6 +1959,11 @@
         async lembreteAte(chave) { const uid = await meuId(); const r = await sb.from("lembretes_adiados").select("ate").eq("perfil_id", uid).eq("chave", chave).maybeSingle(); return r.error || !r.data ? null : r.data.ate; },
         async marcarLembrete(chave, quando) { const uid = await meuId(); ok(await sb.from("lembretes_adiados").upsert({ perfil_id: uid, chave, ate: quando || new Date().toISOString() })); return true; },
         async adiarLembrete(chave, dias) { const uid = await meuId(); ok(await sb.from("lembretes_adiados").upsert({ perfil_id: uid, chave, ate: new Date(Date.now() + dias * 864e5).toISOString() })); return true; }
+      },
+      push: {
+        async chave() { const r = await sb.rpc("push_chave_publica"); ok(r); return r.data; },
+        async inscrever(d) { ok(await sb.from("push_inscricoes").upsert({ ...d, perfil_id: await meuId() })); return true; },
+        async remover(endpoint) { ok(await sb.from("push_inscricoes").delete().eq("endpoint", endpoint)); return true; }
       },
       biblioteca: {
         async listar() { const r = await sb.from("livros").select("*").order("ordem"); return r.error ? [] : r.data; },

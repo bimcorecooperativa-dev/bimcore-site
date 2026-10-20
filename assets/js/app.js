@@ -107,6 +107,8 @@
         document.querySelectorAll("[data-subsinal]").forEach((el) => marcar(el, ctx.sinais[el.dataset.subsinal]));
         document.querySelectorAll("[data-subcont]").forEach((el) => { const n = Number(ctx.contagens[el.dataset.subcont]) || 0; el.textContent = n; el.hidden = !n; });
         const sb = document.querySelector("#app-nav-sinal"); if (sb) { sb.hidden = !pior; sb.className = "sinal" + (pior ? " " + pior : ""); }
+        // número no ícone do app: contadores + avisos (cada aviso conta 1)
+        if (window.Push) window.Push.badge(chaves.reduce((t, k) => t + (Number(ctx.contagens[k]) || 0) + (ctx.sinais[k] ? 1 : 0), 0));
       }
     };
 

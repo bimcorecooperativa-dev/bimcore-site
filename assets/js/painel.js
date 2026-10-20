@@ -92,6 +92,22 @@
     return `<div class="notice balao-bio"><b>Entrar com Face ID ou digital</b><p style="margin:.3rem 0 .5rem">O app bloqueia depois de 5 minutos sem uso. Ative a biometria para desbloquear sem digitar a senha.</p>
       <button class="btn btn-primary btn-sm" id="bioc-on" type="button">Ativar agora</button> <button class="link-botao" id="bioc-depois" type="button">Agora não</button></div>`;
   }
+  /* No app, convite para ativar as notificações (uma vez por aparelho; "agora não" esconde por 30 dias) */
+  document.addEventListener("click", async (e) => {
+    const on = e.target.closest("#notc-on"), dep = e.target.closest("#notc-depois"); if (!on && !dep) return;
+    const x = (on || dep).closest(".balao-notif");
+    if (dep) { if (x) x.remove(); try { localStorage.setItem("bimcore-notif-depois", String(Date.now() + 30 * 864e5)); } catch (err) {} return; }
+    on.disabled = true;
+    try { await window.Push.ativar(); if (x) x.remove(); UI.toast("Notificações ativadas. Você vai receber os avisos da BIMCORE neste celular."); }
+    catch (err) { on.disabled = false; UI.toast(err.message, "err"); }
+  });
+  async function balaoNotif() {
+    const P = window.Push; if (!P || !window.Sessao || !window.Sessao.APP || !P.suportado() || P.permissao() === "denied") return "";
+    if (await P.ativado()) return "";
+    try { if (Number(localStorage.getItem("bimcore-notif-depois") || 0) > Date.now()) return ""; } catch (e) {}
+    return `<div class="notice balao-notif"><b>Receba os avisos no celular</b><p style="margin:.3rem 0 .5rem">Comunicados, assembleias e as suas pendências chegam como notificação, e o ícone do app mostra quantas pendências você tem.</p>
+      <button class="btn btn-primary btn-sm" id="notc-on" type="button">Ativar notificações</button> <button class="link-botao" id="notc-depois" type="button">Agora não</button></div>`;
+  }
   async function balaoApp() {
     const celular = /Android|iPhone|iPad|iPod/.test(navigator.userAgent || "");
     const app = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
@@ -136,6 +152,7 @@
           ${await balaoCadastro(ctx)}
           ${await balaoApp()}
           ${await balaoBio(ctx)}
+          ${await balaoNotif()}
           ${await balaoSindicato(ctx)}
           ${await avisoDocumentos()}
           ${await window.Assembleias.anuncio()}
@@ -1212,7 +1229,22 @@
             ${!app ? (ios ? `<h2>iPhone</h2>${passosIos}` : android ? `<h2>Android</h2>${passosAndroid}` : `<div class="app-qr"><div id="app-qr" aria-label="QR code para abrir no celular"></div><p>Aponte a câmera do celular para o código, ou abra <b>bimcore.com.br/painel.html</b> no navegador do celular. Depois siga os passos abaixo.</p></div>
               <h2>Android</h2>${passosAndroid}<h2>iPhone</h2>${passosIos}`) : ""}
             <p class="hint">Os dados continuam no servidor da cooperativa; o app não guarda seus dados no aparelho. Para sair, use Sair no menu. Se perder o celular, troque a senha em Meu perfil.</p>
+          </section>
+          <section class="painel" id="notif"><h2>Notificações e número no ícone</h2>
+            <p class="muted">Receba no celular, mesmo com o app fechado: comunicados, assembleias convocadas e salas abertas, documentos novos ou atualizados, e as suas pendências (dados cadastrais, certificados e horas devolvidas). O ícone do app mostra o número de pendências, como nos aplicativos de mensagem. Os avisos continuam também dentro do site.</p>
+            <div id="notif-estado"><p class="carregando">Verificando…</p></div>
+            <p class="hint">A autorização vale para este aparelho. No iPhone, as notificações só funcionam no app instalado na tela inicial (iOS 16.4 ou mais novo). Para parar, toque em Desativar ou desligue nos ajustes do celular.</p>
           </section>`;
+        const notif = async () => { const box = $("#notif-estado"); if (!box || !window.Push) return; const P = window.Push;
+          if (P.precisaInstalar()) { box.innerHTML = '<div class="notice warn">Instale o app na tela inicial (passos acima) e abra por ele para ativar as notificações.</div>'; return; }
+          if (!P.suportado()) { box.innerHTML = '<div class="notice">Este navegador não recebe notificações. No celular, use o app instalado.</div>'; return; }
+          if (P.permissao() === "denied") { box.innerHTML = '<div class="notice warn">As notificações estão bloqueadas para a BIMCORE neste aparelho. Libere nos ajustes do celular (ou do navegador) e volte aqui.</div>'; return; }
+          const on = await P.ativado();
+          box.innerHTML = on ? '<p><span class="selo ok">ativadas neste aparelho</span></p><div class="sol-acoes"><button class="btn btn-ghost btn-sm" id="notif-off">Desativar</button></div>'
+            : '<div class="sol-acoes"><button class="btn btn-primary" id="notif-on">Ativar notificações</button></div>';
+          const bo = $("#notif-on"); if (bo) bo.onclick = async () => { bo.disabled = true; try { await P.ativar(); toast("Notificações ativadas neste aparelho."); } catch (er) { toast(er.message, "err"); } notif(); };
+          const bf = $("#notif-off"); if (bf) bf.onclick = async () => { bf.disabled = true; await P.desativar(); toast("Notificações desativadas neste aparelho."); notif(); }; };
+        notif();
         const bt = $("#app-instalar");
         const mostrar = () => { if (bt) bt.hidden = !window.BIMCORE_INSTALAR; };
         document.addEventListener("bimcore-instalavel", mostrar);
