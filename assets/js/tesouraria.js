@@ -4,6 +4,8 @@
   "use strict";
   const UI = window.UI, API = window.API, Fin = window.Fin;
   const { $, esc, data, dataHora, moeda, acao, confirmar, toast } = UI;
+  const MARCA_MENSAL = /custo mensal/i;
+  const ehMensal = (d) => !!(d && (d.mensal || MARCA_MENSAL.test(d.observacao || "")));
   const CATEGORIAS = ["Abertura e registro", "Conselho profissional", "Material e divulgação", "Capacitação", "Software e assinaturas", "Capital social", "Taxas e encargos", "Outras"];
   const TIPOS_FORM = [
     ["despesa", "Pagamento de despesa"], ["aporte", "Aporte à cooperativa (sem despesa)"], ["contribuicao", "Contribuição mensal"],
@@ -421,7 +423,7 @@
           ${base.despesas.length ? `<div class="tabela-wrap"><table class="tabela">
             <thead><tr><th>Data</th><th>Descrição</th><th class="num">Valor</th><th>Cobrança</th><th class="num">Pago por cooperados</th><th></th></tr></thead>
             <tbody>${base.despesas.slice().sort((a, b) => (a.data ? 0 : 1) - (b.data ? 0 : 1) || String(a.data || "").localeCompare(String(b.data || "")) || String(a.criado_em || "").localeCompare(String(b.criado_em || ""))).map((d) => `<tr><td>${d.data ? data(d.data) : '<span class="selo warn">sem data</span>'}</td>
-              <td>${esc(d.descricao)}${d.mensal ? ' <span class="selo info">mensal</span>' : ""}<span class="sub">${esc(d.categoria || "")} · ${d.fonte === "fundo" ? esc(((window.Sobras && window.Sobras.FUNDOS[d.fundo]) || {}).nome || "fundo") : d.fonte === "caixa" ? "caixa geral" : "os 20%"}${d.observacao ? " · " + esc(d.observacao) : ""}${d.aprovacao ? ` · aprovada por ${esc((DOC_APROV[d.aprovacao.tipo] || {}).nome || "documento")}${d.aprovacao.numero ? " (" + esc(d.aprovacao.numero) + ")" : ""} de ${data(d.aprovacao.data)}${d.aprovacao.arquivo ? ` <button class="link-btn" type="button" data-aprov="${d.id}">ver documento</button>` : d.aprovacao.assembleia_id ? ' <a href="#assembleias">ata no site</a>' : ""}` : ""}</span></td>
+              <td>${esc(d.descricao)}${ehMensal(d) ? ' <span class="selo info">mensal</span>' : ""}<span class="sub">${esc(d.categoria || "")} · ${d.fonte === "fundo" ? esc(((window.Sobras && window.Sobras.FUNDOS[d.fundo]) || {}).nome || "fundo") : d.fonte === "caixa" ? "caixa geral" : "os 20%"}${d.observacao ? " · " + esc(d.observacao) : ""}${d.aprovacao ? ` · aprovada por ${esc((DOC_APROV[d.aprovacao.tipo] || {}).nome || "documento")}${d.aprovacao.numero ? " (" + esc(d.aprovacao.numero) + ")" : ""} de ${data(d.aprovacao.data)}${d.aprovacao.arquivo ? ` <button class="link-btn" type="button" data-aprov="${d.id}">ver documento</button>` : d.aprovacao.assembleia_id ? ' <a href="#assembleias">ata no site</a>' : ""}` : ""}</span></td>
               <td class="num">${moeda(d.valor)}</td>
               <td>${d.cobrar ? `Cobrada de ${d.participantes.length}<span class="sub">${moeda(Fin.centavos(d.valor / Math.max(1, d.participantes.length)))} cada</span>` : "Não cobrada<span class=\"sub\">quem pagou fica com aporte</span>"}</td>
               <td class="num">${moeda(pagoPor(d.id))}</td>
@@ -627,7 +629,7 @@
           <div class="field full"><label for="fd-desc">Descrição</label><input class="input" id="fd-desc" maxlength="200" value="${esc(x ? x.descricao || "" : "")}"></div>
           <div class="field full"><label for="fd-cat">Categoria</label><select class="input" id="fd-cat">${CATEGORIAS.map((c) => `<option ${x && x.categoria === c ? "selected" : ""}>${c}</option>`).join("")}</select></div>
         </div>
-        <label class="ciente"><input type="checkbox" id="fd-mensal" ${x && x.mensal ? "checked" : ""}> <span><b>Custo mensal</b> (assinatura, mensalidade): todo mês a despesa aparece com o botão <b>Lançar o próximo mês</b>, que já vem preenchido para conferir o valor e quem pagou. Desmarque quando o custo for cancelado.</span></label>
+        <label class="ciente"><input type="checkbox" id="fd-mensal" ${ehMensal(x) ? "checked" : ""}> <span><b>Custo mensal</b> (assinatura, mensalidade): todo mês a despesa aparece com o botão <b>Lançar o próximo mês</b>, que já vem preenchido para conferir o valor e quem pagou. Desmarque quando o custo for cancelado.</span></label>
         <label class="ciente"><input type="checkbox" id="fd-cobrar" ${d && d.cobrar ? "checked" : ""}> <span>Cobrar dos cooperados (chamada aprovada pela Assembleia ou pelo Conselho, art. 9º, I)</span></label>
         <div id="fd-part" class="part-lista" ${d && d.cobrar ? "" : "hidden"}>
           <p class="hint">Quem divide esta despesa: <b id="fd-cada"></b></p>
@@ -664,7 +666,9 @@
         </fieldset>
         <div class="field"><label for="fd-obs">Observação</label><input class="input" id="fd-obs" maxlength="500" value="${esc(x ? x.observacao || "" : "")}"></div>
         <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="fd-ok">Salvar</button></div>`);
-      if (!d && pre && pre.pagadores) pre.pagadores.forEach((pg) => { $("#fd-pags", m.el).insertAdjacentHTML("beforeend", linhaPag()); const l = [...m.el.querySelectorAll(".pag-linha")].pop(); l.querySelector("[data-pg-coop]").value = pg.coop; l.querySelector("[data-pg-valor]").value = pg.valor ? brl(pg.valor) : ""; });
+      if (!d && pre && pre.pagadores) pre.pagadores.forEach((pg) => { $("#fd-pags", m.el).insertAdjacentHTML("beforeend", linhaPag()); const l = [...m.el.querySelectorAll(".pag-linha")].pop(); const sel = l.querySelector("[data-pg-coop]");
+        if (![...sel.options].some((o) => o.value === pg.coop)) { const c = coops.find((y) => y.id === pg.coop); if (c) sel.insertAdjacentHTML("beforeend", `<option value="${c.id}">${esc(c.nome)}</option>`); }
+        sel.value = pg.coop; l.querySelector("[data-pg-valor]").value = pg.valor ? brl(pg.valor) : ""; });
       const novosPags = () => [...m.el.querySelectorAll(".pag-linha")].map((l) => ({ coop: l.querySelector("[data-pg-coop]").value, valor: lerValor(l.querySelector("[data-pg-valor]").value) }));
       const somaJa = ja.reduce((t, p) => t + Number(p.valor), 0);
       $("#fd-mais", m.el).onclick = () => { $("#fd-pags", m.el).insertAdjacentHTML("beforeend", linhaPag()); atualiza(); };
@@ -703,7 +707,7 @@
         const reg = { data: $("#fd-data", m.el).value || null, descricao: $("#fd-desc", m.el).value.trim(), categoria: $("#fd-cat", m.el).value,
           valor: lerValor($("#fd-valor", m.el).value), cobrar: $("#fd-cobrar", m.el).checked, mensal: $("#fd-mensal", m.el).checked, observacao: $("#fd-obs", m.el).value.trim() || null,
           participantes: $("#fd-cobrar", m.el).checked ? [...m.el.querySelectorAll("#fd-part input:checked")].map((i) => i.value) : [] };
-        if (!reg.mensal && !(d && d.mensal)) delete reg.mensal;   // só envia o campo quando ele importa
+        if (!reg.mensal && !(d && ehMensal(d))) delete reg.mensal;   // só envia o campo quando ele importa
         if (!reg.descricao || !(reg.valor > 0)) return toast("Informe descrição e valor.", "err");
         if (reg.cobrar && !reg.participantes.length) return toast("Marque quem divide a despesa.", "err");
         const pags = reg.cobrar ? [] : novosPags();
@@ -739,7 +743,16 @@
           let enviado = null;
           if (arqNovo) { enviado = await API.fin.enviarAprovacao(arqNovo); reg.aprovacao.arquivo = enviado; reg.aprovacao.arquivo_nome = arqNovo.name; }
           let id;
-          try { id = await API.fin.salvar("despesas", reg); } catch (e) { if (enviado) await API.fin.removerAprovacao(enviado).catch(() => {}); throw e; }
+          try { id = await API.fin.salvar("despesas", reg); }
+          catch (e) {
+            // banco ainda sem o campo "mensal" (migração 048): guarda a marca na observação e salva assim mesmo
+            if ("mensal" in reg && /mensal/i.test(String(e && e.message || ""))) {
+              const marcar = reg.mensal; delete reg.mensal;
+              if (marcar && !MARCA_MENSAL.test(reg.observacao || "")) reg.observacao = ((reg.observacao ? reg.observacao + " · " : "") + "custo mensal").slice(0, 500);
+              if (!marcar && reg.observacao) reg.observacao = reg.observacao.replace(/\s*·?\s*custo mensal/i, "").trim() || null;
+              try { id = await API.fin.salvar("despesas", reg); } catch (e2) { if (enviado) await API.fin.removerAprovacao(enviado).catch(() => {}); throw e2; }
+            } else { if (enviado) await API.fin.removerAprovacao(enviado).catch(() => {}); throw e; }
+          }
           if (enviado && ap0.arquivo && ap0.arquivo !== enviado) await API.fin.removerAprovacao(ap0.arquivo).catch(() => {});
           const feitos = [];
           try {
@@ -763,7 +776,7 @@
 
     /* custo mensal: a próxima data, se esta é a última lançada da série (mesma descrição) */
     function proxMensal(d) {
-      if (!d.mensal || !d.data) return null;
+      if (!ehMensal(d) || !d.data) return null;
       if (base.despesas.some((y) => y.descricao === d.descricao && y.data && y.data > d.data)) return null;
       const [a, mm, dd] = d.data.split("-").map(Number); const ult = new Date(Date.UTC(a, mm + 1, 0)).getUTCDate();
       return new Date(Date.UTC(a, mm, Math.min(dd, ult))).toISOString().slice(0, 10);

@@ -111,7 +111,7 @@ textarea.input { min-height: 7rem; resize: vertical; }
 .toast-wrap {
   position: fixed; left: 50%; transform: translateX(-50%);
   bottom: calc(1.2rem + env(safe-area-inset-bottom, 0px));
-  z-index: 100; display: grid; gap: 0.5rem; width: min(92vw, 26rem);
+  z-index: 300; display: grid; gap: 0.5rem; width: min(92vw, 26rem);
 }
 .toast {
   background: var(--panel-2); border: 1px solid var(--line-2); border-left: 3px solid var(--cyan);
