@@ -4,7 +4,7 @@
   "use strict";
   const UI = window.UI, API = window.API, Fin = window.Fin;
   const { $, esc, data, dataHora, moeda, acao, confirmar, toast } = UI;
-  const CATEGORIAS = ["Abertura e registro", "Conselho profissional", "Material e divulgação", "Capacitação", "Capital social", "Taxas e encargos", "Outras"];
+  const CATEGORIAS = ["Abertura e registro", "Conselho profissional", "Material e divulgação", "Capacitação", "Software e assinaturas", "Capital social", "Taxas e encargos", "Outras"];
   const TIPOS_FORM = [
     ["despesa", "Pagamento de despesa"], ["aporte", "Aporte à cooperativa (sem despesa)"], ["contribuicao", "Contribuição mensal"],
     ["integralizacao", "Integralização de quotas"], ["abatimento", "Abatimento com aportes (só quotas iniciais)"]
@@ -412,18 +412,20 @@
     /* ---------------- Despesas ---------------- */
     if (aba === "despesas") {
       const pagoPor = (id) => base.pagamentos.filter((p) => p.despesa_id === id).reduce((t, p) => t + Number(p.valor), 0);
+      const pendMensal = base.despesas.filter((d) => proxMensal(d) && proxMensal(d) <= hojeISO());
       corpo.innerHTML = `
         <section class="painel">
           <div class="painel-cab"><h2>Despesas da cooperativa</h2><button class="btn btn-primary btn-sm" id="t-nova-desp">Nova despesa</button></div>
           <p class="hint">Só gera débito o que for <b>cobrado dos cooperados</b> (chamada aprovada, art. 9º, I). Despesa não cobrada: quem pagar fica com crédito de aporte, devolvido só no desligamento. Quem pagou cada despesa é informado no próprio formulário da despesa.</p>
+          ${pendMensal.length ? `<div class="notice warn"><b>Custos mensais para lançar:</b> ${pendMensal.map((d) => `${esc(d.descricao)} (${esc(Fin.nomeMes(proxMensal(d).slice(0, 7)))})`).join(" · ")}. Use <b>Lançar</b> na linha da despesa; se o custo foi cancelado, abra em Editar e desmarque “Custo mensal”.</div>` : ""}
           ${base.despesas.length ? `<div class="tabela-wrap"><table class="tabela">
             <thead><tr><th>Data</th><th>Descrição</th><th class="num">Valor</th><th>Cobrança</th><th class="num">Pago por cooperados</th><th></th></tr></thead>
             <tbody>${base.despesas.slice().sort((a, b) => (a.data ? 0 : 1) - (b.data ? 0 : 1) || String(a.data || "").localeCompare(String(b.data || "")) || String(a.criado_em || "").localeCompare(String(b.criado_em || ""))).map((d) => `<tr><td>${d.data ? data(d.data) : '<span class="selo warn">sem data</span>'}</td>
-              <td>${esc(d.descricao)}<span class="sub">${esc(d.categoria || "")} · ${d.fonte === "fundo" ? esc(((window.Sobras && window.Sobras.FUNDOS[d.fundo]) || {}).nome || "fundo") : d.fonte === "caixa" ? "caixa geral" : "os 20%"}${d.observacao ? " · " + esc(d.observacao) : ""}${d.aprovacao ? ` · aprovada por ${esc((DOC_APROV[d.aprovacao.tipo] || {}).nome || "documento")}${d.aprovacao.numero ? " (" + esc(d.aprovacao.numero) + ")" : ""} de ${data(d.aprovacao.data)}${d.aprovacao.arquivo ? ` <button class="link-btn" type="button" data-aprov="${d.id}">ver documento</button>` : d.aprovacao.assembleia_id ? ' <a href="#assembleias">ata no site</a>' : ""}` : ""}</span></td>
+              <td>${esc(d.descricao)}${d.mensal ? ' <span class="selo info">mensal</span>' : ""}<span class="sub">${esc(d.categoria || "")} · ${d.fonte === "fundo" ? esc(((window.Sobras && window.Sobras.FUNDOS[d.fundo]) || {}).nome || "fundo") : d.fonte === "caixa" ? "caixa geral" : "os 20%"}${d.observacao ? " · " + esc(d.observacao) : ""}${d.aprovacao ? ` · aprovada por ${esc((DOC_APROV[d.aprovacao.tipo] || {}).nome || "documento")}${d.aprovacao.numero ? " (" + esc(d.aprovacao.numero) + ")" : ""} de ${data(d.aprovacao.data)}${d.aprovacao.arquivo ? ` <button class="link-btn" type="button" data-aprov="${d.id}">ver documento</button>` : d.aprovacao.assembleia_id ? ' <a href="#assembleias">ata no site</a>' : ""}` : ""}</span></td>
               <td class="num">${moeda(d.valor)}</td>
               <td>${d.cobrar ? `Cobrada de ${d.participantes.length}<span class="sub">${moeda(Fin.centavos(d.valor / Math.max(1, d.participantes.length)))} cada</span>` : "Não cobrada<span class=\"sub\">quem pagou fica com aporte</span>"}</td>
               <td class="num">${moeda(pagoPor(d.id))}</td>
-              <td class="acoes-celula"><button class="btn btn-ghost btn-sm" data-ed-desp="${d.id}">Editar</button> <button class="btn btn-danger btn-sm" data-ex-desp="${d.id}">Excluir</button></td></tr>`).join("")}</tbody>
+              <td class="acoes-celula">${proxMensal(d) ? `<button class="btn btn-primary btn-sm" data-rep-desp="${d.id}">Lançar ${esc(Fin.nomeMes(proxMensal(d).slice(0, 7)))}</button> ` : ""}<button class="btn btn-ghost btn-sm" data-ed-desp="${d.id}">Editar</button> <button class="btn btn-danger btn-sm" data-ex-desp="${d.id}">Excluir</button></td></tr>`).join("")}</tbody>
           </table></div>` : '<p class="vazio">Nenhuma despesa lançada.</p>'}
         </section>`;
       $("#t-nova-desp").onclick = () => formDespesa(null);
@@ -596,7 +598,8 @@
     }
 
     /* ---------------- formulários ---------------- */
-    async function formDespesa(d) {
+    async function formDespesa(d, pre) {
+      const x = d || pre || null;   // pre: despesa nova já preenchida (repetir o mês ou vinda de um aporte)
       const ativos = coops.filter((c) => c.situacao === "ativo");
       const part = new Set(d ? d.participantes : ativos.map((c) => c.id));
       const [cxd, pubF] = await Promise.all([API.caixa.dados().catch(() => ({ contas: [] })), API.sobras.publico().catch(() => ({ movimentos: [] }))]);
@@ -608,10 +611,10 @@
       const FUNDOS_DESP = ["fates", "reserva", "fei", "apoio"]; // o Fundo de Soberania só cobre retiradas (RI, art. 120)
       const atasSite = await API.assembleias.listar().then((l) => l.filter((a) => a.ata_publicada_em)).catch(() => []);
       const ap0 = (d && d.aprovacao) || {};
-      const fonteAtual = d ? (d.fonte === "fundo" && d.fundo ? "fundo:" + d.fundo : d.fonte || "custo_op") : "custo_op";
+      const fonteAtual = x && x.fonte ? (x.fonte === "fundo" && x.fundo ? "fundo:" + x.fundo : x.fonte) : "custo_op";
       const ja = d ? base.pagamentos.filter((p) => p.despesa_id === d.id) : [];
       const nomeDe = (id) => (coops.find((c) => c.id === id) || {}).nome || "cooperado";
-      const contaPadrao = d ? d.conta_id || "" : "";
+      const contaPadrao = x ? x.conta_id || "" : "";
       const linhaPag = () => `<div class="pag-linha" style="display:flex;gap:.5rem;align-items:end;margin-bottom:.4rem">
           <div class="field" style="flex:2;margin:0"><select class="input" data-pg-coop aria-label="Cooperado que pagou">${ativos.map((c) => `<option value="${c.id}">${esc(c.nome)}</option>`).join("")}</select></div>
           <div class="field" style="flex:1;margin:0"><input class="input" data-pg-valor inputmode="decimal" placeholder="Valor (R$)" aria-label="Valor pago"></div>
@@ -619,11 +622,12 @@
       const m = UI.modal(`
         <h2>${d ? "Editar despesa" : "Nova despesa"}</h2>
         <div class="form-grid">
-          <div class="field"><label for="fd-data">Data</label><input class="input" id="fd-data" type="date" value="${d && d.data ? d.data : hojeISO()}"></div>
-          <div class="field"><label for="fd-valor">Valor total (R$)</label><input class="input" id="fd-valor" inputmode="decimal" value="${d ? brl(d.valor) : ""}"></div>
-          <div class="field full"><label for="fd-desc">Descrição</label><input class="input" id="fd-desc" maxlength="200" value="${esc(d ? d.descricao : "")}"></div>
-          <div class="field full"><label for="fd-cat">Categoria</label><select class="input" id="fd-cat">${CATEGORIAS.map((c) => `<option ${d && d.categoria === c ? "selected" : ""}>${c}</option>`).join("")}</select></div>
+          <div class="field"><label for="fd-data">Data</label><input class="input" id="fd-data" type="date" value="${x && x.data ? x.data : hojeISO()}"></div>
+          <div class="field"><label for="fd-valor">Valor total (R$)</label><input class="input" id="fd-valor" inputmode="decimal" value="${x && x.valor ? brl(x.valor) : ""}"></div>
+          <div class="field full"><label for="fd-desc">Descrição</label><input class="input" id="fd-desc" maxlength="200" value="${esc(x ? x.descricao || "" : "")}"></div>
+          <div class="field full"><label for="fd-cat">Categoria</label><select class="input" id="fd-cat">${CATEGORIAS.map((c) => `<option ${x && x.categoria === c ? "selected" : ""}>${c}</option>`).join("")}</select></div>
         </div>
+        <label class="ciente"><input type="checkbox" id="fd-mensal" ${x && x.mensal ? "checked" : ""}> <span><b>Custo mensal</b> (assinatura, mensalidade): todo mês a despesa aparece com o botão <b>Lançar o próximo mês</b>, que já vem preenchido para conferir o valor e quem pagou. Desmarque quando o custo for cancelado.</span></label>
         <label class="ciente"><input type="checkbox" id="fd-cobrar" ${d && d.cobrar ? "checked" : ""}> <span>Cobrar dos cooperados (chamada aprovada pela Assembleia ou pelo Conselho, art. 9º, I)</span></label>
         <div id="fd-part" class="part-lista" ${d && d.cobrar ? "" : "hidden"}>
           <p class="hint">Quem divide esta despesa: <b id="fd-cada"></b></p>
@@ -658,8 +662,9 @@
           </div>
           <label class="ciente"><input type="checkbox" id="fd-ap-ass" ${ap0.assinaturas ? "checked" : ""}> <span id="fd-ap-ass-txt"></span></label>
         </fieldset>
-        <div class="field"><label for="fd-obs">Observação</label><input class="input" id="fd-obs" maxlength="500" value="${esc(d ? d.observacao || "" : "")}"></div>
+        <div class="field"><label for="fd-obs">Observação</label><input class="input" id="fd-obs" maxlength="500" value="${esc(x ? x.observacao || "" : "")}"></div>
         <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="fd-ok">Salvar</button></div>`);
+      if (!d && pre && pre.pagadores) pre.pagadores.forEach((pg) => { $("#fd-pags", m.el).insertAdjacentHTML("beforeend", linhaPag()); const l = [...m.el.querySelectorAll(".pag-linha")].pop(); l.querySelector("[data-pg-coop]").value = pg.coop; l.querySelector("[data-pg-valor]").value = pg.valor ? brl(pg.valor) : ""; });
       const novosPags = () => [...m.el.querySelectorAll(".pag-linha")].map((l) => ({ coop: l.querySelector("[data-pg-coop]").value, valor: lerValor(l.querySelector("[data-pg-valor]").value) }));
       const somaJa = ja.reduce((t, p) => t + Number(p.valor), 0);
       $("#fd-mais", m.el).onclick = () => { $("#fd-pags", m.el).insertAdjacentHTML("beforeend", linhaPag()); atualiza(); };
@@ -696,8 +701,9 @@
       m.el.addEventListener("change", atualiza); m.el.addEventListener("input", atualiza); atualiza();
       $("#fd-ok", m.el).onclick = async (ev) => {
         const reg = { data: $("#fd-data", m.el).value || null, descricao: $("#fd-desc", m.el).value.trim(), categoria: $("#fd-cat", m.el).value,
-          valor: lerValor($("#fd-valor", m.el).value), cobrar: $("#fd-cobrar", m.el).checked, observacao: $("#fd-obs", m.el).value.trim() || null,
+          valor: lerValor($("#fd-valor", m.el).value), cobrar: $("#fd-cobrar", m.el).checked, mensal: $("#fd-mensal", m.el).checked, observacao: $("#fd-obs", m.el).value.trim() || null,
           participantes: $("#fd-cobrar", m.el).checked ? [...m.el.querySelectorAll("#fd-part input:checked")].map((i) => i.value) : [] };
+        if (!reg.mensal && !(d && d.mensal)) delete reg.mensal;   // só envia o campo quando ele importa
         if (!reg.descricao || !(reg.valor > 0)) return toast("Informe descrição e valor.", "err");
         if (reg.cobrar && !reg.participantes.length) return toast("Marque quem divide a despesa.", "err");
         const pags = reg.cobrar ? [] : novosPags();
@@ -755,6 +761,14 @@
       };
     }
 
+    /* custo mensal: a próxima data, se esta é a última lançada da série (mesma descrição) */
+    function proxMensal(d) {
+      if (!d.mensal || !d.data) return null;
+      if (base.despesas.some((y) => y.descricao === d.descricao && y.data && y.data > d.data)) return null;
+      const [a, mm, dd] = d.data.split("-").map(Number); const ult = new Date(Date.UTC(a, mm + 1, 0)).getUTCDate();
+      return new Date(Date.UTC(a, mm, Math.min(dd, ult))).toISOString().slice(0, 10);
+    }
+
     function formPagamento(p) {
       const m = UI.modal(`
         <h2>${p ? "Editar lançamento" : "Novo lançamento"}</h2>
@@ -763,7 +777,8 @@
           <div class="field"><label for="fp-valor">Valor (R$)</label><input class="input" id="fp-valor" inputmode="decimal" value="${p ? brl(p.valor) : ""}"></div>
           <div class="field full"><label for="fp-coop">Cooperado</label><select class="input" id="fp-coop">${coops.map((c) => `<option value="${c.id}" ${(p ? p.fin_cooperado_id : filtroCoop) === c.id ? "selected" : ""}>${esc(c.nome)}</option>`).join("")}</select></div>
           <div class="field full"><label for="fp-tipo">O que foi pago</label><select class="input" id="fp-tipo">${TIPOS_FORM.map(([k, t]) => `<option value="${k}" ${p && p.tipo === k ? "selected" : ""}>${t}</option>`).join("")}</select></div>
-          <div class="field full" id="fp-w-desp"><label for="fp-desp">Despesa</label><select class="input" id="fp-desp">${base.despesas.map((d) => `<option value="${d.id}" ${p && p.despesa_id === d.id ? "selected" : ""}>${esc(d.descricao)} · ${moeda(d.valor)}${d.cobrar ? " (cobrada)" : ""}</option>`).join("")}</select></div>
+          <div class="field full" id="fp-w-desp"><label for="fp-desp">Despesa</label><select class="input" id="fp-desp">${base.despesas.map((d) => `<option value="${d.id}" ${p && p.despesa_id === d.id ? "selected" : ""}>${esc(d.descricao)} · ${moeda(d.valor)}${d.cobrar ? " (cobrada)" : ""}</option>`).join("")}</select>
+            ${!p ? '<button class="btn btn-ghost btn-sm" type="button" id="fp-nova-desp" style="margin-top:.4rem">+ Cadastrar um custo novo</button><span class="hint">Abre a despesa já com este cooperado como quem pagou; o aporte dele é lançado junto.</span>' : ""}</div>
           <div class="field" id="fp-w-mes"><label for="fp-mes">Mês de referência</label><input class="input" id="fp-mes" type="month" value="${p && p.mes_ref ? Fin.mesDe(p.mes_ref) : fech}"></div>
           <div class="field full"><label for="fp-obs">Observação</label><input class="input" id="fp-obs" maxlength="500" value="${esc(p ? p.observacao || "" : "")}"></div>
         </div>
@@ -775,14 +790,17 @@
         const c = calc[$("#fp-coop", m.el).value];
         const max = c ? Fin.componentes(c, []).maxAbater : 0;
         $("#fp-dica", m.el).textContent = {
-          despesa: !base.despesas.length ? "Cadastre a despesa antes, na aba Despesas." : d && d.cobrar ? "Despesa cobrada: o valor conta como a parte dele na chamada (o que passar da parte vira aporte)." : "Despesa não cobrada: o valor vira aporte (crédito devolvido só no desligamento).",
-          aporte: "Aporte: crédito do cooperado com a cooperativa, devolvido só no desligamento (art. 19).",
+          despesa: !base.despesas.length ? "Nenhuma despesa cadastrada: use “Cadastrar um custo novo”." : d && d.cobrar ? "Despesa cobrada: o valor conta como a parte dele na chamada (o que passar da parte vira aporte)." : "Despesa não cobrada: o valor vira aporte (crédito devolvido só no desligamento).",
+          aporte: "Aporte: crédito do cooperado com a cooperativa, devolvido só no desligamento (art. 19). Se o dinheiro pagou um custo (assinatura, taxa, compra), escolha “Pagamento de despesa” para o custo ficar registrado.",
           contribuicao: "Contribuição mensal de capital do mês de referência. Mês futuro conta como pagamento adiantado.",
           integralizacao: "Integralização das quotas-parte iniciais.",
           abatimento: `Usa aportes do cooperado para integralizar as quotas iniciais. Máximo agora: ${moeda(max)}.`
         }[t];
       };
       m.el.addEventListener("change", atualiza); atualiza();
+      const nd = $("#fp-nova-desp", m.el);
+      if (nd) nd.onclick = () => { const v = lerValor($("#fp-valor", m.el).value), c = $("#fp-coop", m.el).value, dt = $("#fp-data", m.el).value, ob = $("#fp-obs", m.el).value.trim();
+        m.fechar(); formDespesa(null, { data: dt || hojeISO(), valor: v > 0 ? v : null, descricao: ob, pagadores: [{ coop: c, valor: v > 0 ? v : null }] }); };
       $("#fp-ok", m.el).onclick = async (ev) => {
         const t = $("#fp-tipo", m.el).value;
         const reg = { data: $("#fp-data", m.el).value || null, fin_cooperado_id: $("#fp-coop", m.el).value, tipo: t, valor: lerValor($("#fp-valor", m.el).value),
@@ -936,6 +954,9 @@
       if ((b = t("[data-extrato]"))) return extrato(b.dataset.extrato);
       if ((b = t("[data-exp-coop]"))) return experiencia(b.dataset.expCoop);
       if ((b = t("[data-ed-desp]"))) return formDespesa(despPorId[b.dataset.edDesp]);
+      if ((b = t("[data-rep-desp]"))) { const o = despPorId[b.dataset.repDesp];
+        const pags = base.pagamentos.filter((p) => p.despesa_id === o.id && p.tipo === "despesa").map((p) => ({ coop: p.fin_cooperado_id, valor: Number(p.valor) }));
+        return formDespesa(null, { data: proxMensal(o), valor: o.valor, descricao: o.descricao, categoria: o.categoria, mensal: true, observacao: o.observacao, fonte: o.fonte, fundo: o.fundo, conta_id: o.conta_id, pagadores: pags }); }
       if ((b = t("[data-ed-pag]"))) return formPagamento(base.pagamentos.find((x) => x.id === b.dataset.edPag));
       if ((b = t("[data-ed-coop]"))) return formCooperado(porId[b.dataset.edCoop]);
       if ((b = t("[data-aprov]"))) {
