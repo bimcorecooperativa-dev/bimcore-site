@@ -331,10 +331,24 @@ select.mini { padding: 0.4rem 0.5rem; font-size: 0.85rem; width: auto; }
 .asm-frame { width: 100%; aspect-ratio: 16 / 9; min-height: 320px; margin: .7rem 0 .4rem; border-radius: 8px; background: #050a12; overflow: hidden; }
 .asm-frame.vazia { display: grid; place-items: center; aspect-ratio: auto; min-height: 140px; text-align: center; padding: 1rem; }
 .asm-video-fora { display: grid; place-items: center; align-content: center; gap: .8rem; height: 100%; padding: 1.5rem; text-align: center; color: var(--muted); }
-.asm-lado { position: sticky; top: calc(var(--topo-h, 64px) + 12px); }
-.asm-lado .asm-msgs { max-height: 45vh; }
+/* Coluna lateral fixa na tela: votação, presentes e chat cabem sempre na altura da janela;
+   cada bloco rola por dentro, para a lista de presença nunca ficar fora de alcance */
+.asm-lado { position: sticky; top: calc(var(--topo-h, 64px) + 12px); display: flex; flex-direction: column;
+  max-height: calc(100vh - var(--topo-h, 64px) - 24px); max-height: calc(100dvh - var(--topo-h, 64px) - 24px); overflow-y: auto; }
+.asm-lado > * { flex: 0 0 auto; }
+.asm-lado > #sa-pres { flex: 0 1 auto; min-height: 13rem; max-height: 40vh; overflow-y: auto; }
+.asm-lado .asm-presentes { gap: .2rem; }
+.asm-lado .asm-presentes li { display: flex; justify-content: space-between; gap: .6rem; align-items: baseline; }
+.asm-lado .asm-presentes .sub { display: inline; text-align: right; flex-shrink: 0; }
+.asm-lado > .asm-chat { flex: 1 1 auto; min-height: 15rem; display: flex; flex-direction: column; }
+.asm-lado .asm-msgs { flex: 1 1 auto; min-height: 0; max-height: none; align-content: start; }
 @media (max-width: 900px) {
-  .asm-lado { position: static; } .asm-frame { min-height: 220px; }
+  .asm-lado { position: static; display: grid; max-height: none; overflow: visible; }
+  .asm-lado > #sa-pres { max-height: none; overflow: visible; min-height: 0; }
+  .asm-lado .asm-presentes li { display: block; } .asm-lado .asm-presentes .sub { display: block; text-align: left; }
+  .asm-lado > .asm-chat { display: block; min-height: 0; }
+  .asm-lado .asm-msgs { max-height: 22rem; }
+  .asm-frame { min-height: 220px; }
   .asm-votacao { position: fixed; left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); max-height: 45vh; overflow: auto; }
   .asm-sala:has(.asm-votacao:not([hidden])) { padding-bottom: 12rem; }
 }

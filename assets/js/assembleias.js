@@ -107,15 +107,42 @@ ${a.convocante || ""}`;
     const a = d.assembleia, pres = new Set(d.presencas.map((x) => x.perfil_id)), out = [];
     const add = (id, q) => { if (!id) return; const x = out.find((o) => o.perfil_id === id); if (x) { if (!x.qualidade.includes(q)) x.qualidade += " / " + q; return; } out.push({ perfil_id: id, nome: nomeDe(d, id), qualidade: q, cpf: "" }); };
     add(a.mesa_presidente, "Presidente da Mesa");
-    add(a.mesa_secretario, "Secretário(a) da Mesa");
+    if (pres.has(a.mesa_secretario)) add(a.mesa_secretario, "Secretário(a) da Mesa");
     (d.membros || []).filter((m) => pres.has(m.id) && m.conselho_adm).forEach((m) => add(m.id, CARGO_CA[m.cargo_ca] || "Conselheiro(a) de Administração"));
     (d.membros || []).filter((m) => pres.has(m.id) && m.conselho_fiscal).forEach((m) => add(m.id, "Conselheiro(a) Fiscal"));
     (a.comissao || []).forEach((id) => add(id, "Comissão de assinatura da ata"));
     return out;
   }
 
+  /* Pré-assembleia (RI, art. 60): consultiva, sem quórum e sem deliberação — gera só um registro de memória, sem ata formal nem assinaturas */
+  function registroPre(d) {
+    const a = d.assembleia, pres = d.presencas, notas = a.notas || {};
+    const nota = (k) => String(notas[k] || "").trim();
+    const linhas = [];
+    linhas.push(`REGISTRO DA PRÉ-ASSEMBLEIA DA ${EMPRESA.nome} — ${a.titulo}`);
+    linhas.push("");
+    linhas.push(`Em ${quando(a.data_hora)}, os cooperados da BIMCORE reuniram-se em ambiente digital${a.plataforma ? " (" + a.plataforma + ")" : ""} para a pré-assembleia, conversa de caráter consultivo, sem quórum e sem deliberação (Regimento Interno, art. 60). Conduziu a conversa ${nomeDe(d, a.mesa_presidente)}.`);
+    if (nota("abertura")) { linhas.push(""); linhas.push(nota("abertura")); }
+    linhas.push("");
+    linhas.push("TÓPICOS");
+    d.pautas.filter((p) => p.especial !== "comissao").forEach((p, i) => {
+      linhas.push(`${i + 1}. ${p.titulo}.`);
+      if (nota(p.id)) linhas.push("   " + nota(p.id).replace(/\n/g, "\n   "));
+    });
+    if (nota("gerais")) { linhas.push(""); linhas.push("OUTROS ASSUNTOS"); linhas.push(nota("gerais")); }
+    linhas.push("");
+    linhas.push(`Conversa encerrada às ${hora(a.encerrada_em)}. Os encaminhamentos seguem para as próximas etapas; nenhuma decisão foi tomada nesta pré-assembleia.`);
+    linhas.push("");
+    linhas.push("PARTICIPARAM (registro na plataforma)");
+    pres.forEach((x) => linhas.push(`- ${x.nome} — entrada às ${hora(x.entrou_em)}`));
+    return linhas.join("\n");
+  }
+
   function rascunhoAta(d, signatarios) {
+    if (d.assembleia.tipo === "pre") return registroPre(d);
     const a = d.assembleia, pres = d.presencas, q = a.instalada_convocacao, notas = a.notas || {};
+    const secPresente = pres.some((x) => x.perfil_id === a.mesa_secretario);
+    const lavrou = secPresente ? `Eu, ${nomeDe(d, a.mesa_secretario)}, secretário(a), lavrei` : `Eu, ${nomeDe(d, a.mesa_presidente)}, presidente da mesa, na ausência do(a) secretário(a) indicado(a), lavrei`;
     const pautas = d.pautas.filter((p) => p.especial !== "comissao"), pc = d.pautas.find((p) => p.especial === "comissao");
     const nota = (k) => String(notas[k] || "").trim();
     const linhas = [];
@@ -127,7 +154,9 @@ ${a.convocante || ""}`;
       if (nota("abertura")) linhas.push(nota("abertura"));
     } else {
       linhas.push(`Registraram presença pela plataforma, com identificação individual, ${pres.length} cooperado(s), dos quais ${a.instalada_presentes} apto(s) a votar, de um total de ${a.membros_na_data || "—"} cooperados na data do edital${q ? `, atingindo o quórum da ${q}ª convocação (art. 32)` : ""}. A assembleia foi instalada às ${hora(a.instalada_em)}.`);
-      linhas.push(`Presidiu os trabalhos ${nomeDe(d, a.mesa_presidente)}, que convidou ${nomeDe(d, a.mesa_secretario)} para secretariar (Estatuto, art. 36).`);
+      linhas.push(secPresente
+        ? `Presidiu os trabalhos ${nomeDe(d, a.mesa_presidente)}, que convidou ${nomeDe(d, a.mesa_secretario)} para secretariar (Estatuto, art. 36).`
+        : `Presidiu os trabalhos ${nomeDe(d, a.mesa_presidente)}. ${a.mesa_secretario ? `Ausente ${nomeDe(d, a.mesa_secretario)}, indicado(a) para secretariar, o` : "O"} presidente da mesa acumulou a secretaria e lavrou esta ata (Estatuto, art. 36).`);
       if (pc && pc.resultado) {
         const r = pc.resultado;
         linhas.push(`Como primeiro ato, a assembleia ${r.resultado === "aprovada" ? "designou" : "não aprovou"} a comissão proposta para assinar a presente ata (art. 39, §1º)${r.resultado === "aprovada" ? ", composta por " + listaNomes(d, a.comissao_proposta) : ""}, por ${r.favor} voto(s) a favor, ${r.contra} contra e ${r.abstencao} abstenção(ões).`);
@@ -151,7 +180,7 @@ ${a.convocante || ""}`;
       linhas.push("ASSUNTOS GERAIS");
       linhas.push(nota("gerais") || "Não houve manifestações em assuntos gerais. Nenhuma deliberação foi tomada fora da ordem do dia (art. 38, §1º).");
       linhas.push("");
-      linhas.push(`Nada mais havendo a tratar, a assembleia foi encerrada às ${hora(a.encerrada_em)}. A gravação integral integra a documentação desta ata (art. 39, §3º)${a.gravacao_url ? ": " + a.gravacao_url : ""}. Eu, ${nomeDe(d, a.mesa_secretario)}, secretário(a), lavrei a presente ata, que, lida e achada conforme, vai assinada eletronicamente pelos abaixo indicados, por meio do gov.br (Lei nº 14.063/2020).`);
+      linhas.push(`Nada mais havendo a tratar, a assembleia foi encerrada às ${hora(a.encerrada_em)}. A gravação integral integra a documentação desta ata (art. 39, §3º)${a.gravacao_url ? ": " + a.gravacao_url : ""}. ${lavrou} a presente ata, que, lida e achada conforme, vai assinada eletronicamente pelos abaixo indicados, por meio do gov.br (Lei nº 14.063/2020).`);
     }
     linhas.push("");
     linhas.push("PRESENTES (registro na plataforma)");
@@ -460,9 +489,9 @@ ${a.convocante || ""}`;
         </div>
         <aside class="asm-col asm-lado">
           <div id="sa-votacao" class="asm-votacao" hidden></div>
+          <section class="painel" id="sa-pres"></section>
           <section class="painel asm-chat" id="sa-chat"><h2>Chat</h2><div class="asm-msgs" id="sa-msgs"></div>
             <form id="sa-cf" class="asm-chat-f" novalidate><input class="input" id="sa-ct" maxlength="1000" placeholder="Escreva e tecle Enter" autocomplete="off"><button class="btn btn-primary btn-sm" type="submit">Enviar</button></form></section>
-          <section class="painel" id="sa-pres"></section>
         </aside>
       </div>`;
     let videoEstado = null;
@@ -568,7 +597,11 @@ ${a.convocante || ""}`;
       if (enc && !($("#sa-ata").contains(document.activeElement) && document.activeElement.tagName === "INPUT")) {
         const sigs = a.ata_signatarios || [], vs = d.versoes || [], k = vs.length, vez = !a.ata_concluida_em && sigs[k];
         let h = `<h2>Ata ${a.ata_publicada_em ? `<span class="selo ok">publicada em ${data(a.ata_publicada_em)}</span>` : a.ata_concluida_em ? '<span class="selo ok">assinada por todos</span>' : a.ata_fechada_em ? `<span class="selo warn">coletando assinaturas gov.br (${k} de ${sigs.length})</span>` : '<span class="selo warn">a fechar</span>'}</h2>`;
-        if (!a.ata_fechada_em) {
+        if (a.tipo === "pre") {
+          h = `<h2>Registro da pré-assembleia</h2><p class="hint">A pré-assembleia é consultiva e não decide nada (Regimento Interno, art. 60), por isso não tem ata formal nem assinaturas. Este registro serve de memória para o grupo: copie e compartilhe se quiser.</p>
+            <pre class="asm-edital" id="sa-regpre">${esc(rascunhoAta(d))}</pre>
+            <div class="sol-acoes"><button class="btn btn-ghost btn-sm permitido" id="sa-copiareg" type="button">Copiar registro</button></div>`;
+        } else if (!a.ata_fechada_em) {
           h += `<p class="hint">O texto abaixo é montado sozinho com os registros da sessão e as anotações da mesa, e não se edita à mão. A mesa confere, informa o link da gravação e fecha a ata: o site gera o PDF, que fica travado, e organiza as assinaturas pelo gov.br (art. 39). Publique em até 10 dias (RI, art. 63).</p>
             <pre class="asm-edital">${esc(rascunhoAta(d))}</pre>
             ${mesa ? `<div class="form-grid"><div class="field full"><label for="sa-grav">Link da gravação (guardar por 5 anos, art. 31, §1º, III)</label><input class="input" id="sa-grav" type="url" value="${esc(a.gravacao_url || "")}"></div></div>
@@ -684,7 +717,8 @@ ${a.convocante || ""}`;
       if (b.id === "sa-entrar") return fazer(() => API.assembleias.entrar(id), "Presença registrada.");
       if (b.id === "sa-instalar") return fazer(() => API.assembleias.instalar(id), "Assembleia instalada. Abra a votação de cada pauta.");
       if (b.id === "sa-semq") { if (!(await confirmar("Encerrar sem quórum? A assembleia não será instalada e precisará de nova convocação.", "Encerrar sem quórum"))) return; return fazer(() => API.assembleias.encerrar(id, true), "Assembleia encerrada sem quórum."); }
-      if (b.id === "sa-encerrar") { if (!(await confirmar("Encerrar a assembleia? Depois disso não há mais votação nem chat.", "Encerrar"))) return; parar(); return fazer(() => API.assembleias.encerrar(id, false), "Assembleia encerrada. Agora redija e publique a ata."); }
+      if (b.id === "sa-encerrar") { if (!(await confirmar("Encerrar a assembleia? Depois disso não há mais votação nem chat.", "Encerrar"))) return; parar(); return fazer(() => API.assembleias.encerrar(id, false), d.assembleia.tipo === "pre" ? "Pré-assembleia encerrada. O registro da conversa está logo abaixo." : "Assembleia encerrada. Agora redija e publique a ata."); }
+      if (b.id === "sa-copiareg") { const t = ($("#sa-regpre") || {}).textContent || ""; try { await navigator.clipboard.writeText(t); toast("Registro copiado."); } catch (err) { toast("Não foi possível copiar. Selecione o texto e copie.", "err"); } return; }
       if (b.dataset.abrirp) { const sec = el.querySelector(`[data-sec="${b.dataset.abrirp}"]`); return fazer(() => API.assembleias.pautaAbrir(b.dataset.abrirp, sec && sec.checked), "Votação aberta."); }
       if (b.dataset.votar) { if (!(await confirmar(`Confirmar voto: ${VOTO[b.dataset.voto]}? Depois de registrado, o voto não muda.`, "Confirmar voto"))) return; return fazer(() => API.assembleias.votar(b.dataset.votar, b.dataset.voto), "Voto registrado."); }
       if (b.dataset.encp) { if (!(await confirmar("Encerrar a votação desta pauta e apurar o resultado?", "Encerrar e apurar"))) return; return fazer(() => API.assembleias.pautaEncerrar(b.dataset.encp), "Votação apurada."); }
