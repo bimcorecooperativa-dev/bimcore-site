@@ -1993,7 +1993,9 @@
         async salvarVersao(v) { ok(await sb.from("programa_versoes").insert(v)); return true; },
         async excluirVersao(id) { const v = ok(await sb.from("programa_versoes").select("caminho").eq("id", id).single()); ok(await sb.from("programa_versoes").delete().eq("id", id)); if (v.caminho) await sb.storage.from("programa").remove([v.caminho]); return true; },
         async relatar(d, arquivos) {
-          const r = ok(await sb.from("programa_relatos").insert({ tipo: d.tipo, gravidade: d.gravidade, titulo: d.titulo, descricao: d.descricao, passos: d.passos || null, versao: d.versao || null, modulo: d.modulo || null }).select("id, protocolo").single());
+          const x = {}; for (const k of ["programa", "versao", "aba", "modulo", "tipo", "gravidade", "titulo", "passos", "esperado", "descricao", "mensagem_erro", "frequencia", "sistema"]) x[k] = d[k] || null;
+          x.programa = x.programa || "BIMCORE Edificações";
+          const r = ok(await sb.from("programa_relatos").insert(x).select("id, protocolo").single());
           for (const a of arquivos || []) ok(await sb.from("programa_relato_anexos").insert({ relato_id: r.id, nome: a.nome, tipo: a.tipo, tamanho: a.tamanho, dados: a.dados }));
           return r.protocolo;
         },

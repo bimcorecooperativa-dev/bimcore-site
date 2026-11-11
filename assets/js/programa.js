@@ -15,6 +15,10 @@
   const selo = (s) => { const x = ST[s] || [s, ""]; return `<span class="selo ${x[1]}">${esc(x[0])}</span>`; };
   const opcoes = (lista, atual) => lista.map((v) => `<option ${v === atual ? "selected" : ""}>${esc(v)}</option>`).join("");
   const MAX = 3 * 1024 * 1024;
+  const PROGRAMAS = ["BIMCORE Edificações", "Site da BIMCORE (área do cooperado)", "Outro"];
+  const ABAS_PROG = ["Arquitetura", "Estrutura", "Sistemas", "Inserir", "Anotar", "Analisar", "Massa e terreno", "Colaborar", "Vista", "Gerenciar", "Complementos", "Modificar",
+    "Menu do aplicativo (canto superior esquerdo)", "Barra de acesso rápido", "Navegador de projeto", "Propriedades", "Barra de controle da vista", "Página inicial (abrir/criar projeto)", "Ao abrir ou salvar o arquivo", "Não sei"];
+  const FREQ = { sempre: "Sempre que faço isso", as_vezes: "Às vezes", uma_vez: "Aconteceu uma vez" };
   const ABAS_COOP = [["baixar", "Baixar o programa"], ["modelos", "Modelos de projeto"], ["relatar", "Relatar problema"], ["relatos", "Meus relatos"]];
   const ABAS_COORD = [["relatos", "Relatos"], ["modelos", "Modelos de projeto"], ["versoes", "Versões do programa"]];
   const memo = { coop: "baixar", coord: "relatos" };
@@ -50,16 +54,19 @@
   }
 
   function blocoDetalhe(r) {
+    const bloco = (t, v) => v ? `<p><b>${t}</b></p><p style="white-space:pre-wrap">${esc(v)}</p>` : "";
     return `<dl class="sol-dados">
       <div><dt>Protocolo</dt><dd>${esc(r.protocolo || "")}</dd></div>
+      <div><dt>Programa</dt><dd>${esc(r.programa || "BIMCORE Edificações")} ${esc(r.versao || "")}</dd></div>
       <div><dt>Tipo</dt><dd>${esc(TIPO_CURTO[r.tipo] || r.tipo)}</dd></div>
       <div><dt>Gravidade</dt><dd>${esc(GRAV[r.gravidade] || r.gravidade)}</dd></div>
-      <div><dt>Versão do programa</dt><dd>${esc(r.versao || "—")}</dd></div>
-      <div><dt>Onde (comando ou aba)</dt><dd>${esc(r.modulo || "—")}</dd></div>
+      <div><dt>Onde</dt><dd>${esc([r.aba, r.modulo].filter(Boolean).join(" › ") || "—")}</dd></div>
+      <div><dt>Frequência</dt><dd>${esc(FREQ[r.frequencia] || "—")}</dd></div>
+      ${r.sistema ? `<div><dt>Computador</dt><dd>${esc(r.sistema)}</dd></div>` : ""}
       <div><dt>Enviado em</dt><dd>${dataHora(r.criado_em)}${r.autor_nome ? " por " + esc(r.autor_nome) : ""}</dd></div>
     </dl>
-    <p><b>O que aconteceu</b></p><p style="white-space:pre-wrap">${esc(r.descricao)}</p>
-    ${r.passos ? `<p><b>Como repetir</b></p><p style="white-space:pre-wrap">${esc(r.passos)}</p>` : ""}`;
+    ${bloco("O que estava fazendo (passo a passo)", r.passos)}${bloco("O que esperava que acontecesse", r.esperado)}${bloco("O que aconteceu", r.descricao)}
+    ${r.mensagem_erro ? `<p><b>Mensagem de erro</b></p><pre style="white-space:pre-wrap;font-size:.85rem">${esc(r.mensagem_erro)}</pre>` : ""}`;
   }
 
   const botaoVersao = (v) => v.caminho
@@ -94,6 +101,8 @@
     async render(el) {
       const [meus, vs, ms] = await Promise.all([API.programa.meus().catch(() => []), API.programa.versoes().catch(() => []), API.programa.modelos().catch(() => [])]);
       const ultima = vs[0] ? vs[0].versao : "";
+      const qs = new URLSearchParams(location.search); const versaoUrl = (qs.get("relatar") || "").slice(0, 30);
+      if (qs.has("relatar")) { memo.coop = "relatar"; try { history.replaceState(null, "", location.pathname + location.hash); } catch (e) { /* sem histórico */ } }
       const disc = [...new Set(ms.map((m) => m.disciplina))];
       const tipos = [...new Set(ms.map((m) => m.tipo_projeto))];
       el.innerHTML = `<div class="pag-cab"><div><p class="eyebrow">Programa da cooperativa</p><h1>BIMCORE Edificações</h1></div></div>
@@ -105,16 +114,27 @@
             <div class="field"><label for="pm-t">Tipo de projeto</label><select class="input" id="pm-t"><option value="">Todos</option>${opcoes(tipos)}</select></div></div>` : ""}
           <div id="pm-lista">${tabelaModelos(ms, false)}</div></section></div>
         <div data-painel="relatar"><section class="painel"><h2>Relatar erro ou problema</h2>
-          <p class="muted">Conte o que aconteceu no programa. Cada relato vira uma tarefa de correção; a correção chega numa atualização do programa e você acompanha a situação em "Meus relatos".</p>
+          <p class="muted">Cada relato vira uma tarefa de correção: a coordenação reproduz o problema, corrige o programa e publica uma atualização. Quanto mais exato o relato, mais rápido sai a correção. Você acompanha tudo em "Meus relatos".</p>
+          <div class="notice" style="margin:.6rem 0 1rem"><b>Antes de enviar:</b> tire um print da tela (tecla <b>Windows + Shift + S</b>, depois cole no Paint e salve, ou use a tecla Print Screen) e, se apareceu mensagem de erro, copie o texto dela. A versão do programa aparece no menu do aplicativo › Sobre o BIMCORE Edificações.</div>
           <form id="pr-f" class="form-grid" novalidate>
+            <h3 class="full" style="margin:.2rem 0 0">1. Em qual programa</h3>
+            <div class="field"><label for="pr-prog">Programa</label><select class="input" id="pr-prog">${opcoes(PROGRAMAS, PROGRAMAS[0])}</select></div>
+            <div class="field"><label for="pr-ver">Versão</label><input class="input" id="pr-ver" maxlength="30" value="${esc(versaoUrl || ultima)}" placeholder="Ex.: 0.7.0"></div>
+            <div class="field"><label for="pr-aba">Onde aconteceu</label><select class="input" id="pr-aba"><option value="">Escolha a aba ou parte da tela</option>${opcoes(ABAS_PROG)}</select></div>
+            <div class="field"><label for="pr-mod">Comando ou botão</label><input class="input" id="pr-mod" maxlength="120" placeholder="Ex.: Parede, Cota alinhada, Exportar IFC"></div>
+            <h3 class="full" style="margin:.6rem 0 0">2. O que é</h3>
             <div class="field"><label for="pr-tipo">Tipo</label><select class="input" id="pr-tipo">${Object.entries(TIPOS).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select></div>
-            <div class="field"><label for="pr-grav">Gravidade</label><select class="input" id="pr-grav">${Object.entries(GRAV).map(([k, v]) => `<option value="${k}" ${k === "atrapalha" ? "selected" : ""}>${esc(v)}</option>`).join("")}</select></div>
-            <div class="field full"><label for="pr-tit">Resumo</label><input class="input" id="pr-tit" maxlength="150" placeholder="Ex.: Ctrl+Z não desfaz a cota alinhada"></div>
-            <div class="field full"><label for="pr-desc">O que aconteceu</label><textarea class="input" id="pr-desc" rows="5" placeholder="O que você fez, o que esperava (como no Revit) e o que o programa fez. Copie a mensagem de erro, se apareceu."></textarea></div>
-            <div class="field full"><label for="pr-passos">Como repetir (opcional)</label><textarea class="input" id="pr-passos" rows="4" placeholder="1. Abri o projeto…&#10;2. Na planta Térreo, cliquei em…&#10;3. …"></textarea></div>
-            <div class="field"><label for="pr-ver">Versão do programa</label><input class="input" id="pr-ver" maxlength="30" value="${esc(ultima)}" placeholder="Ex.: 0.7.0"></div>
-            <div class="field"><label for="pr-mod">Onde aconteceu (comando ou aba)</label><input class="input" id="pr-mod" maxlength="120" placeholder="Ex.: Arquitetura › Parede"></div>
-            <div class="field full"><label for="pr-arq">Prints ou arquivos (até 3, 3 MB cada)</label><input class="input" type="file" id="pr-arq" multiple accept="image/*,.txt,.log,.ifc"></div>
+            <div class="field"><label for="pr-grav">Quanto atrapalha</label><select class="input" id="pr-grav">${Object.entries(GRAV).map(([k, v]) => `<option value="${k}" ${k === "atrapalha" ? "selected" : ""}>${esc(v)}</option>`).join("")}</select></div>
+            <div class="field full"><label for="pr-tit">Resumo em uma frase</label><input class="input" id="pr-tit" maxlength="150" placeholder="Ex.: Ctrl+Z não desfaz a cota alinhada"></div>
+            <h3 class="full" style="margin:.6rem 0 0">3. Como aconteceu</h3>
+            <div class="field full"><label for="pr-passos">O que você estava fazendo (passo a passo)</label><textarea class="input" id="pr-passos" rows="4" placeholder="1. Abri o projeto Escola_Arq.ifc&#10;2. Na planta Térreo, cliquei em Anotar › Cota alinhada&#10;3. Cotei duas paredes e apertei Ctrl+Z"></textarea></div>
+            <div class="field full"><label for="pr-esp">O que você esperava que acontecesse (como no Revit)</label><textarea class="input" id="pr-esp" rows="3" placeholder="Ex.: a cota sumir, como no Revit"></textarea></div>
+            <div class="field full"><label for="pr-desc">O que aconteceu de fato</label><textarea class="input" id="pr-desc" rows="3" placeholder="Ex.: a cota continuou na planta e o Ctrl+Z desfez a parede"></textarea></div>
+            <div class="field full"><label for="pr-erro">Mensagem de erro (se apareceu, copie e cole aqui)</label><textarea class="input" id="pr-erro" rows="3" placeholder="Opcional"></textarea></div>
+            <div class="field"><label for="pr-freq">Acontece</label><select class="input" id="pr-freq">${Object.entries(FREQ).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select></div>
+            <div class="field"><label for="pr-sis">Computador (opcional)</label><input class="input" id="pr-sis" maxlength="200" placeholder="Ex.: Windows 11, notebook, 16 GB"></div>
+            <h3 class="full" style="margin:.6rem 0 0">4. Prints e arquivos</h3>
+            <div class="field full"><label for="pr-arq">Até 3 arquivos de até 3 MB cada (prints, arquivo .ifc pequeno, texto do erro)</label><input class="input" type="file" id="pr-arq" multiple accept="image/*,.txt,.log,.ifc"></div>
             <div class="full"><button class="btn btn-primary" id="pr-btn" type="submit">Enviar relato</button></div>
           </form></section></div>
         <div data-painel="relatos"><section class="painel"><h2>Meus relatos</h2>
@@ -128,9 +148,13 @@
       el.onclick = (e) => { const b = e.target.closest("[data-arq]"); if (b) baixar(b, b.dataset.arq, b.dataset.nome); };
       $("#pr-f").addEventListener("submit", async (e) => {
         e.preventDefault();
-        const d = { tipo: $("#pr-tipo").value, gravidade: $("#pr-grav").value, titulo: $("#pr-tit").value.trim(), descricao: $("#pr-desc").value.trim(),
-          passos: $("#pr-passos").value.trim(), versao: $("#pr-ver").value.trim(), modulo: $("#pr-mod").value.trim() };
-        if (d.titulo.length < 3 || d.descricao.length < 3) return toast("Informe o resumo e o que aconteceu.", "err");
+        const v = (id) => $(id).value.trim();
+        const d = { programa: v("#pr-prog"), versao: v("#pr-ver"), aba: v("#pr-aba"), modulo: v("#pr-mod"), tipo: v("#pr-tipo"), gravidade: v("#pr-grav"), titulo: v("#pr-tit"),
+          passos: v("#pr-passos"), esperado: v("#pr-esp"), descricao: v("#pr-desc"), mensagem_erro: v("#pr-erro"), frequencia: v("#pr-freq"), sistema: v("#pr-sis") };
+        if (d.titulo.length < 3) return toast("Escreva o resumo em uma frase.", "err");
+        if (d.passos.length < 3) return toast("Conte o que você estava fazendo, passo a passo.", "err");
+        if (d.descricao.length < 3) return toast("Conte o que aconteceu de fato.", "err");
+        if (d.tipo !== "sugestao" && d.esperado.length < 3) return toast("Conte o que você esperava que acontecesse.", "err");
         const fs = [...$("#pr-arq").files];
         if (fs.length > 3) return toast("Envie no máximo 3 arquivos.", "err");
         const grande = fs.find((f) => f.size > MAX); if (grande) return toast(`${grande.name} passa de 3 MB.`, "err");
@@ -199,7 +223,7 @@
       const lista = () => {
         const f = $("#prc-filtro").value; const ls = f === "todos" ? todos : abertos;
         $("#prc-lista").innerHTML = ls.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Protocolo</th><th>Resumo</th><th>Gravidade</th><th>Situação</th><th></th></tr></thead><tbody>
-          ${ls.map((r) => `<tr><td>${esc(r.protocolo || "")}<span class="sub">${dataHora(r.criado_em)} · ${esc(r.autor_nome || "")}</span></td><td>${esc(r.titulo)}<span class="sub">${esc(TIPO_CURTO[r.tipo] || r.tipo)}${r.modulo ? " · " + esc(r.modulo) : ""}</span></td><td>${esc((GRAV[r.gravidade] || r.gravidade).split(",")[0])}</td><td>${selo(r.status)}${r.versao_corrigida ? `<span class="sub">na ${esc(r.versao_corrigida)}</span>` : ""}</td><td><button class="btn btn-ghost btn-sm" data-abrir="${esc(r.id)}" type="button">Abrir</button></td></tr>`).join("")}
+          ${ls.map((r) => `<tr><td>${esc(r.protocolo || "")}<span class="sub">${dataHora(r.criado_em)} · ${esc(r.autor_nome || "")}</span></td><td>${esc(r.titulo)}<span class="sub">${esc(TIPO_CURTO[r.tipo] || r.tipo)}${[r.programa && r.programa !== "BIMCORE Edificações" ? r.programa : "", r.aba, r.modulo].filter(Boolean).map((x) => " · " + esc(x)).join("")}</span></td><td>${esc((GRAV[r.gravidade] || r.gravidade).split(",")[0])}</td><td>${selo(r.status)}${r.versao_corrigida ? `<span class="sub">na ${esc(r.versao_corrigida)}</span>` : ""}</td><td><button class="btn btn-ghost btn-sm" data-abrir="${esc(r.id)}" type="button">Abrir</button></td></tr>`).join("")}
         </tbody></table></div>` : '<p class="vazio">Nenhum relato.</p>';
       };
       lista();
