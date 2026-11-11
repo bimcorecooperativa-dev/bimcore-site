@@ -30,6 +30,7 @@
   const opcoes = (lista, atual) => lista.map((v) => `<option ${v === atual ? "selected" : ""}>${esc(v)}</option>`).join("");
 
   const paginas = {
+    programa: window.Programa.coordenacao,
     visao: {
       titulo: "Visão geral",
       async render(el) {
@@ -604,7 +605,7 @@
     menu: [
       "visao",
       { id: "quadro", titulo: "Quadro social", itens: ["cooperados", "solicitacoes", "livro", "enquadramento"] },
-      { id: "producao-g", titulo: "Produção", itens: ["projetos", "producao", "igcc"] },
+      { id: "producao-g", titulo: "Produção", itens: ["projetos", "producao", "igcc", "programa"] },
       { id: "financas", titulo: "Financeiro", itens: ["financeiro", "notificacoes"] },
       "conselho",
       { id: "comunicacao", titulo: "Comunicação", itens: ["comunicados", "mensagens", "documentos"] },

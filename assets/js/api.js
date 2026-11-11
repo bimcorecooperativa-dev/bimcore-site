@@ -1183,6 +1183,24 @@
         async marcarLembrete(chave, quando) { const s = ler(); const u = exigir(s); s.lembretes = s.lembretes || {}; s.lembretes[u.id] = s.lembretes[u.id] || {}; s.lembretes[u.id][chave] = quando || new Date().toISOString(); gravar(s); return espera(true); },
         async adiarLembrete(chave, dias) { const s = ler(); const u = exigir(s); s.lembretes = s.lembretes || {}; s.lembretes[u.id] = s.lembretes[u.id] || {}; s.lembretes[u.id][chave] = new Date(Date.now() + dias * 864e5).toISOString(); gravar(s); return espera(true); }
       },
+      programa: {
+        _l(s, k) { s[k] = s[k] || []; return s[k]; },
+        async versoes() { const s = ler(); exigir(s); return espera([...this._l(s, "prog_versoes")].sort((a, b) => String(b.publicado_em).localeCompare(String(a.publicado_em)))); },
+        async salvarVersao(v) { const s = ler(); exigir(s, true); this._l(s, "prog_versoes").push({ ...v, id: novoId(), publicado_em: new Date().toISOString() }); gravar(s); return espera(true); },
+        async excluirVersao(id) { const s = ler(); exigir(s, true); s.prog_versoes = this._l(s, "prog_versoes").filter((x) => x.id !== id); gravar(s); return espera(true); },
+        async relatar(d, arquivos) {
+          const s = ler(); const u = exigir(s); if (u.status !== "ativo") falha("permission denied");
+          const prot = "BP-" + new Date().toISOString().slice(2, 10).replace(/-/g, "") + "-" + Math.random().toString(16).slice(2, 6).toUpperCase();
+          const id = novoId();
+          this._l(s, "prog_relatos").push({ ...d, id, protocolo: prot, autor_id: u.id, autor_nome: u.nome, status: "recebido", resposta: null, versao_corrigida: null, criado_em: new Date().toISOString(), atualizado_em: new Date().toISOString() });
+          for (const a of arquivos || []) this._l(s, "prog_anexos").push({ id: novoId(), relato_id: id, nome: a.nome, tipo: a.tipo, tamanho: a.tamanho, dados: a.dados });
+          gravar(s); return espera(prot);
+        },
+        async meus() { const s = ler(); const u = exigir(s); return espera(this._l(s, "prog_relatos").filter((x) => x.autor_id === u.id).sort((a, b) => b.criado_em.localeCompare(a.criado_em))); },
+        async todos() { const s = ler(); exigir(s, true); return espera([...this._l(s, "prog_relatos")].sort((a, b) => b.criado_em.localeCompare(a.criado_em))); },
+        async anexos(relato) { const s = ler(); exigir(s); return espera(this._l(s, "prog_anexos").filter((x) => x.relato_id === relato)); },
+        async atualizar(id, d) { const s = ler(); exigir(s, true); const x = this._l(s, "prog_relatos").find((r) => r.id === id); Object.assign(x, d, { atualizado_em: new Date().toISOString() }); gravar(s); return espera(true); }
+      },
       push: {
         async chave() { return null; },
         async inscrever() { return espera(true); },
@@ -1959,6 +1977,20 @@
         async lembreteAte(chave) { const uid = await meuId(); const r = await sb.from("lembretes_adiados").select("ate").eq("perfil_id", uid).eq("chave", chave).maybeSingle(); return r.error || !r.data ? null : r.data.ate; },
         async marcarLembrete(chave, quando) { const uid = await meuId(); ok(await sb.from("lembretes_adiados").upsert({ perfil_id: uid, chave, ate: quando || new Date().toISOString() })); return true; },
         async adiarLembrete(chave, dias) { const uid = await meuId(); ok(await sb.from("lembretes_adiados").upsert({ perfil_id: uid, chave, ate: new Date(Date.now() + dias * 864e5).toISOString() })); return true; }
+      },
+      programa: {
+        async versoes() { const r = await sb.from("programa_versoes").select("*").order("publicado_em", { ascending: false }); return r.error ? [] : r.data; },
+        async salvarVersao(v) { ok(await sb.from("programa_versoes").insert(v)); return true; },
+        async excluirVersao(id) { ok(await sb.from("programa_versoes").delete().eq("id", id)); return true; },
+        async relatar(d, arquivos) {
+          const r = ok(await sb.from("programa_relatos").insert({ tipo: d.tipo, gravidade: d.gravidade, titulo: d.titulo, descricao: d.descricao, passos: d.passos || null, versao: d.versao || null, modulo: d.modulo || null }).select("id, protocolo").single());
+          for (const a of arquivos || []) ok(await sb.from("programa_relato_anexos").insert({ relato_id: r.id, nome: a.nome, tipo: a.tipo, tamanho: a.tamanho, dados: a.dados }));
+          return r.protocolo;
+        },
+        async meus() { const uid = await meuId(); return ok(await sb.from("programa_relatos").select("*").eq("autor_id", uid).order("criado_em", { ascending: false })); },
+        async todos() { return ok(await sb.from("programa_relatos").select("*").order("criado_em", { ascending: false })); },
+        async anexos(relato) { return ok(await sb.from("programa_relato_anexos").select("*").eq("relato_id", relato)); },
+        async atualizar(id, d) { ok(await sb.from("programa_relatos").update({ ...d, atualizado_em: new Date().toISOString() }).eq("id", id)); return true; }
       },
       push: {
         async chave() { const r = await sb.rpc("push_chave_publica"); ok(r); return r.data; },

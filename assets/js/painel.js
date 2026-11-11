@@ -752,6 +752,8 @@
       async render(el) { return window.Caixa.renderPainel(el); }
     },
 
+    programa: window.Programa.cooperado,
+
     denuncia: {
       titulo: "Denúncias e reclamações",
       async render(el) {
@@ -1360,7 +1362,7 @@
        transparência (prestação de contas), educação (5º princípio, Título XIII), índice, documentos e perfil */
     menu: [
       "inicio",
-      { id: "trabalho", titulo: "Meu trabalho", itens: ["projetos", "horas", "experiencia"] },
+      { id: "trabalho", titulo: "Meu trabalho", itens: ["projetos", "horas", "experiencia", "programa"] },
       { id: "minha-conta", titulo: "Minha conta", itens: ["conta", "demonstrativos"] },
       { id: "participacao", titulo: "Participação", itens: ["assembleias", "propostas", "denuncia"] },
       { id: "transparencia-g", titulo: "Transparência", itens: ["transparencia", "mapa"] },
