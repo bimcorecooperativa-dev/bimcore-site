@@ -74,7 +74,7 @@
     return `<section class="painel"><h2>Baixar o programa</h2>
       <p class="muted">BIMCORE Edificações para Windows 10 ou 11 (64 bits). Baixe o instalador, execute e siga as telas. Se o Windows avisar que o aplicativo não é reconhecido, clique em "Mais informações" e depois em "Executar assim mesmo".</p>
       ${inst ? linha(inst, "Instalador") : ""}
-      ${atus.length ? `<h3 style="margin-top:1.2rem">Atualizações depois do instalador</h3><p class="muted">O programa avisa quando há atualização. Se preferir, baixe aqui e abra o arquivo pelo menu Arquivo › Instalar atualização.</p>${atus.map((v) => linha(v, "Atualização")).join("")}` : ""}
+      ${atus.length ? `<h3 style="margin-top:1.2rem">Atualizações depois do instalador</h3><p class="muted">Baixe o pacote mais recente (ele já traz todas as correções anteriores). No BIMCORE, abra o menu do aplicativo, no canto superior esquerdo, e escolha Instalar atualização…; depois salve, feche e abra o programa.</p>${atus.map((v) => linha(v, "Atualização")).join("")}` : ""}
     </section>`;
   }
 
