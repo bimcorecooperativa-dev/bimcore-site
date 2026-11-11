@@ -27,6 +27,7 @@
       gravar(K_ATIV, String(agora()));
     },
     async sair(motivo) {
+      /* encerra só neste navegador: as sessões em outros aparelhos e navegadores continuam */
       try { await window.API.signOut(); } catch (e) {}
       gravar(K_ATIV, null);
       location.replace("entrar.html" + (motivo ? "?saiu=" + motivo : ""));
@@ -89,7 +90,8 @@
         if (this.bloqueada) return;
         const parado = agora() - ultima();
         if (APP && parado > MIN_APP * 60000) this.bloquear();
-        else if (!APP && !manter && parado > MIN_SITE * 60000) this.sair("inatividade");
+        /* lê de novo: a pessoa pode ter entrado com "Manter conectado" em outra aba depois que esta abriu */
+        else if (!APP && ler(K_MANTER) !== "1" && parado > MIN_SITE * 60000) this.sair("inatividade");
       };
       setInterval(conferir, 30000);
       document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") conferir(); });

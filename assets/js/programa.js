@@ -109,7 +109,7 @@
         ${barraAbas(ABAS_COOP, memo.coop)}
         <div data-painel="baixar">${blocoDownload(vs)}</div>
         <div data-painel="modelos"><section class="painel"><h2>Modelos de projeto</h2>
-          <p class="muted">Comece todo projeto da cooperativa a partir do modelo da disciplina e do tipo de projeto. Os modelos já trazem níveis, vistas, folhas, estilos de texto e cotas, tipos e configurações padronizados pela BIMCORE.</p>
+          <p class="muted">Modelos de partida aprovados pela coordenação para cada disciplina e tipo de projeto. Comece o projeto pelo modelo indicado aqui.</p>
           ${ms.length ? `<div class="form-grid" style="margin-bottom:.5rem"><div class="field"><label for="pm-d">Disciplina</label><select class="input" id="pm-d"><option value="">Todas</option>${opcoes(disc)}</select></div>
             <div class="field"><label for="pm-t">Tipo de projeto</label><select class="input" id="pm-t"><option value="">Todos</option>${opcoes(tipos)}</select></div></div>` : ""}
           <div id="pm-lista">${tabelaModelos(ms, false)}</div></section></div>

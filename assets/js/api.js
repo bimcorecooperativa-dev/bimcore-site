@@ -1390,7 +1390,7 @@
       },
       async reenviarConfirmacao(email) { ok(await sb.auth.resend({ type: "signup", email: String(email).trim(), options: { emailRedirectTo: base() + "entrar.html" } })); return true; },
       async confirmarCodigo(email, codigo) { ok(await sb.auth.verifyOtp({ email: String(email).trim(), token: String(codigo).replace(/\D/g, ""), type: "signup" })); return true; },
-      async signOut() { await sb.auth.signOut(); return true; },
+      async signOut() { await sb.auth.signOut({ scope: "local" }); return true; },
       async resetPassword(email) { ok(await sb.auth.resetPasswordForEmail(String(email).trim(), { redirectTo: base() + "entrar.html" })); return true; },
       async updatePassword(nova) { ok(await sb.auth.updateUser({ password: nova })); return true; },
       onRecovery(cb) { sb.auth.onAuthStateChange((evento) => { if (evento === "PASSWORD_RECOVERY") cb(); }); },
