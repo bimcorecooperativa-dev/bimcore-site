@@ -88,3 +88,7 @@ create policy progra_enviar on public.programa_relato_anexos for insert to authe
 drop policy if exists progra_ver on public.programa_relato_anexos;
 create policy progra_ver on public.programa_relato_anexos for select to authenticated
   using (exists (select 1 from public.programa_relatos r where r.id = relato_id and (r.autor_id = auth.uid() or public.is_coordenacao())));
+
+-- desde 30/10/2026 o Supabase não concede mais acesso automático da API a tabelas novas
+grant select, insert, update, delete on public.programa_versoes, public.programa_relatos, public.programa_relato_anexos to authenticated;
+grant select, insert, update, delete on public.programa_versoes, public.programa_relatos, public.programa_relato_anexos to service_role;
