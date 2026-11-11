@@ -13,7 +13,7 @@
     const raiz = document.getElementById("app");
     let sessao;
     try { sessao = await API.getSession(); } catch (e) { sessao = null; }
-    if (!sessao) { location.replace("entrar.html"); return; }
+    if (!sessao) { try { if (location.search || location.hash) sessionStorage.setItem("bimcore-voltar", location.pathname.split("/").pop() + location.search + location.hash); } catch (e) { /* sem armazenamento */ } location.replace("entrar.html"); return; }
     const p = sessao.perfil || {};
     const coord = p.papel === "coordenacao" && p.status === "ativo";
     const tes = p.status === "ativo" && (coord || !!p.tesouraria);

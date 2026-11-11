@@ -54,7 +54,11 @@
   if (saiu === "inatividade") avisar("Sua sessão foi encerrada por inatividade. Entre de novo.", "warn");
   if (saiu === "bloqueio") avisar("Entre com seu e-mail e senha para continuar.", "warn");
 
-  const destino = (s) => (s && s.perfil && s.perfil.papel === "coordenacao" && s.perfil.status === "ativo" ? "interno.html" : "painel.html");
+  const destino = (s) => {
+    let volta = null; try { volta = sessionStorage.getItem("bimcore-voltar"); sessionStorage.removeItem("bimcore-voltar"); } catch (e) { /* sem armazenamento */ }
+    if (volta && /^(painel|interno)\.html[?#]/.test(volta)) return volta;
+    return s && s.perfil && s.perfil.papel === "coordenacao" && s.perfil.status === "ativo" ? "interno.html" : "painel.html";
+  };
 
   // Já logado? Vai direto para o painel (exceto durante a troca de senha)
   let recuperando = /type=recovery/.test(location.hash);
