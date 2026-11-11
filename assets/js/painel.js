@@ -1362,7 +1362,8 @@
        transparência (prestação de contas), educação (5º princípio, Título XIII), índice, documentos e perfil */
     menu: [
       "inicio",
-      { id: "trabalho", titulo: "Meu trabalho", itens: ["projetos", "horas", "experiencia", "programa"] },
+      "programa",
+      { id: "trabalho", titulo: "Meu trabalho", itens: ["projetos", "horas", "experiencia"] },
       { id: "minha-conta", titulo: "Minha conta", itens: ["conta", "demonstrativos"] },
       { id: "participacao", titulo: "Participação", itens: ["assembleias", "propostas", "denuncia"] },
       { id: "transparencia-g", titulo: "Transparência", itens: ["transparencia", "mapa"] },

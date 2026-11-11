@@ -1199,7 +1199,17 @@
         async meus() { const s = ler(); const u = exigir(s); return espera(this._l(s, "prog_relatos").filter((x) => x.autor_id === u.id).sort((a, b) => b.criado_em.localeCompare(a.criado_em))); },
         async todos() { const s = ler(); exigir(s, true); return espera([...this._l(s, "prog_relatos")].sort((a, b) => b.criado_em.localeCompare(a.criado_em))); },
         async anexos(relato) { const s = ler(); exigir(s); return espera(this._l(s, "prog_anexos").filter((x) => x.relato_id === relato)); },
-        async atualizar(id, d) { const s = ler(); exigir(s, true); const x = this._l(s, "prog_relatos").find((r) => r.id === id); Object.assign(x, d, { atualizado_em: new Date().toISOString() }); gravar(s); return espera(true); }
+        async atualizar(id, d) { const s = ler(); exigir(s, true); const x = this._l(s, "prog_relatos").find((r) => r.id === id); Object.assign(x, d, { atualizado_em: new Date().toISOString() }); gravar(s); return espera(true); },
+        _dados(f) { return new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.readAsDataURL(f); }); },
+        async enviarVersao(v, arquivo) { const s = ler(); exigir(s, true); const caminho = "demo:" + await this._dados(arquivo); this._l(s, "prog_versoes").push({ ...v, caminho, tamanho: arquivo.size, id: novoId(), publicado_em: new Date().toISOString() }); gravar(s); return espera(true); },
+        async modelos() { const s = ler(); const u = exigir(s); return espera(this._l(s, "prog_modelos").filter((m) => m.ativo || u.papel === "coordenacao")); },
+        async salvarModelo(m, arquivo) { const s = ler(); exigir(s, true); const l = this._l(s, "prog_modelos");
+          const extra = arquivo ? { caminho: "demo:" + await this._dados(arquivo), nome_arquivo: arquivo.name, tamanho: arquivo.size } : {};
+          if (m.id) Object.assign(l.find((x) => x.id === m.id), m, extra, { atualizado_em: new Date().toISOString() });
+          else { if (!arquivo) falha("Escolha o arquivo do modelo."); l.push({ ativo: true, ...m, ...extra, id: novoId(), criado_em: new Date().toISOString() }); }
+          gravar(s); return espera(true); },
+        async excluirModelo(m) { const s = ler(); exigir(s, true); s.prog_modelos = this._l(s, "prog_modelos").filter((x) => x.id !== m.id); gravar(s); return espera(true); },
+        async link(caminho) { return espera(String(caminho).replace(/^demo:/, "")); }
       },
       push: {
         async chave() { return null; },
@@ -1981,7 +1991,7 @@
       programa: {
         async versoes() { const r = await sb.from("programa_versoes").select("*").order("publicado_em", { ascending: false }); return r.error ? [] : r.data; },
         async salvarVersao(v) { ok(await sb.from("programa_versoes").insert(v)); return true; },
-        async excluirVersao(id) { ok(await sb.from("programa_versoes").delete().eq("id", id)); return true; },
+        async excluirVersao(id) { const v = ok(await sb.from("programa_versoes").select("caminho").eq("id", id).single()); ok(await sb.from("programa_versoes").delete().eq("id", id)); if (v.caminho) await sb.storage.from("programa").remove([v.caminho]); return true; },
         async relatar(d, arquivos) {
           const r = ok(await sb.from("programa_relatos").insert({ tipo: d.tipo, gravidade: d.gravidade, titulo: d.titulo, descricao: d.descricao, passos: d.passos || null, versao: d.versao || null, modulo: d.modulo || null }).select("id, protocolo").single());
           for (const a of arquivos || []) ok(await sb.from("programa_relato_anexos").insert({ relato_id: r.id, nome: a.nome, tipo: a.tipo, tamanho: a.tamanho, dados: a.dados }));
@@ -1990,7 +2000,26 @@
         async meus() { const uid = await meuId(); return ok(await sb.from("programa_relatos").select("*").eq("autor_id", uid).order("criado_em", { ascending: false })); },
         async todos() { return ok(await sb.from("programa_relatos").select("*").order("criado_em", { ascending: false })); },
         async anexos(relato) { return ok(await sb.from("programa_relato_anexos").select("*").eq("relato_id", relato)); },
-        async atualizar(id, d) { ok(await sb.from("programa_relatos").update({ ...d, atualizado_em: new Date().toISOString() }).eq("id", id)); return true; }
+        async atualizar(id, d) { ok(await sb.from("programa_relatos").update({ ...d, atualizado_em: new Date().toISOString() }).eq("id", id)); return true; },
+        _seguro(n) { return n.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w.\-]+/g, "_"); },
+        async _subir(pasta, arquivo) { if (arquivo.size > 52428800) falha("O arquivo passa de 50 MB; publique-o por link.");
+          const caminho = `${pasta}/${Date.now()}_${this._seguro(arquivo.name)}`;
+          ok(await sb.storage.from("programa").upload(caminho, arquivo, { upsert: false, contentType: arquivo.type || "application/octet-stream" })); return caminho; },
+        async enviarVersao(v, arquivo) { const caminho = await this._subir("versoes", arquivo);
+          const r = await sb.from("programa_versoes").insert({ ...v, caminho, tamanho: arquivo.size });
+          if (r.error) { await sb.storage.from("programa").remove([caminho]); falha(r.error); } return true; },
+        async modelos() { const r = await sb.from("programa_modelos").select("*").order("disciplina").order("tipo_projeto").order("nome"); return r.error ? [] : r.data; },
+        async salvarModelo(m, arquivo) {
+          const x = { disciplina: m.disciplina, tipo_projeto: m.tipo_projeto, nome: m.nome, descricao: m.descricao || null, versao: m.versao || null, ativo: m.ativo !== false, atualizado_em: new Date().toISOString() };
+          let antigo = null;
+          if (arquivo) { x.caminho = await this._subir("modelos", arquivo); x.nome_arquivo = arquivo.name; x.tamanho = arquivo.size; }
+          if (m.id) { if (arquivo) antigo = ok(await sb.from("programa_modelos").select("caminho").eq("id", m.id).single()).caminho;
+            const r = await sb.from("programa_modelos").update(x).eq("id", m.id); if (r.error) { if (arquivo) await sb.storage.from("programa").remove([x.caminho]); falha(r.error); } }
+          else { if (!arquivo) falha("Escolha o arquivo do modelo."); const r = await sb.from("programa_modelos").insert(x); if (r.error) { await sb.storage.from("programa").remove([x.caminho]); falha(r.error); } }
+          if (antigo) await sb.storage.from("programa").remove([antigo]);
+          return true; },
+        async excluirModelo(m) { ok(await sb.from("programa_modelos").delete().eq("id", m.id)); await sb.storage.from("programa").remove([m.caminho]); return true; },
+        async link(caminho, nome) { const r = await sb.storage.from("programa").createSignedUrl(caminho, 600, nome ? { download: nome } : undefined); ok(r); return r.data.signedUrl; }
       },
       push: {
         async chave() { const r = await sb.rpc("push_chave_publica"); ok(r); return r.data; },

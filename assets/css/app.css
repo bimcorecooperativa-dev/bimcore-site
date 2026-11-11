@@ -463,3 +463,4 @@ body.travado > *:not(.trava):not(.toast-wrap) { filter: blur(14px); pointer-even
 .cronometro .tempo { font: 600 2.4rem/1 var(--mono, monospace); letter-spacing: 0.02em; }
 .cronometro .tempo.parado { color: var(--muted); }
 .cronometro { scroll-margin-top: 140px; }
+@media (max-width: 640px) { .abas-login[role="tablist"] { grid-template-columns: 1fr 1fr !important; } }
