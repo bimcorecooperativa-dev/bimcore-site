@@ -85,6 +85,34 @@
     </section>`;
   }
 
+  // Requisitos do computador (base: requisitos oficiais do Blender 5.2 LTS; memoria e disco recomendados
+  // pela coordenacao para projetos BIM com os modelos de instalacoes)
+  const REQUISITOS = [
+    ["Sistema", "Windows 10 de 64 bits", "Windows 11 de 64 bits"],
+    ["Processador", "4 núcleos (com SSE4.2)", "8 núcleos"],
+    ["Memória RAM", "8 GB", "16 GB (32 GB para projetos grandes)"],
+    ["Placa de vídeo", "2 GB de memória, OpenGL 4.3", "8 GB de memória"],
+    ["Disco", "5 GB livres", "SSD com 20 GB livres"],
+    ["Monitor", "Full HD (1920×1080)", "Full HD ou maior; dois monitores ajudam"],
+    ["Mouse", "2 botões", "3 botões, com rodinha"],
+    ["Internet", "Só para baixar o programa, as atualizações e os modelos", "—"],
+  ];
+  function blocoRequisitos() {
+    return `<section class="painel"><h2>Requisitos do computador</h2>
+      <p class="muted">O BIMCORE Edificações roda sobre o Blender 5.2. Confira se o seu computador atende antes de instalar.</p>
+      <div class="tabela-wrap"><table class="tabela"><thead><tr><th>Item</th><th>Mínimo</th><th>Recomendado</th></tr></thead><tbody>
+        ${REQUISITOS.map(([i, m, r]) => `<tr><td><b>${esc(i)}</b></td><td>${esc(m)}</td><td>${esc(r)}</td></tr>`).join("")}
+      </tbody></table></div>
+      <h3 style="margin-top:1.2rem">O que mais costuma impedir o uso</h3>
+      <ul class="muted">
+        <li><b>Placa de vídeo antiga:</b> o programa não abre em placas anteriores à NVIDIA GeForce série 900, à AMD GCN de 4ª geração (RX 400) ou ao Intel de 7ª geração (Kaby Lake). Mantenha o driver de vídeo atualizado.</li>
+        <li><b>Windows de 32 bits, Mac ou Linux:</b> por enquanto o instalador é só para Windows de 64 bits.</li>
+        <li><b>Pouca memória:</b> com 8 GB o programa abre, mas projetos com o modelo de instalações (MEP) e muitas famílias ficam lentos; 16 GB é o indicado.</li>
+        <li><b>Espaço em disco:</b> o programa instalado ocupa cerca de 1,7 GB; cada projeto, de 10 a 60 MB, mais folhas e cópias de segurança.</li>
+      </ul>
+    </section>`;
+  }
+
   function tabelaModelos(ms, coord) {
     if (!ms.length) return `<p class="vazio">${coord ? "Nenhum modelo publicado." : "Ainda não há modelos publicados. A coordenação publica aqui os modelos de cada disciplina e tipo de projeto."}</p>`;
     const grupos = {};
@@ -107,7 +135,7 @@
       const tipos = [...new Set(ms.map((m) => m.tipo_projeto))];
       el.innerHTML = `<div class="pag-cab"><div><p class="eyebrow">Programa da cooperativa</p><h1>BIMCORE Edificações</h1></div></div>
         ${barraAbas(ABAS_COOP, memo.coop)}
-        <div data-painel="baixar">${blocoDownload(vs)}</div>
+        <div data-painel="baixar">${blocoDownload(vs)}${blocoRequisitos()}</div>
         <div data-painel="modelos"><section class="painel"><h2>Modelos de projeto</h2>
           <p class="muted">Modelos de partida aprovados pela coordenação para cada disciplina e tipo de projeto. Comece o projeto pelo modelo indicado aqui.</p>
           ${ms.length ? `<div class="form-grid" style="margin-bottom:.5rem"><div class="field"><label for="pm-d">Disciplina</label><select class="input" id="pm-d"><option value="">Todas</option>${opcoes(disc)}</select></div>
