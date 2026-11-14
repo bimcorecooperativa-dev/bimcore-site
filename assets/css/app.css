@@ -464,3 +464,12 @@ body.travado > *:not(.trava):not(.toast-wrap) { filter: blur(14px); pointer-even
 .cronometro .tempo.parado { color: var(--muted); }
 .cronometro { scroll-margin-top: 140px; }
 @media (max-width: 640px) { .abas-login[role="tablist"] { grid-template-columns: 1fr 1fr !important; } }
+/* Assembleias: passo a passo legal e pendências (migração 052) */
+.asm-etapas { list-style: none; margin: .6rem 0 0; padding: 0; display: grid; gap: .2rem; font-size: .86rem; color: var(--muted); }
+.asm-etapas li { display: flex; gap: .45rem; align-items: baseline; flex-wrap: wrap; }
+.asm-etapas li > span { width: 1rem; text-align: center; font-weight: 700; color: var(--faint); flex: none; }
+.asm-etapas li em { font-style: normal; color: var(--faint); }
+.asm-etapas li.ok > span { color: var(--ok); }
+.asm-etapas li.warn > span, .asm-etapas li.warn { color: var(--warn); }
+.asm-etapas li.err > span, .asm-etapas li.err { color: var(--err); }
+.asm-pend { border-color: var(--warn); }

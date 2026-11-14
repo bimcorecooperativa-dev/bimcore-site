@@ -423,10 +423,103 @@
         _quorum(s, a) {
           const A = this._s(s); const n = a.membros_na_data || Math.max(s.perfis.filter((p) => p.status === "ativo").length, ((s.fin && s.fin.cooperados) || []).filter((c) => (c.situacao || "ativo") === "ativo").length);
           const pres = A.presencas.filter((x) => x.assembleia_id === a.id && x.apto).length;
-          const min = (Date.now() - new Date(a.data_hora).getTime()) / 60000;
-          const conv = min < 60 ? 1 : min < 120 ? 2 : 3;
-          const req = conv === 1 ? Math.ceil(n * 2 / 3) : conv === 2 ? Math.floor(n / 2) + 1 : (n <= 19 ? 4 : Math.min(50, Math.ceil(n * 0.2)));
-          return { membros: n, presentes: pres, convocacao: conv, necessario: req, atingido: pres >= req, tipo: a.tipo };
+          /* digital: convocação única (Estatuto, art. 30, §2º) → quórum da 1ª convocação, 2/3 (Lei 12.690, art. 11, §3º, I) */
+          const req = Math.ceil(n * 2 / 3);
+          return { membros: n, presentes: pres, convocacao: 1, necessario: req, atingido: pres >= req, tipo: a.tipo };
+        },
+        /* Mesmas regras da migração 052 (assembleias conforme a lei) */
+        _AGE: ["reforma_estatuto", "fusao_incorporacao", "mudanca_objeto", "dissolucao", "contas_liquidante"],
+        _AGO: ["contas", "sobras", "eleicao_presidencia"],
+        _regrasPauta(a, p) {
+          p.materia = p.materia || "geral";
+          if (p.especial === "comissao") { p.materia = "geral"; return p; }
+          if (a.tipo !== "pre") {
+            if (this._AGE.includes(p.materia) && a.tipo !== "extraordinaria") falha("Esta matéria só pode ser votada em Assembleia Geral Extraordinária (Lei 5.764, art. 46; Estatuto, art. 44).");
+            if (this._AGO.includes(p.materia) && a.tipo !== "ordinaria") falha("Prestação de contas, sobras ou perdas e eleição do Presidente e do Vice são matérias da Assembleia Geral Ordinária (Lei 5.764, art. 44; Estatuto, art. 42).");
+          }
+          if (this._AGE.includes(p.materia)) p.quorum = "dois_tercos";
+          if (p.materia === "contas") p.impedir_orgaos = true;
+          return p;
+        },
+        _anoSP(iso) { return Number(new Date(iso).toLocaleString("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric" })); },
+        _mesSP(iso) { return Number(new Date(iso).toLocaleString("en-CA", { timeZone: "America/Sao_Paulo", month: "numeric" })); },
+        _conferir(s, a) {
+          const A = this._s(s), ps = A.pautas.filter((p) => p.assembleia_id === a.id), erros = [];
+          if (!ps.length) erros.push("Inclua ao menos uma pauta na ordem do dia (Estatuto, art. 33, IV).");
+          if (a.tipo !== "pre") {
+            if (new Date(a.data_hora) < new Date(Date.now() + 10 * 86400000)) erros.push("A data precisa estar a pelo menos 10 dias da publicação do edital (Lei 12.690, art. 12; Estatuto, arts. 30 e 34).");
+            if (!String(a.convocante || "").trim()) erros.push("Informe quem convoca: nome e qualidade, que assinam o edital (Estatuto, art. 33, VI).");
+            if (!String(a.plataforma || "").trim() || !String(a.link_video || "").trim()) erros.push("Informe a plataforma e o link da sala de vídeo (Estatuto, art. 33, II).");
+            if ((a.duracao_min || 0) < 120) erros.push("A sessão digital dura no mínimo 2 horas (Estatuto, art. 30, §2º).");
+            if (a.tipo === "ordinaria") {
+              if (this._mesSP(a.data_hora) > 3) erros.push("A AGO acontece nos 3 primeiros meses depois do fim do exercício, ou seja, de janeiro a março (Lei 5.764, art. 44). Para outros assuntos, use a Especial ou a Extraordinária.");
+              if (!ps.some((p) => p.materia === "contas")) erros.push("A AGO precisa ter a prestação de contas do exercício anterior, com o parecer do Conselho Fiscal (Lei 5.764, art. 44, I).");
+              if (A.assembleias.some((x) => x.id !== a.id && x.tipo === "ordinaria" && !["rascunho", "cancelada", "sem_quorum"].includes(x.status) && this._anoSP(x.data_hora) === this._anoSP(a.data_hora))) erros.push("Já existe uma AGO convocada ou realizada neste ano.");
+            }
+            if (ps.some((p) => this._AGE.includes(p.materia)) && a.tipo !== "extraordinaria") erros.push("Há pauta que só pode ser votada em Assembleia Geral Extraordinária (Lei 5.764, art. 46).");
+            if (ps.some((p) => this._AGO.includes(p.materia)) && a.tipo !== "ordinaria") erros.push("Há pauta que só pode ser votada na AGO (Lei 5.764, art. 44).");
+          }
+          return { ok: !erros.length, erros };
+        },
+        async conferirEdital(id) { const s = ler(); exigir(s); const a = this._s(s).assembleias.find((x) => x.id === id); return espera(this._conferir(s, a)); },
+        async registrarConvocacao(id, canal) {
+          const s = ler(); const u = exigir(s); if (!this._gestor(u)) falha("Só quem convoca registra o envio da convocação."); const a = this._s(s).assembleias.find((x) => x.id === id);
+          if (a.status !== "agendada") falha("A convocação é enviada depois de publicar o edital e antes de abrir a sala.");
+          if (canal === "email") {
+            if (a.convocacao_enviada_em) falha(`O envio por e-mail já foi registrado em ${new Date(a.convocacao_enviada_em).toLocaleDateString("pt-BR")}.`);
+            if (a.tipo !== "pre" && Date.now() > new Date(a.data_hora).getTime() - 10 * 86400000) falha("O prazo para notificar por e-mail (10 dias antes, Lei 12.690, art. 12; Estatuto, art. 34) já passou. Cancele esta assembleia e convoque outra data.");
+            a.convocacao_enviada_em = new Date().toISOString();
+          } else if (canal === "whatsapp") { if (a.convocacao_whatsapp_em) falha("O aviso no aplicativo de mensagens já foi registrado."); a.convocacao_whatsapp_em = new Date().toISOString(); }
+          else falha("Canal inválido.");
+          gravar(s); return espera(true);
+        },
+        async jucerja(id, d) {
+          const s = ler(); const u = exigir(s); if (!this._gestor(u)) falha("Só a gestão registra o protocolo na JUCERJA."); const a = this._s(s).assembleias.find((x) => x.id === id);
+          if (a.tipo === "pre") falha("Pré-assembleia não tem ata para registrar."); if (!a.ata_publicada_em) falha("Publique a ata assinada antes de registrar o protocolo.");
+          if (!String(d.dispensa || "").trim() && (!String(d.protocolo || "").trim() || !d.protocolo_em)) falha("Informe o número e a data do protocolo na JUCERJA, ou o motivo de a ata não ir a registro.");
+          if (d.protocolo_em && d.protocolo_em > new Date().toISOString().slice(0, 10)) falha("A data do protocolo não pode estar no futuro.");
+          if (d.arquivado_em && d.protocolo_em && d.arquivado_em < d.protocolo_em) falha("O arquivamento não pode ser anterior ao protocolo.");
+          Object.assign(a, { jucerja_protocolo: String(d.protocolo || "").trim() || null, jucerja_protocolo_em: d.protocolo_em || null, jucerja_arquivado_em: d.arquivado_em || null, jucerja_dispensa: String(d.dispensa || "").trim() || null });
+          gravar(s); return espera(true);
+        },
+        async externas() { const s = ler(); exigir(s); return espera(JSON.parse(JSON.stringify((s.asmExt || []).slice().sort((x, y) => String(y.data).localeCompare(String(x.data)))))); },
+        async salvarExterna(d) { const s = ler(); const u = exigir(s); if (!this._gestor(u)) falha("permission denied"); s.asmExt = s.asmExt || []; s.asmExt.push({ ...d, id: novoId(), criado_nome: u.nome, criado_em: new Date().toISOString() }); gravar(s); return espera(true); },
+        async excluirExterna(id) { const s = ler(); const u = exigir(s); if (!this._gestor(u)) falha("permission denied"); s.asmExt = (s.asmExt || []).filter((x) => x.id !== id); gravar(s); return espera(true); },
+        async pendencias() { const s = ler(); exigir(s); return espera(this._pendencias(this._s(s).assembleias, s.asmExt || [])); },
+        _pendencias(as, ext) {
+          const out = [], agora = Date.now(), hojeIso = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+          const ano = Number(hojeIso.slice(0, 4)), mes = Number(hojeIso.slice(5, 7)), inicio = 2026;
+          const dSP = (iso) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+          const br = (iso) => iso.split("-").reverse().join("/");
+          const mais = (iso, dias) => new Date(new Date(iso).getTime() + dias * 86400000).toISOString();
+          if (ano - 1 >= inicio) {
+            const tem = as.some((x) => x.tipo === "ordinaria" && x.status === "encerrada" && this._anoSP(x.data_hora) === ano) || ext.some((e) => e.tipo === "ordinaria" && Number(String(e.data).slice(0, 4)) === ano);
+            const marcada = as.some((x) => x.tipo === "ordinaria" && ["agendada", "aberta", "instalada"].includes(x.status) && this._anoSP(x.data_hora) === ano);
+            if (!tem && !marcada) out.push(hojeIso <= `${ano}-03-21` ? { nivel: "aviso", texto: `Convocar a AGO de ${ano} (contas de ${ano - 1}) até 21/03, para acontecer até 31/03 (Lei 5.764, art. 44).` }
+              : { nivel: "grave", texto: `A AGO de ${ano}, com as contas de ${ano - 1}, não foi realizada no prazo de 31/03 (Lei 5.764, art. 44). Convoque o quanto antes.` });
+          }
+          if (mes >= 7) {
+            const no2 = (d) => d >= `${ano}-07-01` && d <= `${ano}-12-31`;
+            const tem = as.some((x) => x.tipo === "especial" && x.status === "encerrada" && no2(dSP(x.data_hora))) || ext.some((e) => e.tipo === "especial" && no2(String(e.data)));
+            const marcada = as.some((x) => x.tipo === "especial" && ["agendada", "aberta", "instalada"].includes(x.status) && no2(dSP(x.data_hora)) && dSP(x.data_hora) >= hojeIso);
+            if (!tem && !marcada) out.push({ nivel: mes === 12 ? "grave" : "aviso", texto: `Falta a Assembleia Geral Especial do 2º semestre de ${ano} (Lei 12.690, art. 11, §6º). O edital precisa sair até 21/12.` });
+          }
+          as.filter((a) => !["rascunho", "cancelada"].includes(a.status)).sort((x, y) => new Date(x.data_hora) - new Date(y.data_hora)).forEach((a) => {
+            if (a.status === "agendada" && a.tipo !== "pre") {
+              const lim = new Date(a.data_hora).getTime() - 10 * 86400000;
+              if (!a.convocacao_enviada_em) out.push(agora > lim ? { nivel: "grave", assembleia_id: a.id, texto: `${a.titulo}: o prazo para o e-mail de convocação (10 dias antes) passou sem registro. Cancele e convoque outra data.` }
+                : { nivel: "aviso", assembleia_id: a.id, texto: `${a.titulo}: envie a convocação por e-mail a todos até ${br(dSP(new Date(lim).toISOString()))} e registre no site.` });
+              if (!a.convocacao_whatsapp_em) out.push({ nivel: "aviso", assembleia_id: a.id, texto: `${a.titulo}: falta registrar o aviso no grupo de WhatsApp (Regimento, art. 61).` });
+              if (!a.mesa_presidente || !a.mesa_secretario) out.push({ nivel: "aviso", assembleia_id: a.id, texto: `${a.titulo}: defina quem preside e quem secretaria a mesa (Estatuto, art. 36).` });
+            }
+            if (a.tipo !== "pre" && ["encerrada", "sem_quorum"].includes(a.status) && !a.ata_publicada_em && a.encerrada_em && agora > new Date(mais(a.encerrada_em, 7)).getTime())
+              out.push({ nivel: agora > new Date(mais(a.encerrada_em, 10)).getTime() ? "grave" : "aviso", assembleia_id: a.id, texto: `${a.titulo}: a ata precisa estar assinada e publicada até ${br(dSP(mais(a.encerrada_em, 10)))} (Regimento, art. 63).` });
+            if (a.tipo !== "pre" && a.status === "encerrada" && a.ata_publicada_em && !a.jucerja_protocolo && !a.jucerja_dispensa) {
+              const prazo = dSP(mais(a.ata_concluida_em || a.ata_publicada_em, 30)), aviso = dSP(mais(a.ata_concluida_em || a.ata_publicada_em, 20));
+              out.push({ nivel: hojeIso > prazo ? "grave" : hojeIso > aviso ? "aviso" : "info", assembleia_id: a.id, texto: `${a.titulo}: protocolar a ata na JUCERJA até ${br(prazo)}, para valer desde a data da assembleia (Lei 8.934/94, art. 36).` });
+            }
+          });
+          return out;
         },
         async listar() {
           const s = ler(); const u = exigir(s); const A = this._s(s); const g = this._gestor(u);
@@ -461,6 +554,7 @@
         async fecharAta(id, texto, bytes, hash, signatarios) {
           const s = ler(); const u = exigir(s); const A = this._s(s); const a = A.assembleias.find((x) => x.id === id);
           if (!this._mesa(u, a)) falha("Só a mesa fecha a ata."); if (!["encerrada", "sem_quorum"].includes(a.status)) falha("A ata é fechada depois do encerramento."); if (a.ata_fechada_em) falha("A ata já foi fechada e não muda mais.");
+          if (a.tipo !== "pre" && !String(a.gravacao_url || "").trim()) falha("Salve o link da gravação antes de fechar a ata: a gravação é obrigatória e integra a ata (Estatuto, arts. 31, §1º, III, e 39, §3º).");
           if (!signatarios.length) falha("Informe quem assina a ata.");
           const caminho = `${id}/ata-${hash.slice(0, 12)}.pdf`; A.arquivos[caminho] = this._b64(bytes);
           Object.assign(a, { ata: texto, ata_pdf: caminho, ata_hash: hash, ata_signatarios: signatarios, ata_fechada_em: new Date().toISOString() }); gravar(s); return espera(true);
@@ -488,6 +582,9 @@
             const a = A.assembleias.find((x) => x.id === d.id); if (!a) falha("Assembleia não encontrada.");
             if (a.status !== "rascunho" && ["data_hora", "tipo", "titulo", "duracao_min"].some((k) => k in d && d[k] !== a[k])) falha("Depois do edital publicado, data, tipo e ordem do dia não mudam. Cancele e convoque outra assembleia.");
             if (["ata", "notas", "comissao", "ata_fechada_em", "ata_hash", "ata_pdf", "ata_signatarios", "ata_concluida_em", "ata_publicada_em"].some((k) => k in d)) falha("A ata e as anotações só mudam pelos botões da sala.");
+            if (["convocacao_enviada_em", "convocacao_whatsapp_em"].some((k) => k in d)) falha("O envio da convocação é registrado pelo botão Enviar convocação, que grava a data.");
+            if (["jucerja_protocolo", "jucerja_protocolo_em", "jucerja_arquivado_em", "jucerja_dispensa"].some((k) => k in d)) falha("O registro na JUCERJA é informado pelo botão da ata.");
+            if (a.status !== "rascunho" && ["convocante", "plataforma"].some((k) => k in d && d[k] !== a[k])) falha("Depois do edital publicado, data, tipo, ordem do dia e quem convoca não mudam. Cancele e convoque outra assembleia.");
             if (["mesa_presidente", "mesa_secretario", "comissao_proposta"].some((k) => k in d && JSON.stringify(d[k]) !== JSON.stringify(a[k])) && !["rascunho", "agendada", "aberta"].includes(a.status)) falha("A mesa e a comissão proposta só mudam até a instalação da assembleia.");
             if ((d.comissao_proposta || []).length > 5) falha("A comissão tem no máximo 5 cooperados (Estatuto, art. 39, §1º).");
             if ("gravacao_url" in d && d.gravacao_url !== a.gravacao_url && a.ata_fechada_em) falha("A ata já foi fechada; o link da gravação não muda mais.");
@@ -499,21 +596,26 @@
         async publicarEdital(id) {
           const s = ler(); const u = exigir(s); if (!this._gestor(u)) falha("permission denied"); const A = this._s(s); const a = A.assembleias.find((x) => x.id === id);
           if (a.status !== "rascunho") falha("O edital já foi publicado.");
-          if (a.tipo !== "pre" && new Date(a.data_hora) < new Date(Date.now() + 10 * 86400000)) falha("O edital precisa ser publicado com pelo menos 10 dias de antecedência (Estatuto, art. 30).");
-          if (!A.pautas.some((p) => p.assembleia_id === id)) falha("Inclua ao menos uma pauta na ordem do dia (Estatuto, art. 33, IV).");
+          const cf = this._conferir(s, a); if (!cf.ok) falha("O edital ainda não pode ser publicado: " + cf.erros.join(" "));
           Object.assign(a, { status: "agendada", edital_publicado_em: new Date().toISOString(), membros_na_data: Math.max(s.perfis.filter((p) => p.status === "ativo").length, ((s.fin && s.fin.cooperados) || []).filter((c) => (c.situacao || "ativo") === "ativo").length) }); gravar(s); return espera(true);
         },
         async cancelar(id, motivo) { const s = ler(); const u = exigir(s); if (!this._gestor(u)) falha("permission denied"); const a = this._s(s).assembleias.find((x) => x.id === id); if (!["rascunho", "agendada"].includes(a.status)) falha("Só assembleias ainda não abertas podem ser canceladas."); Object.assign(a, { status: "cancelada", motivo_cancelamento: motivo }); gravar(s); return espera(true); },
         async salvarPauta(p) {
           const s = ler(); const u = exigir(s); if (!this._gestor(u)) falha("permission denied"); const A = this._s(s);
           const a = A.assembleias.find((x) => x.id === p.assembleia_id); if (!a || a.status !== "rascunho") falha("A ordem do dia só muda antes de publicar o edital (Estatuto, art. 38).");
-          if (p.id) Object.assign(A.pautas.find((x) => x.id === p.id), p); else A.pautas.push({ quorum: "maioria", impedir_orgaos: false, voto_secreto: false, ...p, id: novoId(), status: "aguardando", resultado: null });
+          if (p.id) { const x = A.pautas.find((y) => y.id === p.id); Object.assign(x, this._regrasPauta(a, { ...x, ...p })); }
+          else A.pautas.push(this._regrasPauta(a, { quorum: "maioria", impedir_orgaos: false, voto_secreto: false, materia: "geral", ...p, id: novoId(), status: "aguardando", resultado: null }));
           gravar(s); return espera(true);
         },
         async excluirPauta(id) { const s = ler(); const u = exigir(s); if (!this._gestor(u)) falha("permission denied"); const A = this._s(s); const p = A.pautas.find((x) => x.id === id); const a = A.assembleias.find((x) => x.id === p.assembleia_id); if (a.status !== "rascunho") falha("A ordem do dia só muda antes de publicar o edital."); A.pautas = A.pautas.filter((x) => x.id !== id); gravar(s); return espera(true); },
         async abrir(id) {
           const s = ler(); const u = exigir(s); if (!this._gestor(u)) falha("Só quem convoca abre a sala."); const a = this._s(s).assembleias.find((x) => x.id === id);
           if (a.status !== "agendada") falha("A assembleia não está agendada."); if (Date.now() < new Date(a.data_hora).getTime() - 30 * 60000) falha("A sala abre 30 minutos antes do horário do edital.");
+          if (a.tipo !== "pre") {
+            if (!a.convocacao_enviada_em) falha("Não há registro da convocação por e-mail a todos os cooperados (Lei 12.690, art. 12; Estatuto, art. 34). Sem ela a assembleia é irregular: cancele e convoque outra data.");
+            if (!a.convocacao_whatsapp_em) falha("Registre o aviso no aplicativo de mensagens antes de abrir a sala (Regimento, art. 61).");
+            if (!a.mesa_presidente || !a.mesa_secretario) falha("Defina quem preside e quem secretaria a mesa antes de abrir a sala (Estatuto, art. 36).");
+          }
           Object.assign(a, { status: "aberta", aberta_em: new Date().toISOString() }); gravar(s); return espera(true);
         },
         async entrar(id) {
@@ -1566,7 +1668,14 @@
         async chat(id) { return ok(await sb.from("assembleia_chat").select("*").eq("assembleia_id", id).order("em")); },
         async enviarChat(id, texto) { const uid = await meuId(); const eu = ok(await sb.from("perfis").select("nome").eq("id", uid).single()); ok(await sb.from("assembleia_chat").insert({ assembleia_id: id, perfil_id: uid, nome: eu.nome, texto: String(texto).slice(0, 1000) })); return true; },
         async assinar(id, qualidade) { ok(await sb.rpc("ata_assinar", { p_id: id, p_qualidade: qualidade })); return true; },
-        async publicarAta(id) { ok(await sb.rpc("ata_publicar", { p_id: id })); return true; }
+        async publicarAta(id) { ok(await sb.rpc("ata_publicar", { p_id: id })); return true; },
+        async conferirEdital(id) { return ok(await sb.rpc("assembleia_conferir_edital", { p_id: id })); },
+        async registrarConvocacao(id, canal) { ok(await sb.rpc("assembleia_registrar_convocacao", { p_id: id, p_canal: canal })); return true; },
+        async jucerja(id, d) { ok(await sb.rpc("assembleia_jucerja", { p_id: id, p_protocolo: d.protocolo || null, p_protocolo_em: d.protocolo_em || null, p_arquivado_em: d.arquivado_em || null, p_dispensa: d.dispensa || null })); return true; },
+        async externas() { const r = await sb.from("assembleias_externas").select("*").order("data", { ascending: false }); return r.error ? [] : r.data; },
+        async salvarExterna(d) { ok(await sb.from("assembleias_externas").insert({ ...d, criado_nome: (ok(await sb.from("perfis").select("nome").eq("id", await meuId()).single()) || {}).nome })); return true; },
+        async excluirExterna(id) { ok(await sb.from("assembleias_externas").delete().eq("id", id)); return true; },
+        async pendencias() { const r = await sb.rpc("assembleias_pendencias"); return r.error ? [] : r.data || []; }
       },
       cf: {
         async _eu() { const uid = await meuId(); return ok(await sb.from("perfis").select("nome").eq("id", uid).single()).nome; },

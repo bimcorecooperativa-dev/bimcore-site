@@ -9,6 +9,77 @@
   const ST = { rascunho: ["rascunho", ""], agendada: ["edital publicado", "info"], aberta: ["sala aberta", "warn"], instalada: ["em andamento", "ok"], encerrada: ["encerrada", ""], sem_quorum: ["não instalada: sem quórum", "err"], cancelada: ["cancelada", "err"] };
   const RES = { aprovada: ["aprovada", "ok"], rejeitada: ["rejeitada", "err"], adiada: ["adiada: abstenções acima de 50%", "warn"], consulta: ["consulta registrada", "info"] };
   const VOTO = { favor: "A favor", contra: "Contra", abstencao: "Abstenção" };
+  /* Matéria de cada pauta: define onde pode ser votada e o quórum (Lei 5.764, arts. 44 e 46; migração 052) */
+  const MATERIAS = {
+    geral: ["Assunto geral", ""],
+    plano_anual: ["Plano Anual, orçamento e metas", ""],
+    conselho_administracao: ["Nomeação ou destituição do Conselho de Administração", ""],
+    conselho_fiscal: ["Eleição ou destituição do Conselho Fiscal", ""],
+    contas: ["Prestação de contas do exercício, com parecer do Conselho Fiscal", "ordinaria"],
+    sobras: ["Destinação das sobras ou rateio das perdas", "ordinaria"],
+    eleicao_presidencia: ["Eleição do Presidente e do Vice", "ordinaria"],
+    reforma_estatuto: ["Reforma do Estatuto", "extraordinaria"],
+    fusao_incorporacao: ["Fusão, incorporação ou desmembramento", "extraordinaria"],
+    mudanca_objeto: ["Mudança do objeto social", "extraordinaria"],
+    dissolucao: ["Dissolução voluntária e nomeação de liquidantes", "extraordinaria"],
+    contas_liquidante: ["Contas do liquidante", "extraordinaria"]
+  };
+  const MAT_AGE = ["reforma_estatuto", "fusao_incorporacao", "mudanca_objeto", "dissolucao", "contas_liquidante"];
+  const PAUTAS_AGO = [
+    { materia: "contas", titulo: "Prestação de contas do exercício anterior: relatório da gestão, balanço patrimonial, demonstrativo de sobras ou perdas e parecer do Conselho Fiscal" },
+    { materia: "sobras", titulo: "Destinação das sobras ou rateio das perdas do exercício anterior" },
+    { materia: "conselho_fiscal", titulo: "Eleição do Conselho Fiscal (mandato de 1 ano, Estatuto, art. 60, §3º)" }
+  ];
+  const diaBR = (iso) => (iso ? new Date(iso).toLocaleDateString("pt-BR") : "—");
+  const somaDias = (iso, n) => new Date(new Date(iso).getTime() + n * 86400000).toISOString();
+  /* O passo a passo legal de cada assembleia, conferido com o que está registrado */
+  function etapas(a) {
+    if (a.tipo === "pre") return [];
+    const agora = Date.now(), limEmail = somaDias(a.data_hora, -10), enc = ["encerrada", "sem_quorum"].includes(a.status);
+    const st = (feito, atrasado) => (feito ? "ok" : atrasado ? "err" : "");
+    const e = [
+      { t: "Edital publicado com 10 dias", s: st(!!a.edital_publicado_em), d: a.edital_publicado_em ? diaBR(a.edital_publicado_em) : "rascunho" },
+      { t: "E-mail a todos", s: st(!!a.convocacao_enviada_em, !a.convocacao_enviada_em && agora > new Date(limEmail).getTime()), d: a.convocacao_enviada_em ? diaBR(a.convocacao_enviada_em) : "até " + diaBR(limEmail) },
+      { t: "Aviso no WhatsApp", s: st(!!a.convocacao_whatsapp_em), d: a.convocacao_whatsapp_em ? diaBR(a.convocacao_whatsapp_em) : "pendente" },
+      { t: "Mesa definida", s: st(!!(a.mesa_presidente && a.mesa_secretario)), d: a.mesa_presidente && a.mesa_secretario ? "ok" : "pendente" },
+      { t: "Instalada com quórum", s: st(!!a.instalada_em, a.status === "sem_quorum"), d: a.instalada_em ? hora(a.instalada_em) : a.status === "sem_quorum" ? "sem quórum" : "—" }
+    ];
+    if (enc) {
+      const lim10 = a.encerrada_em ? somaDias(a.encerrada_em, 10) : null;
+      e.push({ t: "Gravação na ata", s: st(!!a.gravacao_url), d: a.gravacao_url ? "ok" : "pendente" });
+      e.push({ t: "Ata assinada e publicada", s: st(!!a.ata_publicada_em, !a.ata_publicada_em && lim10 && agora > new Date(lim10).getTime()), d: a.ata_publicada_em ? diaBR(a.ata_publicada_em) : lim10 ? "até " + diaBR(lim10) : "—" });
+      if (a.status === "encerrada") {
+        const base = a.ata_concluida_em || a.ata_publicada_em, lim30 = base ? somaDias(base, 30) : null, feito = !!(a.jucerja_protocolo || a.jucerja_dispensa);
+        e.push({ t: "Protocolo na JUCERJA", s: st(feito, !feito && lim30 && agora > new Date(lim30).getTime()),
+          d: a.jucerja_protocolo ? a.jucerja_protocolo + (a.jucerja_arquivado_em ? " · arquivada em " + diaBR(a.jucerja_arquivado_em + "T12:00:00") : "") : a.jucerja_dispensa ? "não vai a registro" : lim30 ? "até " + diaBR(lim30) : "depois da ata" });
+      }
+    }
+    return e;
+  }
+  const EXT = { constituicao: "Assembleia Geral de Constituição", ordinaria: "Assembleia Geral Ordinária", extraordinaria: "Assembleia Geral Extraordinária", especial: "Assembleia Geral Especial" };
+  const CALENDARIO = `<details class="explica"><summary><b>Quando acontece cada assembleia</b> (regra da lei, conferida pelo site)</summary>
+    <ul>
+      <li><b>Ordinária (AGO):</b> uma por ano, <b>de janeiro a março</b>: contas do ano anterior com parecer do Conselho Fiscal, sobras ou perdas, eleição do Conselho Fiscal e, quando vencer o mandato, do Presidente e do Vice (Lei 5.764, art. 44). Maioria absoluta; quem ocupa cargo não vota nas contas.</li>
+      <li><b>Especial:</b> pelo menos uma por ano, <b>obrigatoriamente no 2º semestre</b> (Lei 12.690, art. 11, §6º): gestão, planejamento, resultado dos contratos, organização do trabalho, Conselhos. O Estatuto prevê outra no 1º trimestre para o Plano Anual (art. 45).</li>
+      <li><b>Extraordinária (AGE):</b> quando for preciso. Só ela reforma o Estatuto e decide fusão, incorporação, desmembramento, mudança de objeto e dissolução, com <b>2/3 dos presentes</b> (Lei 5.764, art. 46).</li>
+      <li><b>Pré-assembleia:</b> conversa consultiva, não decide nada (Regimento, art. 60).</li>
+    </ul>
+    <p class="hint">Toda assembleia (menos a pré): edital completo com 10 dias, e-mail a cada cooperado e aviso no WhatsApp, sessão digital de 2 horas em convocação única com quórum de 2/3, gravação, ata assinada e publicada em 10 dias e protocolo na JUCERJA em 30 dias.</p></details>`;
+  function formExterna(aoSalvar) {
+    const m = UI.modal(`<h2>Assembleia feita fora do site</h2><p class="hint">Use só para assembleias já realizadas, com ata própria (por exemplo, a de constituição).</p>
+      <div class="form-grid"><div class="field"><label for="ex-t">Tipo</label><select class="input" id="ex-t">${Object.entries(EXT).map(([k, t]) => `<option value="${k}">${t}</option>`).join("")}</select></div>
+      <div class="field"><label for="ex-d">Data</label><input class="input" id="ex-d" type="date"></div>
+      <div class="field full"><label for="ex-desc">O que foi decidido</label><input class="input" id="ex-desc" maxlength="300"></div>
+      <div class="field"><label for="ex-p">Protocolo na JUCERJA</label><input class="input" id="ex-p" maxlength="40"></div>
+      <div class="field"><label for="ex-a">Arquivada em</label><input class="input" id="ex-a" type="date"></div></div>
+      <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Cancelar</button><button class="btn btn-primary btn-sm" id="ex-ok">Registrar</button></div>`, aoSalvar);
+    $("#ex-ok", m.el).onclick = async (ev) => {
+      const d = { tipo: $("#ex-t", m.el).value, data: $("#ex-d", m.el).value, descricao: $("#ex-desc", m.el).value.trim(), jucerja_protocolo: $("#ex-p", m.el).value.trim() || null, jucerja_arquivado_em: $("#ex-a", m.el).value || null };
+      if (!d.data || !d.descricao) return toast("Informe a data e o que foi decidido.", "err");
+      if (await acao(ev.currentTarget, () => API.assembleias.salvarExterna(d), "Assembleia registrada.")) m.fechar();
+    };
+  }
+  const etapasHtml = (a) => { const e = etapas(a); return e.length ? `<ul class="asm-etapas">${e.map((x) => `<li class="${x.s}"><span>${x.s === "ok" ? "✓" : x.s === "err" ? "!" : "○"}</span> ${esc(x.t)} <em>${esc(x.d)}</em></li>`).join("")}</ul>` : ""; };
   let salaId = null, timer = null, chamada = null, gravador = null;
 
   const gestor = (ctx) => { const p = ctx.sessao.perfil || {}; return p.status === "ativo" && (p.papel === "coordenacao" || !!p.conselho_fiscal); };
@@ -86,10 +157,10 @@ EDITAL DE CONVOCAÇÃO DA ${a.tipo === "pre" ? "PRÉ-ASSEMBLEIA" : tipo}
 
 ${a.convocante || "O Presidente da BIMCORE"}, no uso das atribuições do art. 28 do Estatuto Social, convoca os cooperados para a ${TIPOS[a.tipo]}, a realizar-se em ${quando(a.data_hora)}, em ambiente integralmente digital${a.plataforma ? ", pela plataforma " + a.plataforma : ""}, com acesso pela área do cooperado no site ${EMPRESA.site}, nos termos do art. 31 do Estatuto Social.
 
-${a.tipo === "pre" ? "A pré-assembleia tem caráter consultivo, para socializar informações e amadurecer as decisões (Regimento Interno, art. 60)." : `A sessão terá duração mínima de ${Math.max(a.duracao_min, 120) / 60} horas para a conexão dos cooperados e a verificação do quórum, que será considerado a qualquer momento durante esse período (Estatuto, art. 30, §2º): 2/3 dos cooperados na primeira hora, metade mais um na segunda hora e, a partir da terceira hora, no mínimo 4 cooperados (art. 32).`}
+${a.tipo === "pre" ? "A pré-assembleia tem caráter consultivo, para socializar informações e amadurecer as decisões (Regimento Interno, art. 60)." : `A sessão terá duração mínima de ${Math.max(a.duracao_min, 120) / 60} horas, em convocação única, para a conexão dos cooperados e a verificação do quórum, que será considerado a qualquer momento durante esse período (Estatuto, art. 30, §2º): 2/3 (dois terços) dos cooperados (Lei 12.690/2012, art. 11, §3º, I; Estatuto, art. 32).`}
 
 ORDEM DO DIA
-${pautas.map((p, i) => `${i + 1}. ${p.titulo}${p.descricao ? " — " + p.descricao : ""}${p.quorum === "dois_tercos" ? " (exige 2/3 dos presentes, art. 44, §1º)" : ""}`).join("\n")}
+${pautas.map((p, i) => `${i + 1}. ${p.titulo}${p.descricao ? " — " + p.descricao : ""}${p.quorum === "dois_tercos" ? " (exige 2/3 dos presentes, Lei 5.764, art. 46; Estatuto, art. 44, §1º)" : ""}${p.impedir_orgaos ? " (os membros dos órgãos de administração e fiscalização não votam, Estatuto, arts. 37 e 42, §1º)" : ""}`).join("\n")}
 
 Número de cooperados na data deste edital: ${n} (art. 33, V). Não poderá votar o cooperado admitido após a publicação deste edital (art. 28, §3º). Cada cooperado tem direito a 1 (um) voto, pessoal e intransferível (art. 40). A sessão será gravada (art. 31, §1º, III).
 
@@ -241,6 +312,8 @@ ${a.convocante || ""}`;
   document.addEventListener("click", (e) => { const b = e.target.closest("[data-ir-sala]"); if (b) salaId = b.dataset.irSala; });
 
   async function sinal() {
+    const pend = await API.assembleias.pendencias().catch(() => []);
+    if (pend.some((x) => x.nivel === "grave")) return { cor: "err", texto: "Pendência legal nas assembleias" };
     const as = await API.assembleias.listar().catch(() => []);
     if (as.some((a) => a.status === "aberta" || a.status === "instalada")) return { cor: "err", texto: "Assembleia acontecendo agora" };
     if (as.some((a) => a.status === "agendada")) return { cor: "warn", texto: "Assembleia convocada" };
@@ -253,7 +326,7 @@ ${a.convocante || ""}`;
     parar(); el.onsubmit = null;
     if (salaId) return sala(el, ctx, salaId);
     const g = gestor(ctx);
-    const as = await API.assembleias.listar();
+    const [as, pend, ext] = await Promise.all([API.assembleias.listar(), g ? API.assembleias.pendencias().catch(() => []) : [], API.assembleias.externas().catch(() => [])]);
     const grupo = (f) => as.filter(f).sort((x, y) => new Date(x.data_hora) - new Date(y.data_hora));
     const vivas = grupo((a) => ["aberta", "instalada"].includes(a.status));
     const prox = grupo((a) => a.status === "agendada");
@@ -263,34 +336,45 @@ ${a.convocante || ""}`;
       <div class="asm-card-cab"><div><span class="eyebrow">${esc(TIPOS[a.tipo])}</span><h3>${esc(a.titulo)}</h3><span class="muted">${esc(quando(a.data_hora))}${a.status === "agendada" ? " · " + falta(a.data_hora) : ""}</span></div>${selo(a.status)}</div>
       ${a.pautas.length ? `<ol class="asm-pautas">${a.pautas.map((p) => `<li>${esc(p.titulo)}${p.resultado ? ` <span class="selo ${RES[p.resultado.resultado][1]}">${RES[p.resultado.resultado][0]}</span>` : ""}</li>`).join("")}</ol>` : '<p class="hint">Sem pautas ainda.</p>'}
       ${a.status === "cancelada" && a.motivo_cancelamento ? `<p class="hint">Motivo: ${esc(a.motivo_cancelamento)}</p>` : ""}
+      ${a.status !== "cancelada" ? etapasHtml(a) : ""}
       <div class="sol-acoes">
         ${["aberta", "instalada"].includes(a.status) ? `<button class="btn btn-primary btn-sm" data-sala="${a.id}">Entrar na sala</button>` : ""}
         ${a.status !== "rascunho" && a.status !== "cancelada" ? `<button class="btn btn-ghost btn-sm" data-edital="${a.id}">Edital</button>` : ""}
         ${["encerrada", "sem_quorum"].includes(a.status) ? `<button class="btn btn-ghost btn-sm" data-sala="${a.id}">${a.ata_publicada_em ? "Ata" : a.ata_fechada_em ? "Ata: assinaturas gov.br" : "Ata"}</button>` : ""}
         ${g && a.status === "rascunho" ? `<button class="btn btn-ghost btn-sm" data-editar="${a.id}">Editar e pautas</button><button class="btn btn-primary btn-sm" data-publicar="${a.id}">Publicar edital</button><button class="btn btn-danger btn-sm" data-excluir="${a.id}">Excluir</button>` : ""}
-        ${g && a.status === "agendada" ? `<button class="btn btn-ghost btn-sm" data-convocar="${a.id}">Enviar convocação</button><button class="btn btn-primary btn-sm" data-abrir="${a.id}">Abrir a sala</button><button class="btn btn-danger btn-sm" data-cancelar="${a.id}">Cancelar</button>` : ""}
+        ${g && a.status === "agendada" ? `<button class="btn ${a.tipo !== "pre" && (!a.convocacao_enviada_em || !a.convocacao_whatsapp_em) ? "btn-primary" : "btn-ghost"} btn-sm" data-convocar="${a.id}">Enviar convocação</button><button class="btn btn-primary btn-sm" data-abrir="${a.id}">Abrir a sala</button><button class="btn btn-danger btn-sm" data-cancelar="${a.id}">Cancelar</button>` : ""}
       </div>
-      ${g && a.status === "agendada" ? `<p class="hint">${a.convocacao_enviada_em ? "Convocação enviada por e-mail em " + data(a.convocacao_enviada_em) + "." : "Lembre de enviar a convocação por e-mail a todos (art. 34) e pelo aplicativo de mensagens (RI, art. 61)."} A sala pode ser aberta 30 minutos antes do horário.</p>` : ""}
+      ${g && a.status === "agendada" && a.tipo !== "pre" ? `<p class="hint">A sala só abre (30 minutos antes do horário) com o e-mail a todos e o aviso no WhatsApp registrados e a mesa definida. O e-mail precisa sair até ${diaBR(somaDias(a.data_hora, -10))}.</p>` : ""}
     </article>`;
     el.innerHTML = `
       <div class="pag-cab"><div><p class="eyebrow">Gestão democrática</p><h1>Assembleias</h1></div>${g ? '<button class="btn btn-primary" id="asm-nova">Convocar assembleia</button>' : ""}</div>
       <p class="muted">A Assembleia Geral é o órgão supremo da cooperativa (Estatuto, art. 26). Aqui você vê os editais, participa ao vivo, vota as pautas e lê as atas. Cada cooperado tem 1 voto, pessoal e intransferível (art. 40).</p>
+      ${g && pend.length ? `<section class="painel asm-pend"><h2>Pendências legais</h2><p class="hint">O site confere sozinho o calendário e cada etapa: AGO de janeiro a março (Lei 5.764, art. 44), Assembleia Especial no 2º semestre (Lei 12.690, art. 11, §6º), convocação, ata em 10 dias (RI, art. 63) e JUCERJA em 30 dias (Lei 8.934, art. 36).</p>
+        <ul class="asm-etapas">${pend.map((x) => `<li class="${x.nivel === "grave" ? "err" : x.nivel === "aviso" ? "warn" : ""}"><span>${x.nivel === "grave" ? "!" : "○"}</span> ${esc(x.texto)}</li>`).join("")}</ul></section>` : ""}
+      ${CALENDARIO}
       ${vivas.length ? `<section class="painel"><h2>Acontecendo agora</h2><div class="asm-lista">${vivas.map(cartao).join("")}</div></section>` : ""}
       <section class="painel"><h2>Próximas</h2>${prox.length ? `<div class="asm-lista">${prox.map(cartao).join("")}</div>` : '<p class="vazio">Nenhuma assembleia convocada.</p>'}</section>
       ${g && rasc.length ? `<section class="painel"><h2>Rascunhos (só a gestão vê)</h2><div class="asm-lista">${rasc.map(cartao).join("")}</div></section>` : ""}
-      ${ant.length ? `<section class="painel"><h2>Anteriores</h2><div class="asm-lista">${ant.map(cartao).join("")}</div></section>` : ""}`;
+      ${ant.length ? `<section class="painel"><h2>Anteriores</h2><div class="asm-lista">${ant.map(cartao).join("")}</div></section>` : ""}
+      <section class="painel"><h2>Assembleias feitas fora do site</h2><p class="hint">Registro das assembleias anteriores a este módulo, para o calendário legal ficar completo.</p>
+        ${ext.length ? `<ul class="asm-etapas">${ext.map((x) => `<li class="ok"><span>✓</span> ${esc(EXT[x.tipo] || x.tipo)} de ${diaBR(x.data + "T12:00:00")}: ${esc(x.descricao)}${x.jucerja_protocolo ? ` <em>JUCERJA ${esc(x.jucerja_protocolo)}${x.jucerja_arquivado_em ? ", arquivada em " + diaBR(x.jucerja_arquivado_em + "T12:00:00") : ""}</em>` : ""}${g ? ` <button class="btn btn-ghost btn-sm" data-delext="${x.id}">Excluir</button>` : ""}</li>`).join("")}</ul>` : '<p class="vazio">Nenhuma registrada.</p>'}
+        ${g ? '<div class="sol-acoes"><button class="btn btn-ghost btn-sm" id="asm-ext">Registrar assembleia feita fora do site</button></div>' : ""}</section>`;
 
     const recarregar = () => render(el, ctx);
     const nova = $("#asm-nova"); if (nova) nova.onclick = () => formAssembleia(null, recarregar);
+    const bext = $("#asm-ext"); if (bext) bext.onclick = () => formExterna(recarregar);
     el.onclick = async (e) => {
       const b = e.target.closest("button"); if (!b) return;
+      if (b.dataset.delext) { if (!(await confirmar("Excluir este registro?", "Excluir"))) return; if (await acao(b, () => API.assembleias.excluirExterna(b.dataset.delext), "Registro excluído.")) recarregar(); return; }
       const id = b.dataset.sala || b.dataset.edital || b.dataset.editar || b.dataset.publicar || b.dataset.excluir || b.dataset.convocar || b.dataset.abrir || b.dataset.cancelar;
       const a = as.find((x) => x.id === id); if (!a) return;
       if (b.dataset.sala) { salaId = id; return render(el, ctx); }
       if (b.dataset.edital) return mostrarEdital(a);
       if (b.dataset.editar) return formAssembleia(a, recarregar);
       if (b.dataset.publicar) {
-        if (!(await confirmar(`Publicar o edital? A partir daí, data, tipo e ordem do dia não mudam mais (Estatuto, art. 38). ${a.tipo === "pre" ? "" : "A data precisa estar a pelo menos 10 dias (art. 30)."}`, "Publicar edital"))) return;
+        const cf = await API.assembleias.conferirEdital(id).catch((err) => ({ ok: false, erros: [err.message || "Não consegui conferir o edital."] }));
+        if (!cf.ok) { UI.modal(`<h2>O edital ainda não pode ser publicado</h2><p class="hint">Corrija em <b>Editar e pautas</b>:</p><ul class="asm-etapas">${cf.erros.map((x) => `<li class="err"><span>!</span> ${esc(x)}</li>`).join("")}</ul><div class="modal-acoes"><button class="btn btn-primary btn-sm" data-fechar>Entendi</button></div>`); return; }
+        if (!(await confirmar(`Publicar o edital? A partir daí, data, tipo, ordem do dia e quem convoca não mudam mais (Estatuto, art. 38). ${a.tipo === "pre" ? "" : "Em seguida, envie o e-mail a todos e o aviso no WhatsApp: sem os dois registrados a sala não abre."}`, "Publicar edital"))) return;
         if (await acao(b, () => API.assembleias.publicarEdital(id), "Edital publicado. Agora envie a convocação a todos.")) recarregar(); return;
       }
       if (b.dataset.excluir) { if (!(await confirmar("Excluir este rascunho?", "Excluir"))) return; if (await acao(b, () => API.assembleias.excluir(id), "Rascunho excluído.")) recarregar(); return; }
@@ -310,39 +394,40 @@ ${a.convocante || ""}`;
     <ol>
       <li><b>Tipo.</b> Escolha conforme o assunto:
         <ul>
-          <li><b>Ordinária (AGO):</b> uma vez por ano, em dezembro: prestação de contas com parecer do Conselho Fiscal, destinação das sobras, eleição do Presidente e do Vice (Estatuto, art. 42).</li>
+          <li><b>Ordinária (AGO):</b> uma vez por ano, <b>de janeiro a março</b>, para as contas do ano anterior com parecer do Conselho Fiscal, destinação das sobras ou perdas, eleição do Conselho Fiscal e, quando vencer, do Presidente e do Vice (Lei 5.764, art. 44). O site não publica AGO fora desses meses nem sem a prestação de contas na pauta.</li>
           <li><b>Extraordinária (AGE):</b> sempre que necessário, sobre qualquer assunto do edital. É a que se usa para um assunto <b>urgente ou imprevisto</b>. É obrigatória para reforma do Estatuto, fusão, incorporação, desmembramento, mudança de objeto e dissolução, que exigem 2/3 (arts. 43 e 44).</li>
-          <li><b>Especial:</b> pelo menos uma vez por ano: plano de trabalho e orçamento, planejamento, nomeação e destituição do Conselho de Administração e do Conselho Fiscal, organização do trabalho (art. 45).</li>
+          <li><b>Especial:</b> pelo menos uma por ano, <b>obrigatoriamente no 2º semestre</b> (Lei 12.690, art. 11, §6º): gestão, planejamento, resultado dos contratos, nomeação e destituição dos Conselhos, organização do trabalho. A do 1º trimestre aprova o Plano Anual (Estatuto, art. 45).</li>
           <li><b>Pré-assembleia:</b> conversa consultiva para amadurecer um tema antes da assembleia. Não tem quórum e não decide (RI, art. 60).</li>
         </ul></li>
       <li><b>Título.</b> Curto e claro, por exemplo "AGE: reajuste da tabela de valor-hora".</li>
-      <li><b>Data e hora.</b> No mínimo 10 dias depois do dia em que você publicar o edital; o ideal são uns 20 (art. 30; RI, art. 61). Se a pauta veio de uma <b>proposta de cooperado</b>, a proposta precisa ter sido apresentada pelo menos 30 dias antes da data da assembleia (art. 7º, §1º). Se for urgente e ainda não tiver 30 dias, você pode levá-la como pauta da própria administração.</li>
+      <li><b>Data e hora.</b> No mínimo 10 dias depois do dia em que você publicar o edital; o ideal são uns 20 (Lei 12.690, art. 12; Estatuto, art. 30; RI, art. 61). O e-mail a todos também precisa sair com 10 dias. Se a pauta veio de uma <b>proposta de cooperado</b>, a proposta precisa ter sido apresentada pelo menos 30 dias antes da data da assembleia (art. 7º, §1º). Se for urgente e ainda não tiver 30 dias, você pode levá-la como pauta da própria administração.</li>
       <li><b>Duração mínima.</b> Deixe 120 minutos ou mais: numa assembleia digital, o quórum é verificado durante todo esse período (art. 30, §2º).</li>
       <li><b>Sala de vídeo.</b> Cole o link da sala do Daily (por exemplo https://seunome.daily.co/assembleia). Pode ser a mesma sala para todas as assembleias.</li>
-      <li><b>Quem convoca.</b> Seu nome e o cargo, por exemplo "Felipe Oliveira Gamboni, Presidente". Vai no edital.</li>
+      <li><b>Quem convoca.</b> Seu nome e o cargo, por exemplo "Felipe Oliveira Gamboni, Presidente". Vai no edital e é obrigatório (art. 33, VI).</li>
       <li><b>Mesa e comissão.</b> Escolha quem preside e quem secretaria (art. 36) e proponha até 5 cooperados para a comissão que assina a ata. A assembleia confirma a comissão logo na instalação (art. 39, §1º).</li>
       <li>Clique em <b>Salvar</b>. A assembleia vira <b>rascunho</b> (só a gestão vê) e esta janela reabre para as pautas.</li>
-      <li><b>Pautas da ordem do dia.</b> Inclua uma por vez, cada uma com um assunto só. Para cada uma:
+      <li><b>Pautas da ordem do dia.</b> Inclua uma por vez, cada uma com um assunto só, e escolha a <b>matéria</b>. O site aplica sozinho:
         <ul>
-          <li>marque <b>2/3</b> se for reforma do Estatuto, fusão, incorporação, desmembramento, mudança de objeto ou dissolução;</li>
-          <li>marque <b>"administração e Conselho Fiscal não votam"</b> se for prestação de contas ou assunto que diga respeito a eles (arts. 37 e 42, §1º).</li>
+          <li>reforma do Estatuto, fusão, incorporação, desmembramento, mudança de objeto e dissolução só entram em <b>AGE</b>, com <b>2/3</b> (Lei 5.764, art. 46);</li>
+          <li>contas, sobras e eleição do Presidente e do Vice só entram na <b>AGO</b>; nas contas, administração e Conselho Fiscal <b>não votam</b> (arts. 37 e 42, §1º);</li>
+          <li>em outro assunto que diga respeito à administração ou ao Conselho Fiscal, marque você mesmo "não votam".</li>
         </ul>
         Só pode ser votado o que estiver no edital. Assunto novo no dia só é discutido e exige outra assembleia para decidir (art. 38).</li>
-      <li>Feche e confira o rascunho. Quando estiver tudo certo, clique em <b>Publicar edital</b>. A partir daí, data, tipo e pautas <b>não mudam mais</b>; se algo estiver errado, cancele e convoque outra.</li>
-      <li>Clique em <b>Enviar convocação</b>:
+      <li>Feche e confira o rascunho. Quando clicar em <b>Publicar edital</b>, o site confere tudo e lista o que faltar. Depois de publicado, data, tipo, pautas e quem convoca <b>não mudam mais</b>; se algo estiver errado, cancele e convoque outra.</li>
+      <li>Clique em <b>Enviar convocação</b> no mesmo dia:
         <ol type="a">
-          <li><b>Copiar edital</b>, depois <b>Abrir e-mail</b> (todos em cópia oculta). Cole o edital no corpo e envie (art. 34);</li>
-          <li><b>Compartilhar no WhatsApp</b> no grupo da cooperativa (RI, art. 61);</li>
-          <li><b>Marcar convocação como enviada</b>. A data vai para a ata.</li>
-        </ol></li>
+          <li><b>Copiar edital</b>, depois <b>Abrir e-mail</b> (todos em cópia oculta). Cole o edital no corpo, envie e clique em <b>Registrar e-mail enviado</b>. O site só aceita o registro até 10 dias antes da assembleia (Lei 12.690, art. 12; Estatuto, art. 34);</li>
+          <li><b>Compartilhar no WhatsApp</b> no grupo da cooperativa e clique em <b>Registrar aviso no WhatsApp</b> (RI, art. 61).</li>
+        </ol>
+        As duas datas ficam travadas e vão para a ata. <b>Sem elas, a sala não abre.</b></li>
       <li>Lembre quem ainda não tem conta no site de criar a conta antes do dia. Sem conta, a pessoa não registra presença nem vota, e o quórum conta o quadro social inteiro.</li>
     </ol>
     <h4>Parte 2 — No dia</h4>
     <ol>
-      <li>Até 30 minutos antes, entre em <b>Assembleias</b>, abra a assembleia e clique em <b>Abrir a sala</b>.</li>
+      <li>Até 30 minutos antes, entre em <b>Assembleias</b>, abra a assembleia e clique em <b>Abrir a sala</b>. A sala só abre com o e-mail e o WhatsApp registrados e a mesa definida.</li>
       <li>Clique em <b>Registrar minha presença e entrar</b>. O vídeo aparece; permita câmera e microfone.</li>
       <li>Clique em <b>Gravar a assembleia</b> (Chrome ou Edge, no computador). Escolha <b>esta aba</b> e marque <b>compartilhar áudio da aba</b>. A gravação é obrigatória (art. 31, §1º, III).</li>
-      <li>Acompanhe o quórum na tela: 2/3 na 1ª hora, metade + 1 na 2ª, mínimo de 4 a partir da 3ª. Quando atingir, clique em <b>Instalar a assembleia</b>. Antes do horário do edital não instala.</li>
+      <li>Acompanhe o quórum na tela. A assembleia digital tem convocação única (art. 30, §2º), então o quórum é de <b>2/3 dos cooperados</b> durante toda a sessão (Lei 12.690, art. 11, §3º, I). Quando atingir, clique em <b>Instalar a assembleia</b>. Antes do horário do edital não instala.</li>
       <li>Se houver comissão proposta, ela aparece como <b>primeiro item</b>: abra a votação e apure. Se for rejeitada, a assembleia indica outros nomes e a mesa usa <b>Registrar comissão escolhida</b>.</li>
       <li>O secretário escreve, no quadro <b>"Ata: o que está sendo registrado"</b>, o resumo da abertura, da discussão de cada pauta e dos assuntos gerais. As votações entram sozinhas. Em prestação de contas, passe a condução a um cooperado indicado pelo plenário; você e os conselheiros saem da mesa, mas continuam presentes para esclarecer (art. 37).</li>
       <li>Para cada pauta, na ordem:
@@ -358,9 +443,10 @@ ${a.convocante || ""}`;
     <h4>Parte 3 — Ata (em até 10 dias)</h4>
     <ol>
       <li>Depois do encerramento, o texto da ata aparece montado: registros da sessão, votações e anotações da mesa. Não se edita à mão.</li>
-      <li>A mesa cola o link da gravação, clica em <b>Fechar a ata e gerar o PDF</b> e confere quem assina e em que ordem (mesa, administradores e conselheiros fiscais presentes e comissão), com o CPF de cada um. O PDF fica travado.</li>
+      <li>A mesa salva o link da gravação (<b>obrigatório</b>: sem ele a ata não fecha), clica em <b>Fechar a ata e gerar o PDF</b> e confere quem assina e em que ordem (mesa, administradores e conselheiros fiscais presentes e comissão), com o CPF de cada um. O PDF fica travado.</li>
       <li>Cada signatário, na sua vez, baixa a versão atual, assina em <b>assinador.iti.gov.br</b> com a conta gov.br e envia de volta o PDF assinado. O site confere se há uma assinatura nova e se o conteúdo é o mesmo.</li>
-      <li>Com todas as assinaturas, clique em <b>Publicar a ata</b> (RI, art. 63). Quando a matéria exigir registro, é esse PDF que vai para a JUCERJA.</li>
+      <li>Com todas as assinaturas, clique em <b>Publicar a ata</b>, em até 10 dias da assembleia (RI, art. 63).</li>
+      <li><b>JUCERJA:</b> protocole o PDF assinado em até 30 dias da assinatura, para valer desde a data da assembleia (Lei 8.934/94, art. 36), e informe o protocolo no site. Se a ata não for a registro, informe o motivo.</li>
       <li>A <b>confirmação de presença</b> no site é outra coisa: registra quem participou, mas não substitui a assinatura da ata.</li>
     </ol>
   </details>`;
@@ -386,9 +472,10 @@ ${a.convocante || ""}`;
         <div class="form-grid">
           <div class="field full"><label for="pa-tit">Nova pauta</label><input class="input" id="pa-tit" maxlength="200" placeholder="Ex.: Aprovação da Tabela de Referência Remuneratória 2027"></div>
           <div class="field full"><label for="pa-desc">Detalhes (opcional)</label><input class="input" id="pa-desc" maxlength="400"></div>
-          <div class="field"><label for="pa-q">Aprovação exige</label><select class="input" id="pa-q"><option value="maioria">Maioria absoluta dos presentes (art. 38, §4º)</option><option value="dois_tercos">2/3 dos presentes: estatuto, fusão, dissolução etc. (art. 44)</option></select></div>
+          <div class="field full"><label for="pa-m">Matéria</label><select class="input" id="pa-m">${Object.entries(MATERIAS).filter(([, v]) => !v[1] || v[1] === a.tipo || a.tipo === "pre").map(([k, v]) => `<option value="${k}">${v[0]}</option>`).join("")}</select><span class="hint">As matérias exclusivas da AGO ou da AGE só aparecem no tipo certo de assembleia.</span></div>
+          <div class="field"><label for="pa-q">Aprovação exige</label><select class="input" id="pa-q"><option value="maioria">Maioria absoluta dos presentes (art. 38, §4º)</option><option value="dois_tercos">2/3 dos presentes</option></select></div>
           <label class="ciente"><input type="checkbox" id="pa-imp"> <span>Membros da administração e do Conselho Fiscal não votam (prestação de contas ou assunto que lhes diga respeito, arts. 37 e 42, §1º)</span></label>
-          <div class="full"><button class="btn btn-ghost btn-sm" id="pa-add" type="button">Adicionar pauta</button></div>
+          <div class="full sol-acoes"><button class="btn btn-ghost btn-sm" id="pa-add" type="button">Adicionar pauta</button>${a.tipo === "ordinaria" ? '<button class="btn btn-ghost btn-sm" id="pa-ago" type="button">Incluir as pautas obrigatórias da AGO</button>' : ""}</div>
         </div>` : '<p class="hint">Depois de salvar, você inclui as pautas da ordem do dia.</p>'}
       <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Fechar</button><button class="btn btn-primary btn-sm" id="as-ok">Salvar</button></div>`, aoSalvar);
     let membros = [];
@@ -404,18 +491,33 @@ ${a.convocante || ""}`;
     let pautas = a ? (a.pautas || []).slice() : [];
     const desenharPautas = () => {
       const box = $("#as-pautas", m.el); if (!box) return;
-      box.innerHTML = pautas.length ? `<ol class="asm-pautas">${pautas.map((p) => `<li>${esc(p.titulo)}${p.quorum === "dois_tercos" ? ' <span class="selo warn">2/3</span>' : ""}${p.impedir_orgaos ? ' <span class="selo">órgãos não votam</span>' : ""} <button class="btn btn-ghost btn-sm" data-delp="${p.id}" type="button">Remover</button></li>`).join("")}</ol>` : '<p class="hint">Nenhuma pauta ainda.</p>';
+      box.innerHTML = pautas.length ? `<ol class="asm-pautas">${pautas.map((p) => `<li>${esc(p.titulo)}${p.materia && p.materia !== "geral" ? ` <span class="selo info">${esc((MATERIAS[p.materia] || [p.materia])[0])}</span>` : ""}${p.quorum === "dois_tercos" ? ' <span class="selo warn">2/3</span>' : ""}${p.impedir_orgaos ? ' <span class="selo">órgãos não votam</span>' : ""} <button class="btn btn-ghost btn-sm" data-delp="${p.id}" type="button">Remover</button></li>`).join("")}</ol>` : '<p class="hint">Nenhuma pauta ainda.</p>';
     };
     desenharPautas();
     const recarregarPautas = async () => { const lista = await API.assembleias.listar(); const x = lista.find((y) => y.id === a.id); pautas = x ? x.pautas : []; desenharPautas(); };
     m.el.addEventListener("click", async (e) => {
       const d = e.target.closest("[data-delp]"); if (d) { if (await acao(d, () => API.assembleias.excluirPauta(d.dataset.delp), "Pauta removida.")) recarregarPautas(); }
     });
+    const selM = $("#pa-m", m.el);
+    if (selM) selM.onchange = () => {
+      const v = selM.value, q = $("#pa-q", m.el), imp = $("#pa-imp", m.el);
+      if (MAT_AGE.includes(v)) { q.value = "dois_tercos"; q.disabled = true; } else q.disabled = false;
+      if (v === "contas") { imp.checked = true; imp.disabled = true; } else imp.disabled = false;
+      if (!$("#pa-tit", m.el).value.trim() && v !== "geral") $("#pa-tit", m.el).value = MATERIAS[v][0];
+    };
+    const ago = $("#pa-ago", m.el);
+    if (ago) ago.onclick = async () => {
+      const falta = PAUTAS_AGO.filter((x) => !pautas.some((p) => p.materia === x.materia));
+      if (!falta.length) return toast("As pautas obrigatórias da AGO já estão na ordem do dia.");
+      const ok = await acao(ago, async () => { for (const [i, x] of falta.entries()) await API.assembleias.salvarPauta({ assembleia_id: a.id, ordem: pautas.length + i + 1, titulo: x.titulo, descricao: null, materia: x.materia, quorum: "maioria", impedir_orgaos: x.materia === "contas" }); return true; }, "Pautas da AGO incluídas.");
+      if (ok) recarregarPautas();
+    };
     const add = $("#pa-add", m.el);
     if (add) add.onclick = async () => {
       const t = $("#pa-tit", m.el).value.trim(); if (!t) return toast("Escreva a pauta.", "err");
-      const ok = await acao(add, () => API.assembleias.salvarPauta({ assembleia_id: a.id, ordem: pautas.length + 1, titulo: t, descricao: $("#pa-desc", m.el).value.trim() || null, quorum: $("#pa-q", m.el).value, impedir_orgaos: $("#pa-imp", m.el).checked }), "Pauta incluída.");
-      if (ok) { $("#pa-tit", m.el).value = ""; $("#pa-desc", m.el).value = ""; $("#pa-imp", m.el).checked = false; recarregarPautas(); }
+      const mat = selM ? selM.value : "geral";
+      const ok = await acao(add, () => API.assembleias.salvarPauta({ assembleia_id: a.id, ordem: pautas.length + 1, titulo: t, descricao: $("#pa-desc", m.el).value.trim() || null, materia: mat, quorum: MAT_AGE.includes(mat) ? "dois_tercos" : $("#pa-q", m.el).value, impedir_orgaos: mat === "contas" || $("#pa-imp", m.el).checked }), "Pauta incluída.");
+      if (ok) { $("#pa-tit", m.el).value = ""; $("#pa-desc", m.el).value = ""; $("#pa-imp", m.el).checked = false; if (selM) { selM.value = "geral"; selM.onchange(); } recarregarPautas(); }
     };
     $("#as-ok", m.el).onclick = async (e) => {
       const dh = $("#as-dh", m.el).value; if (!dh) return toast("Informe data e hora.", "err");
@@ -430,6 +532,8 @@ ${a.convocante || ""}`;
         if (a && !["rascunho", "agendada", "aberta"].includes(a.status)) { delete d.mesa_presidente; delete d.mesa_secretario; delete d.comissao_proposta; }
       }
       if (d.tipo !== "pre" && new Date(d.data_hora) < new Date(Date.now() + 10 * 86400000)) toast("Atenção: para publicar o edital, a data precisa estar a pelo menos 10 dias.", "err");
+      if (d.tipo === "ordinaria" && new Date(d.data_hora).getMonth() > 2) return toast("A AGO só pode ser marcada de janeiro a março (Lei 5.764, art. 44). Para outros assuntos, use a Especial ou a Extraordinária.", "err");
+      if (a && a.tipo !== d.tipo && (a.pautas || []).some((p) => (MATERIAS[p.materia] || ["", ""])[1] && MATERIAS[p.materia][1] !== d.tipo && d.tipo !== "pre")) return toast("Há pautas que não podem ser votadas nesse tipo de assembleia. Remova-as antes de mudar o tipo.", "err");
       if (a) d.id = a.id;
       const ok = await acao(e.currentTarget, () => API.assembleias.salvar(d), a ? "Assembleia atualizada." : "Rascunho criado. Agora inclua as pautas.");
       if (ok) {
@@ -463,14 +567,20 @@ ${a.convocante || ""}`;
     const curto = `${assunto} às ${hora(a.data_hora)}.\nOrdem do dia: ${d.pautas.map((p, i) => `${i + 1}) ${p.titulo}`).join("; ")}.\nEdital completo e sala: ${EMPRESA.site}`;
     const m = UI.modal(`<h2>Enviar convocação</h2>
       <p class="muted">A convocação é feita primeiro por e-mail a todos os cooperados, e a data do envio vale como data da notificação (Estatuto, art. 34). O Regimento pede também o aplicativo de mensagens (art. 61).</p>
+      ${a.tipo !== "pre" ? `<div class="notice">O e-mail precisa sair <b>até ${diaBR(somaDias(a.data_hora, -10))}</b> (10 dias antes). Depois disso o site não aceita o registro e a assembleia tem de ser cancelada e convocada de novo. Sem os dois registros abaixo, a sala não abre.</div>` : ""}
+      ${emails.length < (d.assembleia.membros_na_data || 0) ? `<div class="notice">Só ${emails.length} de ${d.assembleia.membros_na_data} cooperados têm conta com e-mail no site. Mande o e-mail também a quem ainda não tem conta.</div>` : ""}
       <ol class="asm-passos">
-        <li><b>E-mail.</b> Copie o edital, abra o e-mail com os ${emails.length} cooperados em cópia oculta e cole o texto no corpo. <div class="sol-acoes"><button class="btn btn-ghost btn-sm" id="cv-copiar">Copiar edital</button><a class="btn btn-ghost btn-sm" href="mailto:?bcc=${encodeURIComponent(emails.join(","))}&subject=${encodeURIComponent(assunto)}">Abrir e-mail</a></div></li>
-        <li><b>WhatsApp.</b> <a class="btn btn-ghost btn-sm" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(curto)}">Compartilhar no WhatsApp</a></li>
-        <li><b>Registrar.</b> Depois de enviar o e-mail, marque abaixo. A data entra na ata.</li>
+        <li><b>E-mail.</b> Copie o edital, abra o e-mail com os ${emails.length} cooperados em cópia oculta, cole o texto no corpo e envie. <div class="sol-acoes"><button class="btn btn-ghost btn-sm" id="cv-copiar">Copiar edital</button><a class="btn btn-ghost btn-sm" href="mailto:?bcc=${encodeURIComponent(emails.join(","))}&subject=${encodeURIComponent(assunto)}">Abrir e-mail</a>
+          ${a.convocacao_enviada_em ? `<span class="selo ok">e-mail registrado em ${diaBR(a.convocacao_enviada_em)}</span>` : '<button class="btn btn-primary btn-sm" id="cv-email">Registrar e-mail enviado hoje</button>'}</div></li>
+        <li><b>WhatsApp.</b> <div class="sol-acoes"><a class="btn btn-ghost btn-sm" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(curto)}">Compartilhar no WhatsApp</a>
+          ${a.convocacao_whatsapp_em ? `<span class="selo ok">aviso registrado em ${diaBR(a.convocacao_whatsapp_em)}</span>` : '<button class="btn btn-primary btn-sm" id="cv-wpp">Registrar aviso no WhatsApp</button>'}</div></li>
       </ol>
-      <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Fechar</button><button class="btn btn-primary btn-sm" id="cv-ok">${a.convocacao_enviada_em ? "Atualizar data do envio para hoje" : "Marcar convocação como enviada hoje"}</button></div>`, aoSalvar);
+      <p class="hint">Registre só depois de enviar de verdade: as datas ficam travadas e entram na ata.</p>
+      <div class="modal-acoes"><button class="btn btn-ghost btn-sm" data-fechar>Fechar</button></div>`, aoSalvar);
     $("#cv-copiar", m.el).onclick = async () => { try { await navigator.clipboard.writeText(txt); toast("Edital copiado. Cole no corpo do e-mail."); } catch (e) { toast("Não consegui copiar; use o botão Edital e copie de lá.", "err"); } };
-    $("#cv-ok", m.el).onclick = async (e) => { if (await acao(e.currentTarget, () => API.assembleias.salvar({ id: a.id, convocacao_enviada_em: new Date().toISOString() }), "Envio registrado.")) m.fechar(); };
+    const reg = (sel, canal, msg) => { const bt = $(sel, m.el); if (bt) bt.onclick = async (e) => { if (!(await confirmar(canal === "email" ? "Confirma que o e-mail com o edital foi enviado hoje a todos os cooperados?" : "Confirma que o aviso foi enviado hoje no grupo de WhatsApp?", "Confirmar"))) return; if (await acao(e.currentTarget, () => API.assembleias.registrarConvocacao(a.id, canal), msg)) { m.fechar(); convocar({ ...a, ...(await API.assembleias.listar()).find((x) => x.id === a.id) }, aoSalvar); } }; };
+    reg("#cv-email", "email", "Envio do e-mail registrado.");
+    reg("#cv-wpp", "whatsapp", "Aviso no WhatsApp registrado.");
   }
 
   /* ---------- Sala ---------- */
@@ -509,9 +619,10 @@ ${a.convocante || ""}`;
         ${a.tipo !== "pre" ? `<p class="hint">Mesa: preside <b>${esc(a.mesa_presidente ? nomeDe(d, a.mesa_presidente) : "a definir")}</b>, secretaria <b>${esc(a.mesa_secretario ? nomeDe(d, a.mesa_secretario) : "a definir")}</b> · Comissão da ata ${a.comissao ? "designada: <b>" + esc(listaNomes(d, a.comissao)) + "</b>" : (a.comissao_proposta || []).length ? "proposta: " + esc(listaNomes(d, a.comissao_proposta)) + " (a assembleia confirma na instalação)" : "ainda não proposta"}
           ${g && ["agendada", "aberta"].includes(a.status) ? ' <button class="btn btn-ghost btn-sm" id="sa-mesa">Mesa e comissão</button>' : ""}
           ${mesa && a.status === "instalada" && !a.comissao ? ' <button class="btn btn-ghost btn-sm" id="sa-com">Registrar comissão escolhida</button>' : ""}</p>` : ""}
+        ${g ? etapasHtml(a) : ""}
         ${a.status === "agendada" ? `<div class="notice">A sala abre 30 minutos antes do horário (${falta(a.data_hora)}). Quando abrir, registre aqui a sua presença: é ela que conta para o quórum e libera o seu voto.</div>` : ""}
         ${a.tipo !== "pre" && ["aberta", "agendada"].includes(a.status) ? `<div class="asm-quorum"><div><b>${q.presentes || 0}</b> presentes aptos de <b>${q.necessario || "—"}</b> necessários (${q.convocacao || 1}ª convocação)</div><div class="barra"><i style="width:${pct}%"></i></div>
-          <p class="hint">Digital: 2/3 na 1ª hora, metade + 1 na 2ª, mínimo de 4 a partir da 3ª, contando a partir de ${hora(a.data_hora)} (Estatuto, arts. 30, §2º, e 32).</p></div>` : ""}
+          <p class="hint">Assembleia digital: convocação única, com quórum de 2/3 dos cooperados verificado a qualquer momento da sessão, a partir de ${hora(a.data_hora)} (Lei 12.690, art. 11, §3º, I; Estatuto, arts. 30, §2º, e 32).</p></div>` : ""}
         ${a.status === "instalada" ? `<p><span class="selo ok">Instalada às ${hora(a.instalada_em)}</span> com ${a.instalada_presentes} presentes aptos${a.instalada_convocacao ? `, quórum da ${a.instalada_convocacao}ª convocação` : ""}.</p>` : ""}
         ${a.status === "sem_quorum" ? '<div class="notice">A assembleia não foi instalada por falta de quórum. É preciso nova convocação com pelo menos 10 dias úteis (art. 32).</div>' : ""}
         ${a.status === "encerrada" ? `<p>Encerrada às ${hora(a.encerrada_em)}.</p>` : ""}
@@ -594,7 +705,7 @@ ${a.convocante || ""}`;
       // ata
       const enc = ["encerrada", "sem_quorum"].includes(a.status);
       $("#sa-ata").style.display = enc ? "" : "none";
-      if (enc && !($("#sa-ata").contains(document.activeElement) && document.activeElement.tagName === "INPUT")) {
+      if (enc && !($("#sa-ata").contains(document.activeElement) && ["INPUT", "SELECT"].includes(document.activeElement.tagName))) {
         const sigs = a.ata_signatarios || [], vs = d.versoes || [], k = vs.length, vez = !a.ata_concluida_em && sigs[k];
         let h = `<h2>Ata ${a.ata_publicada_em ? `<span class="selo ok">publicada em ${data(a.ata_publicada_em)}</span>` : a.ata_concluida_em ? '<span class="selo ok">assinada por todos</span>' : a.ata_fechada_em ? `<span class="selo warn">coletando assinaturas gov.br (${k} de ${sigs.length})</span>` : '<span class="selo warn">a fechar</span>'}</h2>`;
         if (a.tipo === "pre") {
@@ -605,7 +716,8 @@ ${a.convocante || ""}`;
           h += `<p class="hint">O texto abaixo é montado sozinho com os registros da sessão e as anotações da mesa, e não se edita à mão. A mesa confere, informa o link da gravação e fecha a ata: o site gera o PDF, que fica travado, e organiza as assinaturas pelo gov.br (art. 39). Publique em até 10 dias (RI, art. 63).</p>
             <pre class="asm-edital">${esc(rascunhoAta(d))}</pre>
             ${mesa ? `<div class="form-grid"><div class="field full"><label for="sa-grav">Link da gravação (guardar por 5 anos, art. 31, §1º, III)</label><input class="input" id="sa-grav" type="url" value="${esc(a.gravacao_url || "")}"></div></div>
-              <div class="sol-acoes"><button class="btn btn-ghost btn-sm" id="sa-salvagrav">Salvar link da gravação</button><button class="btn btn-primary btn-sm" id="sa-fechar">Fechar a ata e gerar o PDF para assinatura</button></div>` : '<p class="hint">A mesa está conferindo e vai fechar a ata.</p>'}`;
+              <div class="sol-acoes"><button class="btn btn-ghost btn-sm" id="sa-salvagrav">Salvar link da gravação</button><button class="btn btn-primary btn-sm" id="sa-fechar" ${a.gravacao_url ? "" : "disabled"}>Fechar a ata e gerar o PDF para assinatura</button></div>
+              ${a.gravacao_url ? "" : '<p class="hint">Salve primeiro o link da gravação: sem ele a ata não fecha (Estatuto, arts. 31, §1º, III, e 39, §3º).</p>'}` : '<p class="hint">A mesa está conferindo e vai fechar a ata.</p>'}`;
         } else {
           h += `<p class="hint">PDF travado em ${dataHora(a.ata_fechada_em)}. Impressão digital (SHA-256) do original: <code style="word-break:break-all">${esc(a.ata_hash)}</code>. Cada signatário assina <b>a versão mais recente</b>, na ordem abaixo, para que todas as assinaturas fiquem no mesmo arquivo.</p>
             <ol class="asm-assin">${sigs.map((sg, i) => { const v = vs[i]; return `<li class="${v ? "ok" : i === k ? "vez" : ""}"><b>${esc(sg.nome)}</b> <span class="sub">${esc(sg.qualidade)}${sg.cpf ? " · CPF " + esc(sg.cpf) : ""}</span>
@@ -620,14 +732,25 @@ ${a.convocante || ""}`;
               <div class="sol-acoes"><button class="btn btn-primary btn-sm" id="sa-enviar">Enviar o PDF assinado</button></div></div>`;
           }
           if (g && k && !a.ata_publicada_em) h += '<div class="sol-acoes"><button class="btn btn-ghost btn-sm" id="sa-desfazer">Desfazer o último envio (arquivo errado)</button></div>';
-          if (g && a.ata_concluida_em && !a.ata_publicada_em) h += '<div class="sol-acoes"><button class="btn btn-primary btn-sm" id="sa-pubata">Publicar a ata para todos</button></div><p class="hint">Antes de publicar, vale conferir o arquivo final em <a href="https://validar.iti.gov.br" target="_blank" rel="noopener">validar.iti.gov.br</a>. Esse arquivo é o que vai para a JUCERJA quando a matéria exigir registro.</p>';
+          if (g && a.ata_concluida_em && !a.ata_publicada_em) h += '<div class="sol-acoes"><button class="btn btn-primary btn-sm" id="sa-pubata">Publicar a ata para todos</button></div><p class="hint">Antes de publicar, vale conferir o arquivo final em <a href="https://validar.iti.gov.br" target="_blank" rel="noopener">validar.iti.gov.br</a>. Esse arquivo é o que vai para a JUCERJA.</p>';
+          if (a.ata_publicada_em && a.status === "encerrada") {
+            const base = a.ata_concluida_em || a.ata_publicada_em, lim = diaBR(somaDias(base, 30));
+            h += `<h3 class="mini-tit">Registro na JUCERJA</h3>`;
+            if (a.jucerja_protocolo || a.jucerja_dispensa) h += `<p>${a.jucerja_protocolo ? `<span class="selo ok">protocolo ${esc(a.jucerja_protocolo)} em ${diaBR(a.jucerja_protocolo_em + "T12:00:00")}</span>${a.jucerja_arquivado_em ? ` <span class="selo ok">arquivada em ${diaBR(a.jucerja_arquivado_em + "T12:00:00")}</span>` : ' <span class="selo warn">aguardando arquivamento</span>'}` : `<span class="selo">não vai a registro: ${esc(a.jucerja_dispensa)}</span>`}</p>`;
+            if (g && !a.jucerja_arquivado_em) h += `<p class="hint">Protocole o PDF assinado em até 30 dias da assinatura (até ${lim}), para os efeitos valerem desde a data da assembleia (Lei 8.934/94, art. 36).</p>
+              <div class="form-grid"><div class="field"><label for="ju-p">Número do protocolo</label><input class="input" id="ju-p" maxlength="40" value="${esc(a.jucerja_protocolo || "")}" placeholder="2026/00000000-0"></div>
+              <div class="field"><label for="ju-d">Data do protocolo</label><input class="input" id="ju-d" type="date" value="${esc(a.jucerja_protocolo_em || "")}"></div>
+              <div class="field"><label for="ju-a">Arquivada em (quando sair)</label><input class="input" id="ju-a" type="date" value="${esc(a.jucerja_arquivado_em || "")}"></div>
+              <div class="field full"><label for="ju-x">Ou: por que esta ata não vai a registro</label><input class="input" id="ju-x" maxlength="200" value="${esc(a.jucerja_dispensa || "")}"></div></div>
+              <div class="sol-acoes"><button class="btn btn-primary btn-sm" id="sa-jucerja">Salvar registro na JUCERJA</button></div>`;
+          }
         }
         $("#sa-ata").innerHTML = h;
       }
     };
     desenhar();
 
-    const atualizar = async () => { try { d = await API.assembleias.obter(id); const f = document.activeElement; if (f && (f.closest("#sa-notas") || f.id === "sa-grav" || f.id === "sa-arq")) return; desenhar(); } catch (e) {} };
+    const atualizar = async () => { try { d = await API.assembleias.obter(id); const f = document.activeElement; if (f && (f.closest("#sa-notas") || f.id === "sa-grav" || f.id === "sa-arq" || /^ju-/.test(f.id))) return; desenhar(); } catch (e) {} };
     if (ativa() || d.assembleia.status === "agendada") timer = setInterval(() => { if (!document.body.contains(el) || location.hash !== "#assembleias") return parar(); atualizar(); }, 4000);
 
     el.addEventListener("focusout", async (e) => {
@@ -680,7 +803,7 @@ ${a.convocante || ""}`;
         if (!sigs.length) return toast("Inclua quem assina a ata.", "err");
         if (sigs.some((g) => !g.qualidade)) return toast("Informe a qualidade de cada signatário.", "err");
         if (sigs.some((g) => g.cpf && !/^\d{3}\.?\d{3}\.?\d{3}-?\d{2}$/.test(g.cpf))) return toast("Confira os CPFs (11 dígitos).", "err");
-        if (a.tipo !== "pre" && !a.gravacao_url && !(await confirmar("A ata vai sair sem o link da gravação (art. 39, §3º). Fechar mesmo assim?", "Fechar sem o link"))) return;
+        if (a.tipo !== "pre" && !a.gravacao_url) return toast("Salve o link da gravação antes de fechar a ata (Estatuto, arts. 31, §1º, III, e 39, §3º).", "err");
         if (!(await confirmar("Fechar a ata? O texto e o PDF ficam travados e começa a coleta das assinaturas gov.br.", "Fechar a ata"))) return;
         const lista = sigs.map((g) => ({ perfil_id: g.perfil_id, nome: g.nome, qualidade: g.qualidade, cpf: g.cpf ? g.cpf.replace(/\D/g, "").replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4") : "" }));
         const ok = await acao(ev.currentTarget, async () => {
@@ -734,6 +857,7 @@ ${a.convocante || ""}`;
       }
       if (b.id === "sa-enviar") return enviarAssinada(b);
       if (b.id === "sa-desfazer") { if (!(await confirmar("Desfazer o último PDF enviado? A pessoa precisará enviar de novo.", "Desfazer"))) return; return fazer(() => API.assembleias.desfazerVersao(id), "Último envio desfeito."); }
+      if (b.id === "sa-jucerja") return fazer(() => API.assembleias.jucerja(id, { protocolo: $("#ju-p").value.trim(), protocolo_em: $("#ju-d").value || null, arquivado_em: $("#ju-a").value || null, dispensa: $("#ju-x").value.trim() }), "Registro na JUCERJA salvo.");
       if (b.id === "sa-pubata") { if (!(await confirmar("Publicar a ata assinada para todos os cooperados?", "Publicar ata"))) return; return fazer(() => API.assembleias.publicarAta(id), "Ata publicada."); }
     };
     el.onsubmit = async (e) => {
