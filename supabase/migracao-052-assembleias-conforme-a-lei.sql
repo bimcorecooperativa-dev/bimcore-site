@@ -391,7 +391,7 @@ insert into public.assembleias_externas (tipo, data, descricao, jucerja_protocol
 select 'especial', date '2026-08-17', 'Assembleia Geral Especial: Regimento Interno e nomeação do Conselho de Administração (por WhatsApp)', '2026/01055834-6', date '2026-09-28', 'migração 052'
 where not exists (select 1 from public.assembleias_externas where tipo = 'especial' and data = date '2026-08-17');
 
--- pautas que já existem: as de 2/3 viram reforma do Estatuto só se o título disser isso; o resto fica "geral"
+-- pautas que já existem ficam como assunto geral
 update public.assembleia_pautas set materia = 'geral' where materia is null;
 
 select 'migracao 052 ok' as resultado;
